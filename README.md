@@ -31,6 +31,9 @@ cmake -S engine -B engine/build -DCMAKE_BUILD_TYPE=Debug
 cmake --build engine/build -j
 ctest --test-dir engine/build --output-on-failure
 
+# Regenerate Dart FFI bindings after editing engine/bindings/crazycut.h
+bash tools/generate-bindings.sh
+
 # Generate a local test clip (git-ignored)
 bash tools/make-fixture.sh
 

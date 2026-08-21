@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import 'crazycut_bindings_generated.dart';
+
 class EngineException implements Exception {
   EngineException(this.code, this.message);
   final int code;
@@ -66,41 +68,27 @@ class RawFrame {
   final Uint8List rgba;
 }
 
-typedef _AbiVersionNative = ffi.Int32 Function();
-typedef _AbiVersionDart = int Function();
+class ProjectValidationReport {
+  ProjectValidationReport(this.json);
+  final Map<String, dynamic> json;
+  bool get valid => json['valid'] as bool? ?? false;
+  List<dynamic> get issues => json['issues'] as List<dynamic>? ?? const [];
+  double get durationSeconds {
+    final value = json['duration'] as String? ?? '0/1';
+    final parts = value.split('/');
+    if (parts.length != 2) return 0;
+    return (int.tryParse(parts[0]) ?? 0) / (int.tryParse(parts[1]) ?? 1);
+  }
+}
 
-typedef _EngineCreateNative = ffi.Pointer<ffi.Void> Function();
-typedef _EngineCreateDart = ffi.Pointer<ffi.Void> Function();
-
-typedef _EngineDestroyNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
-typedef _EngineDestroyDart = void Function(ffi.Pointer<ffi.Void>);
-
-typedef _LastErrorNative = ffi.Pointer<Utf8> Function();
-typedef _LastErrorDart = ffi.Pointer<Utf8> Function();
-
-typedef _ProbeFileNative = ffi.Int32 Function(
-    ffi.Pointer<ffi.Void>, ffi.Pointer<Utf8>, ffi.Pointer<ffi.Pointer<Utf8>>);
-typedef _ProbeFileDart = int Function(ffi.Pointer<ffi.Void>, ffi.Pointer<Utf8>,
-    ffi.Pointer<ffi.Pointer<Utf8>>);
-
-typedef _ExtractThumbnailNative = ffi.Int32 Function(
-    ffi.Pointer<ffi.Void>, ffi.Pointer<Utf8>, ffi.Double, ffi.Int32,
-    ffi.Pointer<ffi.Pointer<ffi.Uint8>>, ffi.Pointer<ffi.Int32>);
-typedef _ExtractThumbnailDart = int Function(
-    ffi.Pointer<ffi.Void>, ffi.Pointer<Utf8>, double, int,
-    ffi.Pointer<ffi.Pointer<ffi.Uint8>>, ffi.Pointer<ffi.Int32>);
-
-typedef _ExtractFrameRgbaNative = ffi.Int32 Function(
-    ffi.Pointer<ffi.Void>, ffi.Pointer<Utf8>, ffi.Double, ffi.Int32,
-    ffi.Pointer<ffi.Int32>, ffi.Pointer<ffi.Int32>,
-    ffi.Pointer<ffi.Pointer<ffi.Uint8>>);
-typedef _ExtractFrameRgbaDart = int Function(
-    ffi.Pointer<ffi.Void>, ffi.Pointer<Utf8>, double, int,
-    ffi.Pointer<ffi.Int32>, ffi.Pointer<ffi.Int32>,
-    ffi.Pointer<ffi.Pointer<ffi.Uint8>>);
-
-typedef _BufferFreeNative = ffi.Void Function(ffi.Pointer<ffi.Uint8>);
-typedef _BufferFreeDart = void Function(ffi.Pointer<ffi.Uint8>);
+class WaveformResult {
+  WaveformResult(this.json);
+  final Map<String, dynamic> json;
+  int get sampleRate => json['sampleRate'] as int;
+  int get channels => json['channels'] as int;
+  int get peaksPerSecond => json['peaksPerSecond'] as int;
+  List<dynamic> get peaks => json['peaks'] as List<dynamic>;
+}
 
 class CrazyCutEngine {
   CrazyCutEngine._() {
@@ -112,47 +100,29 @@ class CrazyCutEngine {
   static CrazyCutEngine get instance => _instance ??= CrazyCutEngine._();
 
   late final ffi.DynamicLibrary _lib;
-
-  late final _AbiVersionDart _abiVersion =
-      _lib.lookupFunction<_AbiVersionNative, _AbiVersionDart>('cc_abi_version');
-  late final _EngineCreateDart _create =
-      _lib.lookupFunction<_EngineCreateNative, _EngineCreateDart>('cc_engine_create');
-  late final _EngineDestroyDart _destroy =
-      _lib.lookupFunction<_EngineDestroyNative, _EngineDestroyDart>('cc_engine_destroy');
-  late final _LastErrorDart _lastError =
-      _lib.lookupFunction<_LastErrorNative, _LastErrorDart>('cc_last_error');
-  late final _ProbeFileDart _probeFile =
-      _lib.lookupFunction<_ProbeFileNative, _ProbeFileDart>('cc_probe_file');
-  late final _ExtractThumbnailDart _extractThumbnail = _lib
-      .lookupFunction<_ExtractThumbnailNative, _ExtractThumbnailDart>(
-          'cc_extract_thumbnail');
-  late final _ExtractFrameRgbaDart _extractFrameRgba = _lib
-      .lookupFunction<_ExtractFrameRgbaNative, _ExtractFrameRgbaDart>(
-          'cc_extract_frame_rgba');
-  late final _BufferFreeDart _bufferFree =
-      _lib.lookupFunction<_BufferFreeNative, _BufferFreeDart>('cc_buffer_free');
+  late final CrazyCutNativeBindings _native = CrazyCutNativeBindings(_lib);
 
   static const int expectedAbiVersion = 1;
 
-  ffi.Pointer<ffi.Void>? _handle;
+  ffi.Pointer<cc_engine>? _handle;
 
   void close() {
     final h = _handle;
     if (h != null) {
-      _destroy(h);
+      _native.cc_engine_destroy(h);
       _handle = null;
     }
   }
 
-  ffi.Pointer<ffi.Void> get _engine {
+  ffi.Pointer<cc_engine> get _engine {
     return _handle ??= () {
       const expected = expectedAbiVersion;
-      final actual = _abiVersion();
+      final actual = _native.cc_abi_version();
       if (actual != expected) {
         throw EngineException(-1,
             'ABI mismatch: engine $actual, bindings $expected. Rebuild engine.');
       }
-      return _create();
+      return _native.cc_engine_create();
     }();
   }
 
@@ -172,20 +142,21 @@ class CrazyCutEngine {
   }
 
   String _takeLastError() {
-    final ptr = _lastError();
+    final ptr = _native.cc_last_error();
     if (ptr == ffi.nullptr) return '';
-    return ptr.toDartString();
+    return ptr.cast<Utf8>().toDartString();
   }
 
   ProbeResult probeFile(String path) {
     final pathPtr = path.toNativeUtf8();
-    final outJson = calloc<ffi.Pointer<Utf8>>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
     try {
-      final code = _probeFile(_engine, pathPtr, outJson);
+      final code = _native.cc_probe_file(
+          _engine, pathPtr.cast<ffi.Char>(), outJson);
       if (code != 0) {
         throw EngineException(code, _takeLastError());
       }
-      final jsonStr = outJson.value.toDartString();
+      final jsonStr = outJson.value.cast<Utf8>().toDartString();
       return ProbeResult.fromJson(jsonDecode(jsonStr) as Map<String, dynamic>);
     } finally {
       calloc.free(pathPtr);
@@ -198,13 +169,14 @@ class CrazyCutEngine {
     final outBuf = calloc<ffi.Pointer<ffi.Uint8>>();
     final outLen = calloc<ffi.Int32>();
     try {
-      final code = _extractThumbnail(_engine, pathPtr, seconds, width, outBuf, outLen);
+      final code = _native.cc_extract_thumbnail(
+          _engine, pathPtr.cast<ffi.Char>(), seconds, width, outBuf, outLen);
       if (code != 0) {
         throw EngineException(code, _takeLastError());
       }
       final len = outLen.value;
       final bytes = Uint8List.fromList(outBuf.value.asTypedList(len));
-      _bufferFree(outBuf.value);
+      _native.cc_buffer_free(outBuf.value);
       return bytes;
     } finally {
       calloc.free(pathPtr);
@@ -219,21 +191,78 @@ class CrazyCutEngine {
     final outH = calloc<ffi.Int32>();
     final outBuf = calloc<ffi.Pointer<ffi.Uint8>>();
     try {
-      final code =
-          _extractFrameRgba(_engine, pathPtr, seconds, width, outW, outH, outBuf);
+      final code = _native.cc_extract_frame_rgba(
+          _engine, pathPtr.cast<ffi.Char>(), seconds, width, outW, outH, outBuf);
       if (code != 0) {
         throw EngineException(code, _takeLastError());
       }
       final w = outW.value;
       final h = outH.value;
       final bytes = Uint8List.fromList(outBuf.value.asTypedList(w * h * 4));
-      _bufferFree(outBuf.value);
+      _native.cc_buffer_free(outBuf.value);
       return RawFrame(w, h, bytes);
     } finally {
       calloc.free(pathPtr);
       calloc.free(outW);
       calloc.free(outH);
       calloc.free(outBuf);
+    }
+  }
+
+  ProjectValidationReport setProjectSnapshot(String projectJson,
+      {bool repairInvalid = true}) {
+    final jsonPtr = projectJson.toNativeUtf8();
+    final out = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final code = _native.cc_project_set_snapshot(
+          _engine, jsonPtr.cast<ffi.Char>(), repairInvalid ? 1 : 0, out);
+      if (code != 0) throw EngineException(code, _takeLastError());
+      return ProjectValidationReport(
+          jsonDecode(out.value.cast<Utf8>().toDartString()) as Map<String, dynamic>);
+    } finally {
+      calloc.free(jsonPtr);
+      calloc.free(out);
+    }
+  }
+
+  String get canonicalProjectSnapshot {
+    final out = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final code = _native.cc_project_get_snapshot(_engine, out);
+      if (code != 0) throw EngineException(code, _takeLastError());
+      return out.value.cast<Utf8>().toDartString();
+    } finally {
+      calloc.free(out);
+    }
+  }
+
+  double get projectDurationSeconds => _native.cc_project_duration(_engine);
+
+  String hashFile(String path) {
+    final pathPtr = path.toNativeUtf8();
+    final out = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final code = _native.cc_hash_file(_engine, pathPtr.cast<ffi.Char>(), out);
+      if (code != 0) throw EngineException(code, _takeLastError());
+      return out.value.cast<Utf8>().toDartString();
+    } finally {
+      calloc.free(pathPtr);
+      calloc.free(out);
+    }
+  }
+
+  WaveformResult extractWaveform(String path, {int peaksPerSecond = 100}) {
+    final pathPtr = path.toNativeUtf8();
+    final out = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final code = _native.cc_extract_waveform(
+          _engine, pathPtr.cast<ffi.Char>(), peaksPerSecond, out);
+      if (code != 0) throw EngineException(code, _takeLastError());
+      return WaveformResult(
+          jsonDecode(out.value.cast<Utf8>().toDartString()) as Map<String, dynamic>);
+    } finally {
+      calloc.free(pathPtr);
+      calloc.free(out);
     }
   }
 }

@@ -5,6 +5,7 @@ import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/data/repository.dart';
 import 'package:crazycut_app/engine/engine.dart';
 import 'package:crazycut_app/models/rational.dart';
+import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 
 enum ImportStatus { probing, ready, failed }
@@ -60,6 +61,15 @@ class EditorController extends ChangeNotifier {
       notifyListeners();
       try {
         final probe = CrazyCutEngine.instance.probeFile(path);
+        final hash = CrazyCutEngine.instance.hashFile(path);
+        final duplicate = doc.media.where((item) => item.hash == hash).firstOrNull;
+        if (duplicate != null) {
+          pool.remove(asset.id);
+          pool[duplicate.id] = PoolItem(asset: duplicate, status: ImportStatus.ready);
+          notifyListeners();
+          continue;
+        }
+        asset.hash = hash;
         asset.type = probe.type == 'unknown' ? 'video' : probe.type;
         asset.duration = Rt.fromSeconds(probe.durationSeconds);
         asset.hasAudio = probe.hasAudio;
@@ -70,9 +80,11 @@ class EditorController extends ChangeNotifier {
         asset.vfr = probe.vfr;
         asset.codec = probe.codec;
         asset.hdr = probe.hdr;
+        doc.media.add(asset);
         pool[asset.id]!.status = ImportStatus.ready;
         await appendClip(asset.id);
       } catch (e) {
+        pool[asset.id]!.status = ImportStatus.failed;
         debugPrint('import failed for $path: $e');
       }
     }
@@ -94,8 +106,8 @@ class EditorController extends ChangeNotifier {
   }
 
   Future<void> appendClip(String assetId) async {
-    final track = doc.videoTrack();
     final asset = doc.assetById(assetId);
+    final track = asset?.type == 'audio' ? doc.audioTrack() : doc.videoTrack();
     if (track == null || asset == null) return;
     var start = Rt.zero();
     for (final c in doc.clips) {
@@ -187,6 +199,7 @@ class EditorController extends ChangeNotifier {
 
   void markDirty() {
     _dirty = true;
+    _syncEngineGraph();
     _autosaveTimer?.cancel();
     _autosaveTimer = Timer(const Duration(seconds: 2), () async {
       if (!_dirty) return;
@@ -194,6 +207,14 @@ class EditorController extends ChangeNotifier {
       _dirty = false;
       onSaved?.call();
     });
+  }
+
+  void _syncEngineGraph() {
+    try {
+      CrazyCutEngine.instance.setProjectSnapshot(doc.encode());
+    } catch (e) {
+      debugPrint('engine graph sync failed: $e');
+    }
   }
 
   Future<void> saveNow() async {
