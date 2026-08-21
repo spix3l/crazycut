@@ -12,11 +12,22 @@ enum InspectorTarget { caption, clip, transition, none }
 
 /// Right rail. With [InspectorTarget.none] it shows sequence settings.
 class InspectorPanel extends StatefulWidget {
-  const InspectorPanel({super.key, this.selection = InspectorTarget.caption});
+  const InspectorPanel({
+    super.key,
+    this.selection = InspectorTarget.caption,
+    this.title,
+    this.sequence,
+  });
 
   static const double width = 300;
 
   final InspectorTarget selection;
+
+  /// Overrides the header text with the real clip name.
+  final String? title;
+
+  /// Sequence summary shown when nothing is selected.
+  final SequenceSummary? sequence;
 
   @override
   State<InspectorPanel> createState() => _InspectorPanelState();
@@ -26,32 +37,33 @@ class _InspectorPanelState extends State<InspectorPanel> {
   late int _tab = _initialTab;
 
   int get _initialTab => switch (widget.selection) {
-        InspectorTarget.caption => 1,
-        InspectorTarget.clip => 2,
-        _ => 0,
-      };
+    InspectorTarget.caption => 1,
+    InspectorTarget.clip => 2,
+    _ => 0,
+  };
 
   List<String> get _tabs => switch (widget.selection) {
-        InspectorTarget.caption => const ['Text', 'Transform', 'Effects', 'Timing'],
-        InspectorTarget.clip => const ['Transform', 'Color', 'Effects', 'Speed', 'Audio'],
-        InspectorTarget.transition => const ['Transition'],
-        InspectorTarget.none => const [],
-      };
+    InspectorTarget.caption => const ['Text', 'Transform', 'Effects', 'Timing'],
+    InspectorTarget.clip => const ['Transform', 'Color', 'Effects', 'Speed', 'Audio'],
+    InspectorTarget.transition => const ['Transition'],
+    InspectorTarget.none => const [],
+  };
 
   (IconData?, Color, String) get _header => switch (widget.selection) {
-        InspectorTarget.caption => (LucideIcons.type, CcColors.textClip, 'Caption Text'),
-        InspectorTarget.clip => (LucideIcons.video, CcColors.videoPlate2, 'broll_desk.mp4'),
-        InspectorTarget.transition => (
-            LucideIcons.hourglass,
-            CcColors.videoPlate2,
-            'Cross Dissolve'
-          ),
-        InspectorTarget.none => (null, CcColors.textPrimary, 'Sequence settings'),
-      };
+    InspectorTarget.caption => (LucideIcons.type, CcColors.textClip, 'Caption Text'),
+    InspectorTarget.clip => (LucideIcons.video, CcColors.videoPlate2, 'broll_desk.mp4'),
+    InspectorTarget.transition => (
+      LucideIcons.hourglass,
+      CcColors.videoPlate2,
+      'Cross Dissolve',
+    ),
+    InspectorTarget.none => (null, CcColors.textPrimary, 'Sequence settings'),
+  };
 
   @override
   Widget build(BuildContext context) {
-    final (icon, iconColor, title) = _header;
+    final (icon, iconColor, headerTitle) = _header;
+    final title = widget.title ?? headerTitle;
     return Container(
       width: InspectorPanel.width,
       decoration: const BoxDecoration(color: CcColors.panel, border: CcBorders.left),
@@ -87,7 +99,9 @@ class _InspectorPanelState extends State<InspectorPanel> {
   }
 
   Widget _body() {
-    if (widget.selection == InspectorTarget.none) return const SequenceSettingsTab();
+    if (widget.selection == InspectorTarget.none) {
+      return SequenceSettingsTab(sequence: widget.sequence);
+    }
     if (widget.selection == InspectorTarget.transition) return const TransitionTab();
     final name = _tabs[_tab];
     return switch (name) {
@@ -121,22 +135,42 @@ class PlaceholderTab extends StatelessWidget {
   }
 }
 
+/// Read-only sequence facts for the no-selection inspector.
+@immutable
+class SequenceSummary {
+  const SequenceSummary({
+    required this.resolution,
+    required this.frameRate,
+    required this.sampleRate,
+    required this.duration,
+    required this.background,
+  });
+
+  final String resolution;
+  final String frameRate;
+  final String sampleRate;
+  final String duration;
+  final String background;
+}
+
 /// Sequence summary shown when nothing is selected.
 class SequenceSettingsTab extends StatelessWidget {
-  const SequenceSettingsTab({super.key});
+  const SequenceSettingsTab({super.key, this.sequence});
+
+  final SequenceSummary? sequence;
 
   @override
   Widget build(BuildContext context) {
     Widget row(String label, Widget value) => Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Row(
-            children: [
-              Text(label, style: CcType.small),
-              const Spacer(),
-              value,
-            ],
-          ),
-        );
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Text(label, style: CcType.small),
+          const Spacer(),
+          value,
+        ],
+      ),
+    );
 
     Widget value(String text) =>
         Text(text, style: CcType.style(size: 12, weight: CcType.medium));
@@ -151,10 +185,10 @@ class SequenceSettingsTab extends StatelessWidget {
             style: CcType.style(size: 11, color: CcColors.textTertiary, height: 1.4),
           ),
           const SizedBox(height: 24),
-          row('Resolution', value('1920 × 1080')),
-          row('Frame rate', value('30 fps')),
-          row('Sample rate', value('48 kHz')),
-          row('Duration', value('00:00:00:00')),
+          row('Resolution', value(sequence?.resolution ?? '1920 × 1080')),
+          row('Frame rate', value(sequence?.frameRate ?? '30 fps')),
+          row('Sample rate', value(sequence?.sampleRate ?? '48 kHz')),
+          row('Duration', value(sequence?.duration ?? '00:00:00:00')),
           row(
             'Background',
             Row(
@@ -170,7 +204,7 @@ class SequenceSettingsTab extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 6),
-                value('#000000'),
+                value(sequence?.background ?? '#000000'),
               ],
             ),
           ),

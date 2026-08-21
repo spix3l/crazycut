@@ -42,7 +42,12 @@ BoxDecoration _clipBox(bool selected, {Gradient? gradient, Color? color, Color? 
 }
 
 class _NamePlate extends StatelessWidget {
-  const _NamePlate({required this.icon, required this.label, required this.height, required this.color});
+  const _NamePlate({
+    required this.icon,
+    required this.label,
+    required this.height,
+    required this.color,
+  });
 
   final IconData icon;
   final String label;
@@ -65,7 +70,11 @@ class _NamePlate extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.clip,
               softWrap: false,
-              style: CcType.style(size: 9, weight: CcType.medium, color: const Color(0xEEFFFFFF)),
+              style: CcType.style(
+                size: 9,
+                weight: CcType.medium,
+                color: const Color(0xEEFFFFFF),
+              ),
             ),
           ),
         ],
@@ -128,7 +137,7 @@ class _AudioClip extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
               child: CustomPaint(
                 size: Size.infinite,
-                painter: WaveformPainter(seed: clip.label.length),
+                painter: WaveformPainter(seed: clip.label.length, peaks: clip.peaks),
               ),
             ),
           ),
@@ -174,10 +183,17 @@ class _TextClip extends StatelessWidget {
 /// Deterministic bar waveform — the shape only depends on [seed], so it stays
 /// stable across rebuilds.
 class WaveformPainter extends CustomPainter {
-  const WaveformPainter({this.seed = 0, this.color = CcColors.audioWave});
+  const WaveformPainter({
+    this.seed = 0,
+    this.color = CcColors.audioWave,
+    this.peaks = const [],
+  });
 
   final int seed;
   final Color color;
+
+  /// Real peak envelope from the engine; empty falls back to [_pattern].
+  final List<double> peaks;
 
   static const _pattern = [0.25, 0.5, 0.75, 0.42, 0.92, 0.58, 0.33, 0.67, 0.83, 0.5];
 
@@ -186,9 +202,16 @@ class WaveformPainter extends CustomPainter {
     final paint = Paint()..color = color;
     const barWidth = 3.0;
     const step = 5.0;
+    final columns = ((size.width - barWidth) / step).floor() + 1;
     var i = seed;
+    var column = 0;
     for (var x = 0.0; x + barWidth <= size.width; x += step) {
-      final amplitude = _pattern[i++ % _pattern.length];
+      final amplitude = peaks.isEmpty
+          ? _pattern[i++ % _pattern.length]
+          : peaks[((column / (columns <= 1 ? 1 : columns - 1)) * (peaks.length - 1))
+                .round()
+                .clamp(0, peaks.length - 1)];
+      column++;
       final barHeight = (size.height * amplitude).clamp(3.0, size.height);
       final top = (size.height - barHeight) / 2;
       canvas.drawRRect(
@@ -203,12 +226,19 @@ class WaveformPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(WaveformPainter oldDelegate) =>
-      oldDelegate.seed != seed || oldDelegate.color != color;
+      oldDelegate.seed != seed ||
+      oldDelegate.color != color ||
+      oldDelegate.peaks.length != peaks.length;
 }
 
 /// The hourglass badge that straddles a cut between two video clips.
 class TransitionBadge extends StatelessWidget {
-  const TransitionBadge({super.key, required this.height, this.width = 24, this.selected = false});
+  const TransitionBadge({
+    super.key,
+    required this.height,
+    this.width = 24,
+    this.selected = false,
+  });
 
   final double height;
   final double width;

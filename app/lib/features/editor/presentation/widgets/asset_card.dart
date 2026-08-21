@@ -33,11 +33,18 @@ class AssetCard extends StatelessWidget {
                 child: DecoratedBox(
                   decoration: BoxDecoration(gradient: asset.kind.plate),
                   child: Stack(
+                    fit: StackFit.expand,
                     children: [
+                      if (asset.thumb != null)
+                        Image.memory(asset.thumb!, fit: BoxFit.cover, gaplessPlayback: true),
                       Positioned(
                         left: 6,
                         top: 6,
-                        child: CcIcon(asset.kind.icon, size: 12, color: const Color(0xCCFFFFFF)),
+                        child: CcIcon(
+                          asset.kind.icon,
+                          size: 12,
+                          color: const Color(0xCCFFFFFF),
+                        ),
                       ),
                       if (asset.duration != null)
                         Positioned(

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -11,11 +13,27 @@ class MonitorPanel extends StatelessWidget {
     this.empty = false,
     this.currentTimecode = '00:00:12:04',
     this.totalTimecode = '00:03:45:00',
+    this.frame,
+    this.playing = false,
+    this.onPlayPause,
+    this.onStepBack,
+    this.onStepForward,
+    this.caption,
   });
 
   final bool empty;
   final String currentTimecode;
   final String totalTimecode;
+
+  /// Encoded frame under the playhead; null falls back to the placeholder.
+  final Uint8List? frame;
+  final bool playing;
+  final VoidCallback? onPlayPause;
+  final VoidCallback? onStepBack;
+  final VoidCallback? onStepForward;
+
+  /// Selected caption drawn over the frame, when there is one.
+  final String? caption;
 
   @override
   Widget build(BuildContext context) {
@@ -30,15 +48,26 @@ class MonitorPanel extends StatelessWidget {
               child: Center(
                 child: AspectRatio(
                   aspectRatio: 16 / 9,
-                  child: empty ? const _EmptyPreview() : const _ProgramPreview(),
+                  child: switch ((empty, frame)) {
+                    (true, _) => const _EmptyPreview(),
+                    (false, final Uint8List bytes) => _FramePreview(
+                      bytes: bytes,
+                      caption: caption,
+                    ),
+                    _ => const _EmptyPreview(message: 'No frame under the playhead'),
+                  },
                 ),
               ),
             ),
           ),
           _TransportBar(
             empty: empty,
+            playing: playing,
             currentTimecode: empty ? '00:00:00:00' : currentTimecode,
             totalTimecode: empty ? '00:00:00:00' : totalTimecode,
+            onPlayPause: onPlayPause,
+            onStepBack: onStepBack,
+            onStepForward: onStepForward,
           ),
         ],
       ),
@@ -72,7 +101,9 @@ class _MonitorToolbar extends StatelessWidget {
 }
 
 class _EmptyPreview extends StatelessWidget {
-  const _EmptyPreview();
+  const _EmptyPreview({this.message = 'Nothing on the timeline yet'});
+
+  final String message;
 
   @override
   Widget build(BuildContext context) {
@@ -84,67 +115,43 @@ class _EmptyPreview extends StatelessWidget {
         children: [
           const CcIcon(LucideIcons.film, size: 28, color: CcColors.textTertiary),
           const SizedBox(height: 10),
-          Text('Nothing on the timeline yet', style: CcType.style(size: 13, color: CcColors.textTertiary)),
+          Text(message, style: CcType.style(size: 13, color: CcColors.textTertiary)),
         ],
       ),
     );
   }
 }
 
-/// Stand-in for the decoded frame: a graded plate with a selected caption on
-/// top, complete with its four corner handles.
-class _ProgramPreview extends StatelessWidget {
-  const _ProgramPreview();
+/// The real decoded frame, with the selected caption drawn over it.
+class _FramePreview extends StatelessWidget {
+  const _FramePreview({required this.bytes, this.caption});
+
+  final Uint8List bytes;
+  final String? caption;
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF4A6382), Color(0xFF232B38), CcColors.bg],
-          stops: [0, 0.55, 1],
-        ),
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final w = constraints.maxWidth;
-          final h = constraints.maxHeight;
-          return Stack(
-            children: [
-              Positioned(
-                left: 0,
-                right: 0,
-                top: h * 0.605,
-                bottom: 0,
-                child: const ColoredBox(color: Color(0xFF1B2430)),
-              ),
-              Positioned(
-                left: w * 0.43,
-                top: h * 0.315,
-                width: w * 0.142,
-                height: w * 0.142,
-                child: const DecoratedBox(
-                  decoration: BoxDecoration(color: Color(0xAAFF5A5F), shape: BoxShape.circle),
-                ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                top: h * 0.784,
-                child: const Center(child: _SelectedCaption()),
-              ),
-            ],
-          );
-        },
+    return ColoredBox(
+      color: const Color(0xFF000000),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.memory(bytes, fit: BoxFit.contain, gaplessPlayback: true),
+          if (caption != null)
+            Align(
+              alignment: const Alignment(0, 0.62),
+              child: _SelectedCaption(text: caption!),
+            ),
+        ],
       ),
     );
   }
 }
 
 class _SelectedCaption extends StatelessWidget {
-  const _SelectedCaption();
+  const _SelectedCaption({required this.text});
+
+  final String text;
 
   @override
   Widget build(BuildContext context) {
@@ -160,7 +167,7 @@ class _SelectedCaption extends StatelessWidget {
             border: Border.all(color: CcColors.accent, width: 1.5),
           ),
           child: Text(
-            'golden hour, every time ✨',
+            text,
             style: CcType.style(size: 20, weight: CcType.bold, color: const Color(0xFFFFFFFF)),
           ),
         ),
@@ -193,13 +200,21 @@ class _Handle extends StatelessWidget {
 class _TransportBar extends StatelessWidget {
   const _TransportBar({
     required this.empty,
+    required this.playing,
     required this.currentTimecode,
     required this.totalTimecode,
+    this.onPlayPause,
+    this.onStepBack,
+    this.onStepForward,
   });
 
   final bool empty;
+  final bool playing;
   final String currentTimecode;
   final String totalTimecode;
+  final VoidCallback? onPlayPause;
+  final VoidCallback? onStepBack;
+  final VoidCallback? onStepForward;
 
   @override
   Widget build(BuildContext context) {
@@ -219,34 +234,50 @@ class _TransportBar extends StatelessWidget {
                   const SizedBox(width: 4),
                   Text('/', style: CcType.style(size: 13, color: CcColors.textTertiary)),
                   const SizedBox(width: 4),
-                  Text(totalTimecode, style: CcType.style(size: 13, color: CcColors.textTertiary)),
+                  Text(
+                    totalTimecode,
+                    style: CcType.style(size: 13, color: CcColors.textTertiary),
+                  ),
                 ],
               ),
             ),
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const CcIcon(LucideIcons.skipBack, size: 16),
-                const SizedBox(width: 18),
-                Container(
-                  width: 34,
-                  height: 34,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: empty ? CcColors.elevated2 : CcColors.accent,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const CcIcon(LucideIcons.play, size: 15, color: CcColors.onAccent),
+                CcTappable(
+                  onTap: onStepBack,
+                  child: const CcIcon(LucideIcons.skipBack, size: 16),
                 ),
                 const SizedBox(width: 18),
-                const CcIcon(LucideIcons.skipForward, size: 16),
+                CcTappable(
+                  onTap: onPlayPause,
+                  child: Container(
+                    width: 34,
+                    height: 34,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: empty ? CcColors.elevated2 : CcColors.accent,
+                      shape: BoxShape.circle,
+                    ),
+                    child: CcIcon(
+                      playing ? LucideIcons.pause : LucideIcons.play,
+                      size: 15,
+                      color: CcColors.onAccent,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 18),
+                CcTappable(
+                  onTap: onStepForward,
+                  child: const CcIcon(LucideIcons.skipForward, size: 16),
+                ),
                 const SizedBox(width: 18),
                 const CcIcon(LucideIcons.repeat, size: 15, color: CcColors.textTertiary),
               ],
             ),
             Align(
               alignment: Alignment.centerRight,
-              child: _MasterMeter(empty: empty),
+              child: _MasterMeter(empty: empty || !playing),
             ),
           ],
         ),

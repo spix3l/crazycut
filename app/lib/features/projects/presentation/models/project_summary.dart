@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import '../../../../data/project.dart';
+
 /// View model backing a card in the project browser. UI-only: the browser
 /// screen renders whatever list it is handed.
 @immutable
@@ -12,7 +14,25 @@ class ProjectSummary {
     required this.lastOpened,
     required this.aspect,
     required this.thumbnail,
+    this.path,
   });
+
+  /// Builds a card from a project on disk. [modified] drives the "Opened …"
+  /// line; [path] is what the browser reopens.
+  factory ProjectSummary.fromDoc(ProjectDoc doc, {String? path, DateTime? modified}) {
+    final s = doc.settings;
+    final seconds = doc.sequenceDuration.seconds.round();
+    return ProjectSummary(
+      name: doc.name,
+      resolution: '${s.width}×${s.height}',
+      fps: s.fpsValue.round(),
+      duration: '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}',
+      lastOpened: 'Opened ${relativeTime(modified ?? doc.modifiedAt.toLocal())}',
+      aspect: aspectLabel(s.width, s.height),
+      thumbnail: thumbGradient(paletteFor(doc.id), _panel),
+      path: path,
+    );
+  }
 
   final String name;
   final String resolution;
@@ -22,19 +42,52 @@ class ProjectSummary {
   final String aspect;
   final Gradient thumbnail;
 
+  /// Absolute path of the `.crazycut` file, when the card came from disk.
+  final String? path;
+
   String get resolutionLabel => '$resolution · $fps';
 }
 
+/// Reduces a width/height to the nearest label the design uses.
+String aspectLabel(int width, int height) {
+  if (width == height) return '1:1';
+  final ratio = width / height;
+  if ((ratio - 16 / 9).abs() < 0.05) return '16:9';
+  if ((ratio - 9 / 16).abs() < 0.05) return '9:16';
+  if ((ratio - 4 / 5).abs() < 0.05) return '4:5';
+  return '${width ~/ _gcd(width, height)}:${height ~/ _gcd(width, height)}';
+}
+
+int _gcd(int a, int b) => b == 0 ? a : _gcd(b, a % b);
+
+String relativeTime(DateTime when) {
+  final delta = DateTime.now().difference(when);
+  if (delta.inMinutes < 1) return 'just now';
+  if (delta.inMinutes < 60) return '${delta.inMinutes}m ago';
+  if (delta.inHours < 24) return '${delta.inHours}h ago';
+  if (delta.inDays == 1) return 'yesterday';
+  if (delta.inDays < 7) return '${delta.inDays} days ago';
+  if (delta.inDays < 30) return '${(delta.inDays / 7).floor()} week(s) ago';
+  return '${(delta.inDays / 30).floor()} month(s) ago';
+}
+
+/// Stable thumbnail tint per project, so a card keeps its colour between runs.
+Color paletteFor(String seed) {
+  const palette = [_blue, _magenta, _green, _gold, _teal, _violet, _grey];
+  var hash = 0;
+  for (final unit in seed.codeUnits) {
+    hash = (hash * 31 + unit) & 0x7FFFFFFF;
+  }
+  return palette[hash % palette.length];
+}
+
 /// Linear gradient in the same direction the design uses for thumbnails.
-Gradient thumbGradient(Color from, Color to) => LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [from, to],
-    );
+Gradient thumbGradient(Color from, Color to) =>
+    LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [from, to]);
 
 const _panel = Color(0xFF1D1F23);
 
-/// Placeholder content for the populated browser screen.
+/// Thumbnail tints used until real poster frames land.
 const _blue = Color(0xFF3B4F6B);
 const _magenta = Color(0xFF6B3B5A);
 const _green = Color(0xFF3B6B4F);
@@ -42,78 +95,3 @@ const _gold = Color(0xFF6B5A3B);
 const _teal = Color(0xFF3B5F6B);
 const _violet = Color(0xFF553B6B);
 const _grey = Color(0xFF4A4D52);
-
-final sampleProjects = <ProjectSummary>[
-  ProjectSummary(
-    name: 'Beauty Routine Ep. 12',
-    resolution: '1920×1080',
-    fps: 30,
-    duration: '12:34',
-    lastOpened: 'Opened 2h ago',
-    aspect: '16:9',
-    thumbnail: thumbGradient(_blue, _panel),
-  ),
-  ProjectSummary(
-    name: 'Get Ready With Me',
-    resolution: '1080×1920',
-    fps: 30,
-    duration: '0:48',
-    lastOpened: 'Opened yesterday',
-    aspect: '9:16',
-    thumbnail: thumbGradient(_magenta, _panel),
-  ),
-  ProjectSummary(
-    name: 'Studio Tour Vertical',
-    resolution: '1080×1920',
-    fps: 60,
-    duration: '1:22',
-    lastOpened: 'Opened 2 days ago',
-    aspect: '9:16',
-    thumbnail: thumbGradient(_green, _panel),
-  ),
-  ProjectSummary(
-    name: 'Product Demo — v3',
-    resolution: '1920×1080',
-    fps: 30,
-    duration: '3:05',
-    lastOpened: 'Opened 3 days ago',
-    aspect: '16:9',
-    thumbnail: thumbGradient(_gold, _panel),
-  ),
-  ProjectSummary(
-    name: 'Shorts Compilation',
-    resolution: '1080×1080',
-    fps: 30,
-    duration: '0:31',
-    lastOpened: 'Opened 5 days ago',
-    aspect: '1:1',
-    thumbnail: thumbGradient(_teal, _panel),
-  ),
-  ProjectSummary(
-    name: 'Indie Founder Q&A',
-    resolution: '1920×1080',
-    fps: 24,
-    duration: '18:42',
-    lastOpened: 'Opened 1 week ago',
-    aspect: '16:9',
-    thumbnail: thumbGradient(_violet, _panel),
-  ),
-  ProjectSummary(
-    name: 'Untitled Project',
-    resolution: '1920×1080',
-    fps: 30,
-    duration: '0:00',
-    lastOpened: 'Opened 2 weeks ago',
-    aspect: '16:9',
-    thumbnail: thumbGradient(_grey, _panel),
-  ),
-  ProjectSummary(
-    name: 'Trip Recap Draft',
-    resolution: '1080×1920',
-    fps: 30,
-    duration: '2:14',
-    lastOpened: 'Opened 3 weeks ago',
-    aspect: '9:16',
-    thumbnail: thumbGradient(_teal, _panel),
-  ),
-];

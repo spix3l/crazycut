@@ -56,8 +56,8 @@ class _CcTappableState extends State<CcTappable> {
       final opacity = _pressed
           ? widget.pressedOpacity
           : _hovered
-              ? widget.hoverOpacity
-              : 1.0;
+          ? widget.hoverOpacity
+          : 1.0;
       child = AnimatedOpacity(
         opacity: opacity,
         duration: const Duration(milliseconds: 90),
@@ -124,11 +124,11 @@ class CcButton extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (icon != null) ...[
-              CcIcon(icon!, size: 14, color: fg),
-              const SizedBox(width: 6),
-            ],
-            Text(label, style: CcType.style(size: 13, weight: CcType.semibold, color: fg)),
+            if (icon != null) ...[CcIcon(icon!, size: 14, color: fg), const SizedBox(width: 6)],
+            Text(
+              label,
+              style: CcType.style(size: 13, weight: CcType.semibold, color: fg),
+            ),
           ],
         ),
       ),
@@ -178,8 +178,8 @@ class CcIconButton extends StatelessWidget {
           color: !enabled
               ? CcColors.textTertiary
               : active
-                  ? (outlined ? CcColors.accent : CcColors.textPrimary)
-                  : CcColors.textSecondary,
+              ? (outlined ? CcColors.accent : CcColors.textPrimary)
+              : CcColors.textSecondary,
         ),
       ),
     );
@@ -187,7 +187,7 @@ class CcIconButton extends StatelessWidget {
 }
 
 /// Read-only text field shell (`Search projects`, `Name`, `Filename`).
-class CcTextField extends StatelessWidget {
+class CcTextField extends StatefulWidget {
   const CcTextField({
     super.key,
     this.value,
@@ -197,6 +197,10 @@ class CcTextField extends StatelessWidget {
     this.height = 36,
     this.bordered = true,
     this.radius = CcRadius.md,
+    this.controller,
+    this.focusNode,
+    this.autofocus = false,
+    this.onSubmitted,
   });
 
   final String? value;
@@ -207,35 +211,75 @@ class CcTextField extends StatelessWidget {
   final bool bordered;
   final double radius;
 
+  /// Supplying a controller turns the field into a real text input; without
+  /// one it stays a read-only shell.
+  final TextEditingController? controller;
+  final FocusNode? focusNode;
+  final bool autofocus;
+  final ValueChanged<String>? onSubmitted;
+
+  @override
+  State<CcTextField> createState() => _CcTextFieldState();
+}
+
+class _CcTextFieldState extends State<CcTextField> {
+  FocusNode? _ownedFocus;
+
+  FocusNode get _focus => widget.focusNode ?? (_ownedFocus ??= FocusNode());
+
+  @override
+  void dispose() {
+    _ownedFocus?.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final hasValue = value != null && value!.isNotEmpty;
+    final value = widget.value;
+    final controller = widget.controller;
+    final height = widget.height;
+    final icon = widget.icon;
+    final trailing = widget.trailing;
+    final hasValue = value != null && value.isNotEmpty;
+    final textStyle = CcType.style(
+      size: height <= 30 ? 12 : 13,
+      color: hasValue || controller != null ? CcColors.textPrimary : CcColors.textTertiary,
+    );
     return Container(
       height: height,
       padding: EdgeInsets.symmetric(horizontal: icon == null ? 12 : 10),
       decoration: BoxDecoration(
         color: CcColors.elevated,
-        borderRadius: BorderRadius.circular(radius),
-        border: bordered ? Border.all(color: CcColors.borderStrong) : null,
+        borderRadius: BorderRadius.circular(widget.radius),
+        border: widget.bordered ? Border.all(color: CcColors.borderStrong) : null,
       ),
       child: Row(
         children: [
           if (icon != null) ...[
-            CcIcon(icon!, size: height <= 30 ? 13 : 14, color: CcColors.textTertiary),
+            CcIcon(icon, size: height <= 30 ? 13 : 14, color: CcColors.textTertiary),
             const SizedBox(width: 8),
           ],
           Expanded(
-            child: Text(
-              hasValue ? value! : (placeholder ?? ''),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: CcType.style(
-                size: height <= 30 ? 12 : 13,
-                color: hasValue ? CcColors.textPrimary : CcColors.textTertiary,
-              ),
-            ),
+            child: controller != null
+                ? EditableText(
+                    controller: controller,
+                    focusNode: _focus,
+                    autofocus: widget.autofocus,
+                    style: textStyle,
+                    cursorColor: CcColors.accent,
+                    backgroundCursorColor: CcColors.elevated2,
+                    selectionColor: CcColors.accent.withValues(alpha: 0.35),
+                    onSubmitted: widget.onSubmitted,
+                    maxLines: 1,
+                  )
+                : Text(
+                    hasValue ? value : (widget.placeholder ?? ''),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textStyle,
+                  ),
           ),
-          if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+          if (trailing != null) ...[const SizedBox(width: 8), trailing],
         ],
       ),
     );
@@ -323,12 +367,7 @@ class CcDropdown extends StatelessWidget {
 
 /// Checkbox in the export options row / effect stack header.
 class CcCheckbox extends StatelessWidget {
-  const CcCheckbox({
-    super.key,
-    required this.checked,
-    this.size = 15,
-    this.onTap,
-  });
+  const CcCheckbox({super.key, required this.checked, this.size = 15, this.onTap});
 
   final bool checked;
   final double size;
@@ -363,6 +402,7 @@ class CcSlider extends StatelessWidget {
     this.trackHeight = 4,
     this.handleSize = 10,
     this.fillColor = CcColors.accent,
+    this.onChanged,
   });
 
   /// 0..1
@@ -371,45 +411,54 @@ class CcSlider extends StatelessWidget {
   final double handleSize;
   final Color fillColor;
 
+  /// Null keeps the slider decorative (the design has a few of those).
+  final ValueChanged<double>? onChanged;
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final filled = (width * value.clamp(0, 1));
-        return SizedBox(
-          height: handleSize,
-          child: Stack(
-            clipBehavior: Clip.none,
-            alignment: Alignment.centerLeft,
-            children: [
-              Container(
-                height: trackHeight,
-                decoration: BoxDecoration(
-                  color: CcColors.elevated2,
-                  borderRadius: BorderRadius.circular(trackHeight / 2),
-                ),
-              ),
-              Container(
-                width: filled,
-                height: trackHeight,
-                decoration: BoxDecoration(
-                  color: fillColor,
-                  borderRadius: BorderRadius.circular(trackHeight / 2),
-                ),
-              ),
-              Positioned(
-                left: (filled - handleSize / 2).clamp(0.0, width - handleSize),
-                child: Container(
-                  width: handleSize,
-                  height: handleSize,
-                  decoration: const BoxDecoration(
-                    color: CcColors.textPrimary,
-                    shape: BoxShape.circle,
+        void emit(Offset local) => onChanged?.call((local.dx / width).clamp(0.0, 1.0));
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: onChanged == null ? null : (d) => emit(d.localPosition),
+          onHorizontalDragUpdate: onChanged == null ? null : (d) => emit(d.localPosition),
+          child: SizedBox(
+            height: handleSize,
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.centerLeft,
+              children: [
+                Container(
+                  height: trackHeight,
+                  decoration: BoxDecoration(
+                    color: CcColors.elevated2,
+                    borderRadius: BorderRadius.circular(trackHeight / 2),
                   ),
                 ),
-              ),
-            ],
+                Container(
+                  width: filled,
+                  height: trackHeight,
+                  decoration: BoxDecoration(
+                    color: fillColor,
+                    borderRadius: BorderRadius.circular(trackHeight / 2),
+                  ),
+                ),
+                Positioned(
+                  left: (filled - handleSize / 2).clamp(0.0, width - handleSize),
+                  child: Container(
+                    width: handleSize,
+                    height: handleSize,
+                    decoration: const BoxDecoration(
+                      color: CcColors.textPrimary,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },

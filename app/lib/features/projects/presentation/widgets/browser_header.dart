@@ -6,11 +6,36 @@ import '../../../../core/widgets/primitives.dart';
 
 /// 72px app header: brand mark on the left, search + sort + primary action
 /// on the right. On first launch only the primary action is shown.
-class BrowserHeader extends StatelessWidget {
-  const BrowserHeader({super.key, this.showSearch = true, this.onNewProject});
+class BrowserHeader extends StatefulWidget {
+  const BrowserHeader({
+    super.key,
+    this.showSearch = true,
+    this.onNewProject,
+    this.onSearchChanged,
+  });
 
   final bool showSearch;
   final VoidCallback? onNewProject;
+  final ValueChanged<String>? onSearchChanged;
+
+  @override
+  State<BrowserHeader> createState() => _BrowserHeaderState();
+}
+
+class _BrowserHeaderState extends State<BrowserHeader> {
+  final _search = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _search.addListener(() => widget.onSearchChanged?.call(_search.text));
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,14 +58,15 @@ class BrowserHeader extends StatelessWidget {
           const SizedBox(width: 10),
           Text('CrazyCut', style: CcType.appName),
           const Spacer(),
-          if (showSearch) ...[
-            const SizedBox(
+          if (widget.showSearch) ...[
+            SizedBox(
               width: 260,
               child: CcTextField(
                 placeholder: 'Search projects',
                 icon: LucideIcons.search,
                 height: 32,
                 bordered: false,
+                controller: _search,
               ),
             ),
             const SizedBox(width: 12),
@@ -50,7 +76,7 @@ class BrowserHeader extends StatelessWidget {
           CcButton(
             label: 'New Project',
             icon: LucideIcons.plus,
-            onPressed: onNewProject,
+            onPressed: widget.onNewProject,
           ),
         ],
       ),

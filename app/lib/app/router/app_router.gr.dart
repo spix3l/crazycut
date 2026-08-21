@@ -22,54 +22,18 @@ import 'package:flutter/widgets.dart' as _i6;
 
 /// generated route for
 /// [_i1.EditorScreen]
-class EditorRoute extends _i5.PageRouteInfo<EditorRouteArgs> {
-  EditorRoute({
-    _i6.Key? key,
-    bool empty = false,
-    List<_i5.PageRouteInfo>? children,
-  }) : super(
-         EditorRoute.name,
-         args: EditorRouteArgs(key: key, empty: empty),
-         rawQueryParams: {'empty': empty},
-         initialChildren: children,
-       );
+class EditorRoute extends _i5.PageRouteInfo<void> {
+  const EditorRoute({List<_i5.PageRouteInfo>? children})
+    : super(EditorRoute.name, initialChildren: children);
 
   static const String name = 'EditorRoute';
 
   static _i5.PageInfo page = _i5.PageInfo(
     name,
     builder: (data) {
-      final queryParams = data.queryParams;
-      final args = data.argsAs<EditorRouteArgs>(
-        orElse: () =>
-            EditorRouteArgs(empty: queryParams.getBool('empty', false)),
-      );
-      return _i1.EditorScreen(key: args.key, empty: args.empty);
+      return const _i1.EditorScreen();
     },
   );
-}
-
-class EditorRouteArgs {
-  const EditorRouteArgs({this.key, this.empty = false});
-
-  final _i6.Key? key;
-
-  final bool empty;
-
-  @override
-  String toString() {
-    return 'EditorRouteArgs{key: $key, empty: $empty}';
-  }
-
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-    if (other is! EditorRouteArgs) return false;
-    return key == other.key && empty == other.empty;
-  }
-
-  @override
-  int get hashCode => key.hashCode ^ empty.hashCode;
 }
 
 /// generated route for
@@ -142,52 +106,16 @@ class NewProjectRoute extends _i5.PageRouteInfo<void> {
 
 /// generated route for
 /// [_i4.ProjectBrowserScreen]
-class ProjectBrowserRoute extends _i5.PageRouteInfo<ProjectBrowserRouteArgs> {
-  ProjectBrowserRoute({
-    _i6.Key? key,
-    bool empty = false,
-    List<_i5.PageRouteInfo>? children,
-  }) : super(
-         ProjectBrowserRoute.name,
-         args: ProjectBrowserRouteArgs(key: key, empty: empty),
-         rawQueryParams: {'empty': empty},
-         initialChildren: children,
-       );
+class ProjectBrowserRoute extends _i5.PageRouteInfo<void> {
+  const ProjectBrowserRoute({List<_i5.PageRouteInfo>? children})
+    : super(ProjectBrowserRoute.name, initialChildren: children);
 
   static const String name = 'ProjectBrowserRoute';
 
   static _i5.PageInfo page = _i5.PageInfo(
     name,
     builder: (data) {
-      final queryParams = data.queryParams;
-      final args = data.argsAs<ProjectBrowserRouteArgs>(
-        orElse: () =>
-            ProjectBrowserRouteArgs(empty: queryParams.getBool('empty', false)),
-      );
-      return _i4.ProjectBrowserScreen(key: args.key, empty: args.empty);
+      return const _i4.ProjectBrowserScreen();
     },
   );
-}
-
-class ProjectBrowserRouteArgs {
-  const ProjectBrowserRouteArgs({this.key, this.empty = false});
-
-  final _i6.Key? key;
-
-  final bool empty;
-
-  @override
-  String toString() {
-    return 'ProjectBrowserRouteArgs{key: $key, empty: $empty}';
-  }
-
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-    if (other is! ProjectBrowserRouteArgs) return false;
-    return key == other.key && empty == other.empty;
-  }
-
-  @override
-  int get hashCode => key.hashCode ^ empty.hashCode;
 }

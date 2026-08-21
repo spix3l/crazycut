@@ -11,8 +11,9 @@ String generateId() {
   final r = DateTime.now().microsecondsSinceEpoch;
   String hex8(int v) => (v & 0xFFFFFFFF).toRadixString(16).padLeft(8, '0');
   return '${hex8(now >> 16)}-${hex8((now << 16) | (r & 0xFFFF))}-4${hex8(r >> 16).substring(1)}'
-      '-a${hex8(r ^ now).substring(0, 3)}-'
-      '${hex8(r * 7 + now)}${hex8(now * 31 + r)}'.substring(0, 36);
+          '-a${hex8(r ^ now).substring(0, 3)}-'
+          '${hex8(r * 7 + now)}${hex8(now * 31 + r)}'
+      .substring(0, 36);
 }
 
 class SequenceSettings {
@@ -33,20 +34,20 @@ class SequenceSettings {
   double get fpsValue => Rt.fpsFromString(fps);
 
   Map<String, dynamic> toJson() => {
-        'width': width,
-        'height': height,
-        'fps': fps,
-        'audioSampleRate': audioSampleRate,
-        'background': background,
-      };
+    'width': width,
+    'height': height,
+    'fps': fps,
+    'audioSampleRate': audioSampleRate,
+    'background': background,
+  };
 
   static SequenceSettings fromJson(Map<String, dynamic> j) => SequenceSettings(
-        width: j['width'] as int,
-        height: j['height'] as int,
-        fps: j['fps'] as String,
-        audioSampleRate: (j['audioSampleRate'] as num?)?.toInt() ?? 48000,
-        background: (j['background'] as String?) ?? '#000000',
-      );
+    width: j['width'] as int,
+    height: j['height'] as int,
+    fps: j['fps'] as String,
+    audioSampleRate: (j['audioSampleRate'] as num?)?.toInt() ?? 48000,
+    background: (j['background'] as String?) ?? '#000000',
+  );
 }
 
 class MediaAsset {
@@ -68,22 +69,21 @@ class MediaAsset {
   });
 
   factory MediaAsset.fromJson(Map<String, dynamic> j) => MediaAsset(
-        id: j['id'] as String,
-        name: j['name'] as String,
-        path: j['path'] as String,
-        type: j['type'] as String,
-        duration:
-            j['duration'] == null ? Rt.zero() : Rt.parse(j['duration'] as String),
-        hasAudio: (j['hasAudio'] as bool?) ?? false,
-        hash: (j['hash'] as String?) ?? '',
-        width: (j['probe']?['width'] as num?)?.toInt(),
-        height: (j['probe']?['height'] as num?)?.toInt(),
-        fps: j['probe']?['fps'] as String?,
-        rotation: ((j['probe']?['rotation'] as num?) ?? 0).toInt(),
-        vfr: (j['probe']?['vfr'] as bool?) ?? false,
-        codec: j['probe']?['codec'] as String?,
-        hdr: (j['probe']?['hdr'] as String?) ?? 'none',
-      );
+    id: j['id'] as String,
+    name: j['name'] as String,
+    path: j['path'] as String,
+    type: j['type'] as String,
+    duration: j['duration'] == null ? Rt.zero() : Rt.parse(j['duration'] as String),
+    hasAudio: (j['hasAudio'] as bool?) ?? false,
+    hash: (j['hash'] as String?) ?? '',
+    width: (j['probe']?['width'] as num?)?.toInt(),
+    height: (j['probe']?['height'] as num?)?.toInt(),
+    fps: j['probe']?['fps'] as String?,
+    rotation: ((j['probe']?['rotation'] as num?) ?? 0).toInt(),
+    vfr: (j['probe']?['vfr'] as bool?) ?? false,
+    codec: j['probe']?['codec'] as String?,
+    hdr: (j['probe']?['hdr'] as String?) ?? 'none',
+  );
 
   final String id;
   String name;
@@ -101,26 +101,26 @@ class MediaAsset {
   String hdr;
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'hash': hash,
-        'name': name,
-        'path': path,
-        'type': type,
-        if (!duration.isZero) 'duration': duration.toString(),
-        'hasAudio': hasAudio,
-        'probe': {
-          if (width != null) 'width': width,
-          if (height != null) 'height': height,
-          'rotation': rotation,
-          if (fps != null) 'fps': fps,
-          'vfr': vfr,
-          if (codec != null) 'codec': codec,
-          'hdr': hdr,
-          if (hasAudio) 'audio': 'stereo',
-        },
-        'proxyPath': null,
-        'thumbStatus': 'ready',
-      };
+    'id': id,
+    'hash': hash,
+    'name': name,
+    'path': path,
+    'type': type,
+    if (!duration.isZero) 'duration': duration.toString(),
+    'hasAudio': hasAudio,
+    'probe': {
+      if (width != null) 'width': width,
+      if (height != null) 'height': height,
+      'rotation': rotation,
+      if (fps != null) 'fps': fps,
+      'vfr': vfr,
+      if (codec != null) 'codec': codec,
+      'hdr': hdr,
+      if (hasAudio) 'audio': 'stereo',
+    },
+    'proxyPath': null,
+    'thumbStatus': 'ready',
+  };
 }
 
 class Track {
@@ -147,28 +147,28 @@ class Track {
   final int height;
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'kind': kind,
-        'name': name,
-        'index': index,
-        'mute': mute,
-        'solo': solo,
-        'lock': lock,
-        'hidden': hidden,
-        'height': height,
-      };
+    'id': id,
+    'kind': kind,
+    'name': name,
+    'index': index,
+    'mute': mute,
+    'solo': solo,
+    'lock': lock,
+    'hidden': hidden,
+    'height': height,
+  };
 
   static Track fromJson(Map<String, dynamic> j) => Track(
-        id: j['id'] as String,
-        kind: j['kind'] as String,
-        name: j['name'] as String,
-        index: (j['index'] as num).toInt(),
-        mute: (j['mute'] as bool?) ?? false,
-        solo: (j['solo'] as bool?) ?? false,
-        lock: (j['lock'] as bool?) ?? false,
-        hidden: (j['hidden'] as bool?) ?? false,
-        height: (j['height'] as num?)?.toInt() ?? 80,
-      );
+    id: j['id'] as String,
+    kind: j['kind'] as String,
+    name: j['name'] as String,
+    index: (j['index'] as num).toInt(),
+    mute: (j['mute'] as bool?) ?? false,
+    solo: (j['solo'] as bool?) ?? false,
+    lock: (j['lock'] as bool?) ?? false,
+    hidden: (j['hidden'] as bool?) ?? false,
+    height: (j['height'] as num?)?.toInt() ?? 80,
+  );
 }
 
 class Clip {
@@ -184,24 +184,23 @@ class Clip {
   });
 
   factory Clip.fromJson(Map<String, dynamic> j) => Clip(
-        id: j['id'] as String,
-        trackId: j['trackId'] as String,
-        mediaId: j['mediaId'] as String,
-        label: (j['label'] as String?) ?? '',
-        start: Rt.parse(j['start'] as String),
-        duration: Rt.parse(j['duration'] as String),
-        sourceIn:
-            j['sourceIn'] == null ? Rt.zero() : Rt.parse(j['sourceIn'] as String),
-        speed: switch (j['speed']) {
-          final String value => value,
-          final Map<String, dynamic> value =>
-            '${(value['num'] as num?)?.toInt() ?? 1}/${(value['den'] as num?)?.toInt() ?? 1}',
-          _ => '1/1',
-        },
-      );
+    id: j['id'] as String,
+    trackId: j['trackId'] as String,
+    mediaId: j['mediaId'] as String,
+    label: (j['label'] as String?) ?? '',
+    start: Rt.parse(j['start'] as String),
+    duration: Rt.parse(j['duration'] as String),
+    sourceIn: j['sourceIn'] == null ? Rt.zero() : Rt.parse(j['sourceIn'] as String),
+    speed: switch (j['speed']) {
+      final String value => value,
+      final Map<String, dynamic> value =>
+        '${(value['num'] as num?)?.toInt() ?? 1}/${(value['den'] as num?)?.toInt() ?? 1}',
+      _ => '1/1',
+    },
+  );
 
   final String id;
-  final String trackId;
+  String trackId;
   final String mediaId;
   final String label;
   Rt start;
@@ -210,23 +209,46 @@ class Clip {
   final String speed;
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'trackId': trackId,
-        'mediaId': mediaId,
-        'label': label,
-        'start': start.toString(),
-        'duration': duration.toString(),
-        'sourceIn': sourceIn.toString(),
-        'speed': {
-          'num': int.tryParse(speed.split('/').first) ?? 1,
-          'den': int.tryParse(speed.split('/').last) ?? 1,
-        },
-        'volume': 1.0,
-        'mute': false,
-        'fadeIn': {'duration': '0/1', 'curve': 'linear'},
-        'fadeOut': {'duration': '0/1', 'curve': 'linear'},
-        'effects': [],
-      };
+    'id': id,
+    'trackId': trackId,
+    'mediaId': mediaId,
+    'label': label,
+    'start': start.toString(),
+    'duration': duration.toString(),
+    'sourceIn': sourceIn.toString(),
+    'speed': {
+      'num': int.tryParse(speed.split('/').first) ?? 1,
+      'den': int.tryParse(speed.split('/').last) ?? 1,
+    },
+    'volume': 1.0,
+    'mute': false,
+    'fadeIn': {'duration': '0/1', 'curve': 'linear'},
+    'fadeOut': {'duration': '0/1', 'curve': 'linear'},
+    'effects': [],
+  };
+}
+
+class Marker {
+  Marker({required this.id, required this.time, this.name = '', this.color = '#F5C451'});
+
+  factory Marker.fromJson(Map<String, dynamic> j) => Marker(
+    id: j['id'] as String,
+    time: Rt.parse(j['time'] as String),
+    name: (j['name'] as String?) ?? '',
+    color: (j['color'] as String?) ?? '#F5C451',
+  );
+
+  final String id;
+  Rt time;
+  String name;
+  String color;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'time': time.toString(),
+    'name': name,
+    'color': color,
+  };
 }
 
 class ProjectDoc {
@@ -236,9 +258,10 @@ class ProjectDoc {
     required this.createdAt,
     required this.modifiedAt,
     required this.settings,
-  })  : media = [],
-        tracks = [],
-        clips = [];
+  }) : media = [],
+       tracks = [],
+       clips = [],
+       markers = [];
 
   factory ProjectDoc.empty(String name, {int? width, int? height, double? fps}) {
     return ProjectDoc(
@@ -267,12 +290,24 @@ class ProjectDoc {
       modifiedAt: DateTime.parse(j['modifiedAt'] as String),
       settings: SequenceSettings.fromJson(j['settings'] as Map<String, dynamic>),
     );
-    doc.media.addAll((j['media'] as List<dynamic>? ?? [])
-        .map((m) => MediaAsset.fromJson(m as Map<String, dynamic>)));
-    doc.tracks.addAll((j['tracks'] as List<dynamic>? ?? [])
-        .map((t) => Track.fromJson(t as Map<String, dynamic>)));
-    doc.clips.addAll((j['clips'] as List<dynamic>? ?? [])
-        .map((c) => Clip.fromJson(c as Map<String, dynamic>)));
+    doc.media.addAll(
+      (j['media'] as List<dynamic>? ?? []).map(
+        (m) => MediaAsset.fromJson(m as Map<String, dynamic>),
+      ),
+    );
+    doc.tracks.addAll(
+      (j['tracks'] as List<dynamic>? ?? []).map(
+        (t) => Track.fromJson(t as Map<String, dynamic>),
+      ),
+    );
+    doc.clips.addAll(
+      (j['clips'] as List<dynamic>? ?? []).map((c) => Clip.fromJson(c as Map<String, dynamic>)),
+    );
+    doc.markers.addAll(
+      (j['markers'] as List<dynamic>? ?? []).map(
+        (m) => Marker.fromJson(m as Map<String, dynamic>),
+      ),
+    );
     if (doc.tracks.isEmpty) doc._initDefaultTracks();
     return doc;
   }
@@ -288,15 +323,13 @@ class ProjectDoc {
   final List<MediaAsset> media;
   final List<Track> tracks;
   final List<Clip> clips;
+  final List<Marker> markers;
 
-  Track? videoTrack() =>
-      tracks.where((t) => t.kind == 'video').toList().firstOrNull;
+  Track? videoTrack() => tracks.where((t) => t.kind == 'video').toList().firstOrNull;
 
-  Track? audioTrack() =>
-      tracks.where((t) => t.kind == 'audio').toList().firstOrNull;
+  Track? audioTrack() => tracks.where((t) => t.kind == 'audio').toList().firstOrNull;
 
-  MediaAsset? assetById(String id) =>
-      media.where((m) => m.id == id).toList().firstOrNull;
+  MediaAsset? assetById(String id) => media.where((m) => m.id == id).toList().firstOrNull;
 
   Rt get sequenceDuration {
     var end = Rt.zero();
@@ -321,7 +354,7 @@ class ProjectDoc {
       'tracks': tracks.map((t) => t.toJson()).toList(),
       'clips': clips.map((c) => c.toJson()).toList(),
       'transitions': [],
-      'markers': [],
+      'markers': markers.map((m) => m.toJson()).toList(),
     });
   }
 }

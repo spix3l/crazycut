@@ -10,12 +10,24 @@ import 'asset_card.dart';
 /// Left rail: search, import drop zone and the asset grid. Falls back to an
 /// empty state when the project has no media yet.
 class MediaPool extends StatelessWidget {
-  const MediaPool({super.key, required this.assets, this.onImport});
+  const MediaPool({
+    super.key,
+    required this.assets,
+    this.onImport,
+    this.onAssetTap,
+    this.dropActive = false,
+  });
 
   static const double width = 280;
 
   final List<MediaAsset> assets;
   final VoidCallback? onImport;
+
+  /// Adds the asset to the end of its natural track.
+  final ValueChanged<MediaAsset>? onAssetTap;
+
+  /// Highlights the drop zone while files hover the window.
+  final bool dropActive;
 
   @override
   Widget build(BuildContext context) {
@@ -54,7 +66,7 @@ class MediaPool extends StatelessWidget {
                     radius: CcRadius.sm,
                   ),
                   const SizedBox(height: 10),
-                  _ImportDropZone(onTap: onImport),
+                  _ImportDropZone(onTap: onImport, active: dropActive),
                 ],
               ],
             ),
@@ -81,7 +93,7 @@ class MediaPool extends StatelessWidget {
                       ),
                     ),
                   )
-                : _AssetGrid(assets: assets),
+                : _AssetGrid(assets: assets, onAssetTap: onAssetTap),
           ),
         ],
       ),
@@ -90,9 +102,10 @@ class MediaPool extends StatelessWidget {
 }
 
 class _ImportDropZone extends StatelessWidget {
-  const _ImportDropZone({this.onTap});
+  const _ImportDropZone({this.onTap, this.active = false});
 
   final VoidCallback? onTap;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
@@ -102,9 +115,9 @@ class _ImportDropZone extends StatelessWidget {
         height: 86,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: CcColors.elevated,
+          color: active ? CcColors.elevated2 : CcColors.elevated,
           borderRadius: CcRadius.brMd,
-          border: CcBorders.allStrong,
+          border: active ? Border.all(color: CcColors.accent) : CcBorders.allStrong,
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -113,7 +126,11 @@ class _ImportDropZone extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               'Drag files or folders',
-              style: CcType.style(size: 12, weight: CcType.medium, color: CcColors.textSecondary),
+              style: CcType.style(
+                size: 12,
+                weight: CcType.medium,
+                color: CcColors.textSecondary,
+              ),
             ),
             const SizedBox(height: 4),
             Text('or click to import', style: CcType.tiny),
@@ -125,9 +142,10 @@ class _ImportDropZone extends StatelessWidget {
 }
 
 class _AssetGrid extends StatelessWidget {
-  const _AssetGrid({required this.assets});
+  const _AssetGrid({required this.assets, this.onAssetTap});
 
   final List<MediaAsset> assets;
+  final ValueChanged<MediaAsset>? onAssetTap;
 
   @override
   Widget build(BuildContext context) {
@@ -147,7 +165,13 @@ class _AssetGrid extends StatelessWidget {
                 runSpacing: gap,
                 children: [
                   for (final asset in assets)
-                    SizedBox(width: cardWidth, child: AssetCard(asset: asset)),
+                    SizedBox(
+                      width: cardWidth,
+                      child: AssetCard(
+                        asset: asset,
+                        onTap: onAssetTap == null ? null : () => onAssetTap!(asset),
+                      ),
+                    ),
                 ],
               );
             },

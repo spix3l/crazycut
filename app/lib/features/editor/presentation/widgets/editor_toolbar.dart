@@ -13,18 +13,30 @@ class EditorToolbar extends StatelessWidget {
     this.onToolChanged,
     this.onBack,
     this.onExport,
+    this.onUndo,
+    this.onRedo,
+    this.canUndo = false,
+    this.canRedo = false,
+    this.snap = true,
+    this.onSnapChanged,
+    this.saveState = '',
   });
 
-  static const _tools = [
-    LucideIcons.mousePointer2,
-    LucideIcons.scissors,
-    LucideIcons.type,
-  ];
+  static const _tools = [LucideIcons.mousePointer2, LucideIcons.scissors, LucideIcons.type];
 
   final int selectedTool;
   final ValueChanged<int>? onToolChanged;
   final VoidCallback? onBack;
   final VoidCallback? onExport;
+  final VoidCallback? onUndo;
+  final VoidCallback? onRedo;
+  final bool canUndo;
+  final bool canRedo;
+  final bool snap;
+  final ValueChanged<bool>? onSnapChanged;
+
+  /// "Saved" / "Saving…" hint next to the export button.
+  final String saveState;
 
   @override
   Widget build(BuildContext context) {
@@ -54,9 +66,23 @@ class EditorToolbar extends StatelessWidget {
                 const SizedBox(width: 14),
                 const CcDivider(),
                 const SizedBox(width: 14),
-                const CcIcon(LucideIcons.undo2, size: 16),
+                CcTappable(
+                  onTap: canUndo ? onUndo : null,
+                  child: CcIcon(
+                    LucideIcons.undo2,
+                    size: 16,
+                    color: canUndo ? CcColors.textPrimary : CcColors.textTertiary,
+                  ),
+                ),
                 const SizedBox(width: 14),
-                const CcIcon(LucideIcons.redo2, size: 16, color: CcColors.textTertiary),
+                CcTappable(
+                  onTap: canRedo ? onRedo : null,
+                  child: CcIcon(
+                    LucideIcons.redo2,
+                    size: 16,
+                    color: canRedo ? CcColors.textPrimary : CcColors.textTertiary,
+                  ),
+                ),
               ],
             ),
           ),
@@ -86,10 +112,15 @@ class EditorToolbar extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const CcIconButton(
+                if (saveState.isNotEmpty) ...[
+                  Text(saveState, style: CcType.tiny),
+                  const SizedBox(width: 10),
+                ],
+                CcIconButton(
                   icon: LucideIcons.magnet,
-                  active: true,
+                  active: snap,
                   outlined: true,
+                  onPressed: onSnapChanged == null ? null : () => onSnapChanged!(!snap),
                 ),
                 const SizedBox(width: 10),
                 const CcDropdown(value: 'Auto', height: 29, fontSize: 12),

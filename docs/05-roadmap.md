@@ -24,6 +24,8 @@ The timeline becomes real.
 - Thumbnails/waveforms in timeline; proxy generation background (IMP-8).
 - **Exit criteria:** TIM acceptance tests pass incl. 500-clip perf suite; crash-recovery drill (kill -9) loses ≤ 30 s.
 
+> **Status (2026-08):** first slice landed — the editor is bound to the open project end to end (browser → session → `EditorController`). Working: drag-move between/along tracks with push-right overlap resolution (TIM-3/4), head/tail trim clamped to source handles and one frame (TIM-6/7), split at playhead (TIM-10), markers (TIM-11), playhead scrub/step/edge-jump and JKL shuttle (TIM-12/13), zoom + zoom-to-fit (TIM-14), snapping to playhead/clip edges/markers with an indicator line (TIM-15), plain and ripple delete (TIM-9), snapshot undo/redo with gesture coalescing (TIM-20/21), engine-decoded preview frames and waveforms, and 2 s autosave. Still open for M1: roll/slip/slide trims, multi-select and marquee, copy/paste, linked A/V groups, drag-from-pool drop modes (TIM-5), track reorder/rename/height (TIM-1/2), virtualised rendering + the 500-clip perf suite (TIM-22), and command-object undo to replace the document snapshots.
+
 ### M2 — Look & motion (~25%)
 - Effect stacks: color basics, blur family (+blur-island), transform/crop, blend modes (FX-*).
 - Transitions with handle semantics (TRA-*).
