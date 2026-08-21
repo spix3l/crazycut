@@ -1,0 +1,34 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "engine: configure",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "-S", "${workspaceFolder}/engine",
+        "-B", "${workspaceFolder}/engine/build",
+        "-DCMAKE_BUILD_TYPE=Debug"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "engine: build",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "${workspaceFolder}/engine/build", "-j"],
+      "dependsOn": "engine: configure",
+      "group": "build",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "engine: test",
+      "type": "shell",
+      "command": "ctest",
+      "args": ["--test-dir", "${workspaceFolder}/engine/build", "--output-on-failure"],
+      "dependsOn": "engine: build",
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}

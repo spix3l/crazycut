@@ -1,0 +1,21 @@
+{
+  "dart.projectSearchDepth": 3,
+  "dart.runPubGetOnPubspecChanges": "always",
+  "dart.lineLength": 96,
+  "editor.formatOnSave": true,
+  "[dart]": {
+    "editor.rulers": [96],
+    "editor.selectionHighlight": false,
+    "editor.tabCompletion": "onlySnippets",
+    "editor.wordBasedSuggestions": "off"
+  },
+  "files.exclude": {
+    "**/.dart_tool": true,
+    "**/build": true,
+    "app/macos/Pods": true
+  },
+  "search.exclude": {
+    "**/*.g.dart": true,
+    "**/*.gr.dart": true
+  }
+}
