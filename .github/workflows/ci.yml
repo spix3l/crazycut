@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  engine-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ffmpeg
+        run: brew install ffmpeg
+      - name: Configure
+        run: cmake -S engine -B engine/build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build engine/build -j
+      - name: Test
+        run: ctest --test-dir engine/build --output-on-failure
+
+  engine-windows:
+    runs-on: windows-2022
+    continue-on-error: true
+    env:
+      FFMPEG_DIR: ${{ github.workspace }}\ffmpeg
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch ffmpeg shared dev build
+        shell: pwsh
+        run: |
+          curl.exe -L -o ffmpeg.7z https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z
+          7z x ffmpeg.7z -offf -y
+          $dir = Get-ChildItem offf -Directory | Select-Object -First 1
+          Move-Item $dir.FullName ffmpeg
+      - name: Configure
+        run: cmake -S engine -B engine/build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build engine/build --config Release -j
+
+  app:
+    runs-on: macos-14
+    needs: engine-macos
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Install ffmpeg (for engine linkage)
+        run: brew install ffmpeg
+      - name: Build engine
+        run: |
+          cmake -S engine -B engine/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build engine/build -j
+      - name: Analyze
+        working-directory: app
+        run: flutter analyze
+      - name: Test
+        working-directory: app
+        run: flutter test
+      - name: Build macOS (debug)
+        working-directory: app
+        run: flutter build macos --debug

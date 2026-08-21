@@ -1,0 +1,25 @@
+# Build artifacts
+build/
+engine/build/
+app/build/
+**/DerivedData/
+
+# Flutter / Dart
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+pubspec.lock
+
+# macOS
+.DS_Store
+*.dSYM
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Fixtures generated locally (large media)
+fixtures/media/*.mp4
+fixtures/out/
