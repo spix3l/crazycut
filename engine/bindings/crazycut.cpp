@@ -6,12 +6,20 @@
 
 #include "core/result.h"
 #include "media/frame.h"
+#include "media/prepare.h"
 #include "media/probe.h"
+#include "graph/keyframes.h"
+#include "model/project.h"
 #include "playback/player.h"
 
 struct cc_engine {
   std::string jsonBuffer;
+  cc::ProjectSnapshot project;
 };
+
+namespace {
+thread_local std::string g_value_buffer;
+}
 
 extern "C" {
 
@@ -36,6 +44,59 @@ int32_t cc_probe_file(cc_engine* engine, const char* utf8_path, const char** out
   engine->jsonBuffer = std::move(json);
   *out_json = engine->jsonBuffer.c_str();
   return 0;
+}
+
+int32_t cc_project_set_snapshot(cc_engine* engine, const char* utf8_json,
+                                int32_t repair_invalid,
+                                const char** out_report_json) {
+  if (!engine || !utf8_json || !out_report_json) {
+    cc::setLastError("cc_project_set_snapshot: null argument");
+    return static_cast<int32_t>(cc::Error::InvalidArgument);
+  }
+  const cc::Error error = engine->project.load(utf8_json, repair_invalid != 0);
+  if (error != cc::Error::None) return static_cast<int32_t>(error);
+  engine->jsonBuffer = engine->project.reportJson();
+  *out_report_json = engine->jsonBuffer.c_str();
+  return 0;
+}
+
+int32_t cc_project_get_snapshot(cc_engine* engine, const char** out_json) {
+  if (!engine || !out_json) {
+    cc::setLastError("cc_project_get_snapshot: null argument");
+    return static_cast<int32_t>(cc::Error::InvalidArgument);
+  }
+  engine->jsonBuffer = engine->project.jsonString();
+  *out_json = engine->jsonBuffer.c_str();
+  return 0;
+}
+
+double cc_project_duration(cc_engine* engine) {
+  return engine ? engine->project.duration().toSeconds() : 0.0;
+}
+
+int32_t cc_evaluate_parameter(const char* utf8_parameter_json,
+                              int64_t time_num, int32_t time_den,
+                              const char** out_value_json) {
+  if (!utf8_parameter_json || !out_value_json || time_den <= 0) {
+    cc::setLastError("cc_evaluate_parameter: invalid argument");
+    return static_cast<int32_t>(cc::Error::InvalidArgument);
+  }
+  try {
+    nlohmann::json parameter = nlohmann::json::parse(utf8_parameter_json);
+    nlohmann::json value;
+    const cc::Error error = cc::evaluateParameter(
+        parameter, cc::RationalTime{time_num, time_den}.normalized(), &value);
+    if (error != cc::Error::None) {
+      cc::setLastError("invalid keyframe parameter");
+      return static_cast<int32_t>(error);
+    }
+    g_value_buffer = value.dump();
+    *out_value_json = g_value_buffer.c_str();
+    return 0;
+  } catch (const std::exception& e) {
+    cc::setLastError(std::string("parameter JSON error: ") + e.what());
+    return static_cast<int32_t>(cc::Error::InvalidArgument);
+  }
 }
 
 int32_t cc_extract_thumbnail(cc_engine* engine, const char* utf8_path, double seconds,
@@ -83,6 +144,31 @@ int32_t cc_extract_frame_rgba(cc_engine* engine, const char* utf8_path, double s
   *out_w = frame.width;
   *out_h = frame.height;
   *out_rgba = copy;
+  return 0;
+}
+
+int32_t cc_hash_file(cc_engine* engine, const char* utf8_path,
+                     const char** out_hash) {
+  if (!engine || !utf8_path || !out_hash) {
+    cc::setLastError("cc_hash_file: null argument");
+    return static_cast<int32_t>(cc::Error::InvalidArgument);
+  }
+  const cc::Error error = cc::hashFileSha256(utf8_path, &engine->jsonBuffer);
+  if (error != cc::Error::None) return static_cast<int32_t>(error);
+  *out_hash = engine->jsonBuffer.c_str();
+  return 0;
+}
+
+int32_t cc_extract_waveform(cc_engine* engine, const char* utf8_path,
+                            int32_t peaks_per_second, const char** out_json) {
+  if (!engine || !utf8_path || !out_json) {
+    cc::setLastError("cc_extract_waveform: null argument");
+    return static_cast<int32_t>(cc::Error::InvalidArgument);
+  }
+  const cc::Error error = cc::extractWaveform(utf8_path, peaks_per_second,
+                                               &engine->jsonBuffer);
+  if (error != cc::Error::None) return static_cast<int32_t>(error);
+  *out_json = engine->jsonBuffer.c_str();
   return 0;
 }
 

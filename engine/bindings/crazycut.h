@@ -27,6 +27,20 @@ CC_EXPORT const char* cc_last_error(void);
 CC_EXPORT int32_t cc_probe_file(cc_engine* engine, const char* utf8_path,
                                 const char** out_json);
 
+// Installs a disposable render-graph snapshot. The document remains owned by
+// Dart; the engine validates and canonicalizes its private copy. Returned
+// strings remain valid until the next project call on this engine handle.
+CC_EXPORT int32_t cc_project_set_snapshot(cc_engine* engine, const char* utf8_json,
+                                          int32_t repair_invalid,
+                                          const char** out_report_json);
+CC_EXPORT int32_t cc_project_get_snapshot(cc_engine* engine, const char** out_json);
+CC_EXPORT double cc_project_duration(cc_engine* engine);
+
+// Pure keyframe evaluator used by both preview and export paths.
+CC_EXPORT int32_t cc_evaluate_parameter(const char* utf8_parameter_json,
+                                        int64_t time_num, int32_t time_den,
+                                        const char** out_value_json);
+
 CC_EXPORT int32_t cc_extract_thumbnail(cc_engine* engine, const char* utf8_path,
                                        double seconds, int32_t width, uint8_t** out_jpeg,
                                        int32_t* out_len);
@@ -34,6 +48,12 @@ CC_EXPORT int32_t cc_extract_thumbnail(cc_engine* engine, const char* utf8_path,
 CC_EXPORT int32_t cc_extract_frame_rgba(cc_engine* engine, const char* utf8_path,
                                         double seconds, int32_t width, int32_t* out_w,
                                         int32_t* out_h, uint8_t** out_rgba);
+
+CC_EXPORT int32_t cc_hash_file(cc_engine* engine, const char* utf8_path,
+                               const char** out_hash);
+CC_EXPORT int32_t cc_extract_waveform(cc_engine* engine, const char* utf8_path,
+                                      int32_t peaks_per_second,
+                                      const char** out_json);
 
 CC_EXPORT void cc_buffer_free(uint8_t* buffer);
 

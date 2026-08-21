@@ -1,0 +1,44 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "CrazyCut (macOS, debug)",
+      "type": "dart",
+      "request": "launch",
+      "program": "${workspaceFolder}/app/lib/main.dart",
+      "cwd": "${workspaceFolder}/app",
+      "deviceId": "macos",
+      "preLaunchTask": "engine: build",
+      "toolArgs": [
+        "--dart-define=CRAZYCUT_ENGINE_LIB=${workspaceFolder}/engine/build/libcrazycut.dylib",
+        "--dart-define=CRAZYCUT_WORKER_BIN=${workspaceFolder}/engine/build/crazycut_worker"
+      ]
+    },
+    {
+      "name": "CrazyCut (macOS, profile)",
+      "type": "dart",
+      "request": "launch",
+      "flutterMode": "profile",
+      "program": "${workspaceFolder}/app/lib/main.dart",
+      "cwd": "${workspaceFolder}/app",
+      "deviceId": "macos",
+      "preLaunchTask": "engine: build",
+      "toolArgs": [
+        "--dart-define=CRAZYCUT_ENGINE_LIB=${workspaceFolder}/engine/build/libcrazycut.dylib",
+        "--dart-define=CRAZYCUT_WORKER_BIN=${workspaceFolder}/engine/build/crazycut_worker"
+      ]
+    },
+    {
+      "name": "CrazyCut (Windows, debug)",
+      "type": "dart",
+      "request": "launch",
+      "program": "${workspaceFolder}/app/lib/main.dart",
+      "cwd": "${workspaceFolder}/app",
+      "deviceId": "windows",
+      "toolArgs": [
+        "--dart-define=CRAZYCUT_ENGINE_LIB=${workspaceFolder}/engine/build/Debug/crazycut.dll",
+        "--dart-define=CRAZYCUT_WORKER_BIN=${workspaceFolder}/engine/build/Debug/crazycut_worker.exe"
+      ]
+    }
+  ]
+}

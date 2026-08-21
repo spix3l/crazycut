@@ -57,6 +57,7 @@ class MediaAsset {
     required this.type,
     required this.duration,
     required this.hasAudio,
+    this.hash = '',
     this.width,
     this.height,
     this.fps,
@@ -74,6 +75,7 @@ class MediaAsset {
         duration:
             j['duration'] == null ? Rt.zero() : Rt.parse(j['duration'] as String),
         hasAudio: (j['hasAudio'] as bool?) ?? false,
+        hash: (j['hash'] as String?) ?? '',
         width: (j['probe']?['width'] as num?)?.toInt(),
         height: (j['probe']?['height'] as num?)?.toInt(),
         fps: j['probe']?['fps'] as String?,
@@ -89,6 +91,7 @@ class MediaAsset {
   String type;
   Rt duration;
   bool hasAudio;
+  String hash;
   int? width;
   int? height;
   String? fps;
@@ -99,7 +102,7 @@ class MediaAsset {
 
   Map<String, dynamic> toJson() => {
         'id': id,
-        'hash': '',
+        'hash': hash,
         'name': name,
         'path': path,
         'type': type,
@@ -189,6 +192,12 @@ class Clip {
         duration: Rt.parse(j['duration'] as String),
         sourceIn:
             j['sourceIn'] == null ? Rt.zero() : Rt.parse(j['sourceIn'] as String),
+        speed: switch (j['speed']) {
+          final String value => value,
+          final Map<String, dynamic> value =>
+            '${(value['num'] as num?)?.toInt() ?? 1}/${(value['den'] as num?)?.toInt() ?? 1}',
+          _ => '1/1',
+        },
       );
 
   final String id;
@@ -208,7 +217,10 @@ class Clip {
         'start': start.toString(),
         'duration': duration.toString(),
         'sourceIn': sourceIn.toString(),
-        'speed': speed,
+        'speed': {
+          'num': int.tryParse(speed.split('/').first) ?? 1,
+          'den': int.tryParse(speed.split('/').last) ?? 1,
+        },
         'volume': 1.0,
         'mute': false,
         'fadeIn': {'duration': '0/1', 'curve': 'linear'},
