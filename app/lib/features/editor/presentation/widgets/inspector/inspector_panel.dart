@@ -1,69 +1,40 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/widgets.dart' hide Clip;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../../../core/design/tokens.dart';
 import '../../../../../core/widgets/primitives.dart';
-import 'inspector_row.dart';
+import '../../../../../data/project.dart';
+import '../../../../../models/rational.dart';
+import '../../../../../state/editor_controller.dart';
+import 'inspector_rows.dart';
 import 'inspector_tabs.dart';
 
-/// What the inspector is currently bound to. Each selection brings its own
-/// header, tab set and tab bodies.
-enum InspectorTarget { caption, clip, transition, none }
-
-/// Right rail. With [InspectorTarget.none] it shows sequence settings.
+/// Right rail. Binds to the current selection: sequence facts when nothing is
+/// selected, otherwise the clip's timing, audio and (M2) look tabs.
 class InspectorPanel extends StatefulWidget {
-  const InspectorPanel({
-    super.key,
-    this.selection = InspectorTarget.caption,
-    this.title,
-    this.sequence,
-  });
+  const InspectorPanel({super.key, required this.controller});
 
   static const double width = 300;
 
-  final InspectorTarget selection;
-
-  /// Overrides the header text with the real clip name.
-  final String? title;
-
-  /// Sequence summary shown when nothing is selected.
-  final SequenceSummary? sequence;
+  final EditorController controller;
 
   @override
   State<InspectorPanel> createState() => _InspectorPanelState();
 }
 
 class _InspectorPanelState extends State<InspectorPanel> {
-  late int _tab = _initialTab;
+  int _tab = 0;
 
-  int get _initialTab => switch (widget.selection) {
-    InspectorTarget.caption => 1,
-    InspectorTarget.clip => 2,
-    _ => 0,
-  };
+  EditorController get c => widget.controller;
 
-  List<String> get _tabs => switch (widget.selection) {
-    InspectorTarget.caption => const ['Text', 'Transform', 'Effects', 'Timing'],
-    InspectorTarget.clip => const ['Transform', 'Color', 'Effects', 'Speed', 'Audio'],
-    InspectorTarget.transition => const ['Transition'],
-    InspectorTarget.none => const [],
-  };
-
-  (IconData?, Color, String) get _header => switch (widget.selection) {
-    InspectorTarget.caption => (LucideIcons.type, CcColors.textClip, 'Caption Text'),
-    InspectorTarget.clip => (LucideIcons.video, CcColors.videoPlate2, 'broll_desk.mp4'),
-    InspectorTarget.transition => (
-      LucideIcons.hourglass,
-      CcColors.videoPlate2,
-      'Cross Dissolve',
-    ),
-    InspectorTarget.none => (null, CcColors.textPrimary, 'Sequence settings'),
-  };
+  static const _clipTabs = ['Timing', 'Audio', 'Transform', 'Effects'];
 
   @override
   Widget build(BuildContext context) {
-    final (icon, iconColor, headerTitle) = _header;
-    final title = widget.title ?? headerTitle;
+    final selected = c.selectedClip;
+    final multiple = c.selection.length > 1;
+    final asset = selected == null ? null : c.doc.assetById(selected.mediaId);
+
     return Container(
       width: InspectorPanel.width,
       decoration: const BoxDecoration(color: CcColors.panel, border: CcBorders.left),
@@ -76,48 +47,71 @@ class _InspectorPanelState extends State<InspectorPanel> {
             decoration: const BoxDecoration(border: CcBorders.bottom),
             child: Row(
               children: [
-                if (icon != null) ...[
-                  CcIcon(icon, size: 14, color: iconColor),
+                if (selected != null) ...[
+                  CcIcon(
+                    asset?.type == 'audio' ? LucideIcons.audioWaveform : LucideIcons.video,
+                    size: 14,
+                    color: CcColors.videoPlate2,
+                  ),
                   const SizedBox(width: 8),
                 ],
-                Text(title, style: CcType.bodyStrong),
+                Expanded(
+                  child: Text(
+                    selected == null
+                        ? 'Sequence settings'
+                        : multiple
+                            ? '${c.selection.length} clips selected'
+                            : selected.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: CcType.bodyStrong,
+                  ),
+                ),
               ],
             ),
           ),
-          if (_tabs.isNotEmpty)
+          if (selected != null)
             CcTabBar(
-              tabs: _tabs,
-              selectedIndex: _tab,
-              fontSize: widget.selection == InspectorTarget.clip ? 11 : 12,
-              horizontalPadding: widget.selection == InspectorTarget.clip ? 9 : 10,
+              tabs: _clipTabs,
+              selectedIndex: _tab.clamp(0, _clipTabs.length - 1),
+              fontSize: 11,
+              horizontalPadding: 9,
               onChanged: (i) => setState(() => _tab = i),
             ),
-          Expanded(child: SingleChildScrollView(child: _body())),
+          Expanded(
+            child: SingleChildScrollView(
+              child: selected == null
+                  ? SequenceSettingsTab(controller: c)
+                  : _clipBody(selected),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _body() {
-    if (widget.selection == InspectorTarget.none) {
-      return SequenceSettingsTab(sequence: widget.sequence);
-    }
-    if (widget.selection == InspectorTarget.transition) return const TransitionTab();
-    final name = _tabs[_tab];
-    return switch (name) {
-      'Transform' => const TransformTab(),
-      'Effects' => const EffectsTab(),
-      'Timing' => const TimingTab(),
-      _ => PlaceholderTab(name: name),
+  Widget _clipBody(Clip clip) {
+    return switch (_clipTabs[_tab.clamp(0, _clipTabs.length - 1)]) {
+      'Timing' => ClipTimingTab(controller: c, clip: clip),
+      'Audio' => ClipAudioTab(controller: c, clip: clip),
+      'Transform' => const PlaceholderTab(
+          name: 'Transform',
+          note: 'Transform, crop and keyframes arrive with the effect system (M2).',
+        ),
+      _ => const PlaceholderTab(
+          name: 'Effects',
+          note: 'Colour and blur stacks arrive with the effect system (M2).',
+        ),
     };
   }
 }
 
-/// Tabs that carry no design of their own yet.
+/// Tabs that have no controls yet, kept honest about why.
 class PlaceholderTab extends StatelessWidget {
-  const PlaceholderTab({super.key, required this.name});
+  const PlaceholderTab({super.key, required this.name, required this.note});
 
   final String name;
+  final String note;
 
   @override
   Widget build(BuildContext context) {
@@ -128,52 +122,24 @@ class PlaceholderTab extends StatelessWidget {
         children: [
           CcSectionHeader(name.toUpperCase()),
           const SizedBox(height: 12),
-          Text('No controls in this mock-up.', style: CcType.tiny),
+          Text(note, style: CcType.style(size: 11, color: CcColors.textTertiary, height: 1.5)),
         ],
       ),
     );
   }
 }
 
-/// Read-only sequence facts for the no-selection inspector.
-@immutable
-class SequenceSummary {
-  const SequenceSummary({
-    required this.resolution,
-    required this.frameRate,
-    required this.sampleRate,
-    required this.duration,
-    required this.background,
-  });
-
-  final String resolution;
-  final String frameRate;
-  final String sampleRate;
-  final String duration;
-  final String background;
-}
-
 /// Sequence summary shown when nothing is selected.
 class SequenceSettingsTab extends StatelessWidget {
-  const SequenceSettingsTab({super.key, this.sequence});
+  const SequenceSettingsTab({super.key, required this.controller});
 
-  final SequenceSummary? sequence;
+  final EditorController controller;
 
   @override
   Widget build(BuildContext context) {
-    Widget row(String label, Widget value) => Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        children: [
-          Text(label, style: CcType.small),
-          const Spacer(),
-          value,
-        ],
-      ),
-    );
-
-    Widget value(String text) =>
-        Text(text, style: CcType.style(size: 12, weight: CcType.medium));
+    final s = controller.doc.settings;
+    final fps = s.fpsValue;
+    Widget value(String text) => Text(text, style: CcType.style(size: 12, weight: CcType.medium));
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
@@ -185,11 +151,24 @@ class SequenceSettingsTab extends StatelessWidget {
             style: CcType.style(size: 11, color: CcColors.textTertiary, height: 1.4),
           ),
           const SizedBox(height: 24),
-          row('Resolution', value(sequence?.resolution ?? '1920 × 1080')),
-          row('Frame rate', value(sequence?.frameRate ?? '30 fps')),
-          row('Sample rate', value(sequence?.sampleRate ?? '48 kHz')),
-          row('Duration', value(sequence?.duration ?? '00:00:00:00')),
-          row(
+          InfoRow('Resolution', value('${s.width} × ${s.height}')),
+          InfoRow(
+            'Frame rate',
+            value('${fps == fps.roundToDouble() ? fps.round() : fps.toStringAsFixed(2)} fps'),
+          ),
+          InfoRow('Sample rate', value('${(s.audioSampleRate / 1000).round()} kHz')),
+          InfoRow('Duration', value(controller.durationTimecode)),
+          InfoRow('Clips', value('${controller.doc.clips.length}')),
+          InfoRow('Tracks', value('${controller.doc.tracks.length}')),
+          if (controller.inPoint != null || controller.outPoint != null)
+            InfoRow(
+              'In / out',
+              value(
+                '${Rt.toTimecode(controller.rangeStart, fps)} → '
+                '${Rt.toTimecode(controller.rangeEnd, fps)}',
+              ),
+            ),
+          InfoRow(
             'Background',
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -204,36 +183,10 @@ class SequenceSettingsTab extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 6),
-                value(sequence?.background ?? '#000000'),
+                value(s.background),
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Position / scale / rotation / opacity sliders.
-class TransformTab extends StatelessWidget {
-  const TransformTab({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(14, 0, 14, 8),
-            child: CcSectionHeader('TRANSFORM'),
-          ),
-          const InspectorRow(label: 'Position X', value: '0', progress: 0.55),
-          const InspectorRow(label: 'Position Y', value: '-120', progress: 0.52),
-          const InspectorRow(label: 'Scale', value: '100%', progress: 0.55, keyframed: true),
-          const InspectorRow(label: 'Rotation', value: '0°', progress: 0.55),
-          const InspectorRow(label: 'Opacity', value: '100%', progress: 1),
         ],
       ),
     );

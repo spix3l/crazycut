@@ -12,11 +12,17 @@ class BrowserHeader extends StatefulWidget {
     this.showSearch = true,
     this.onNewProject,
     this.onSearchChanged,
+    this.sortLabel = 'Last opened',
+    this.onSortTapped,
   });
 
   final bool showSearch;
   final VoidCallback? onNewProject;
   final ValueChanged<String>? onSearchChanged;
+  final String sortLabel;
+
+  /// Receives the global position of the sort control so a menu can anchor.
+  final ValueChanged<Offset>? onSortTapped;
 
   @override
   State<BrowserHeader> createState() => _BrowserHeaderState();
@@ -70,7 +76,12 @@ class _BrowserHeaderState extends State<BrowserHeader> {
               ),
             ),
             const SizedBox(width: 12),
-            const CcDropdown(value: 'Last opened', width: 120, radius: CcRadius.md),
+            GestureDetector(
+              onTapDown: widget.onSortTapped == null
+                  ? null
+                  : (d) => widget.onSortTapped!(d.globalPosition),
+              child: CcDropdown(value: widget.sortLabel, width: 120, radius: CcRadius.md),
+            ),
             const SizedBox(width: 12),
           ],
           CcButton(

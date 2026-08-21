@@ -26,18 +26,16 @@ class Edits extends ChangeNotifier with TimelineEdits {
 
 Rt s(double seconds) => Rt.fromSeconds(seconds);
 
-Edits harness({double assetSeconds = 20}) {
-  final doc = ProjectDoc.empty('Test', width: 1920, height: 1080, fps: 30);
-  doc.media.add(
-    MediaAsset(
-      id: 'asset-1',
-      name: 'clip.mov',
-      path: '/tmp/clip.mov',
-      type: 'video',
-      duration: s(assetSeconds),
-      hasAudio: false,
-    ),
-  );
+Edits harness({double assetSeconds = 20, double fps = 30}) {
+  final doc = ProjectDoc.empty('Test', width: 1920, height: 1080, fps: fps);
+  doc.media.add(MediaAsset(
+    id: 'asset-1',
+    name: 'clip.mov',
+    path: '/tmp/clip.mov',
+    type: 'video',
+    duration: s(assetSeconds),
+    hasAudio: true,
+  ));
   return Edits(doc);
 }
 
@@ -47,15 +45,18 @@ Clip addClip(
   required double start,
   required double duration,
   double sourceIn = 0,
+  String? trackId,
+  String? linkedGroup,
 }) {
   final clip = Clip(
     id: id,
-    trackId: e.doc.videoTrack()!.id,
+    trackId: trackId ?? e.doc.videoTrack()!.id,
     mediaId: 'asset-1',
     label: id,
     start: s(start),
     duration: s(duration),
     sourceIn: s(sourceIn),
+    linkedGroup: linkedGroup,
   );
   e.doc.clips.add(clip);
   return clip;
@@ -85,6 +86,19 @@ void main() {
       e.playhead = s(10);
       expect(e.splitAtPlayhead(), isEmpty);
       expect(e.doc.clips, hasLength(1));
+    });
+
+    test('splits linked partners together (TIM-10)', () {
+      final e = harness();
+      addClip(e, id: 'v', start: 0, duration: 10, linkedGroup: 'g1');
+      addClip(e, id: 'a', start: 0, duration: 10, linkedGroup: 'g1',
+          trackId: e.doc.audioTrack()!.id);
+      e.playhead = s(6);
+
+      final created = e.splitAtPlayhead();
+
+      expect(created, hasLength(2));
+      expect(e.doc.clips, hasLength(4));
     });
   });
 
@@ -121,6 +135,33 @@ void main() {
       e.moveClip('a', trackId: audio.id, start: s(1), snap: false);
 
       expect(e.clipById('a')!.trackId, e.doc.videoTrack()!.id);
+    });
+
+    test('a locked track refuses edits (TIM-2)', () {
+      final e = harness();
+      addClip(e, id: 'a', start: 0, duration: 5);
+      e.setTrackFlags(e.doc.videoTrack()!.id, lock: true);
+
+      e.moveClip('a', start: s(3), snap: false);
+      e.deleteClip('a');
+
+      expect(e.clipById('a')!.start, Rt.zero());
+      expect(e.doc.clips, hasLength(1));
+    });
+
+    test('dragging moves the whole selection and its linked partners', () {
+      final e = harness();
+      addClip(e, id: 'v', start: 0, duration: 5, linkedGroup: 'g1');
+      addClip(e, id: 'a', start: 0, duration: 5, linkedGroup: 'g1',
+          trackId: e.doc.audioTrack()!.id);
+
+      e.beginDrag(EditGesture.move, 'v');
+      e.updateDrag(3, snap: false);
+      e.endGesture();
+
+      expect(e.clipById('v')!.start, s(3));
+      expect(e.clipById('a')!.start, s(3));
+      expect(e.history.depth, 1);
     });
   });
 
@@ -169,6 +210,91 @@ void main() {
     });
   });
 
+  group('roll / slip / slide (TIM-6)', () {
+    test('roll moves the cut and preserves the pair span', () {
+      final e = harness();
+      addClip(e, id: 'a', start: 0, duration: 5, sourceIn: 0);
+      addClip(e, id: 'b', start: 5, duration: 5, sourceIn: 5);
+
+      e.beginRoll('a', 'b');
+      e.updateDrag(1, snap: false);
+      e.endGesture();
+
+      final a = e.clipById('a')!;
+      final b = e.clipById('b')!;
+      expect(a.duration, s(6));
+      expect(b.start, s(6));
+      expect(b.sourceIn, s(6));
+      expect(b.duration, s(4));
+      expect(a.start.plus(a.duration).plus(b.duration), s(10));
+    });
+
+    test('roll lands on exact frame boundaries at 29.97 fps (criterion 2)', () {
+      final e = harness(fps: 29.97, assetSeconds: 60);
+      final frame = e.frameDuration;
+      addClip(e, id: 'a', start: 0, duration: 5, sourceIn: 0);
+      addClip(e, id: 'b', start: 5, duration: 5, sourceIn: 5);
+
+      // Drag by exactly seven frames' worth of seconds.
+      e.beginRoll('a', 'b');
+      e.updateDrag(Rt.fromMicros(frame.micros * 7).seconds, snap: false);
+      e.endGesture();
+
+      // Exactly seven frames were traded between the clips, with no drift:
+      // rational equality, not a tolerance.
+      expect(e.clipById('a')!.duration, s(5).plus(Rt(frame.num * 7, frame.den)));
+      expect(e.clipById('b')!.duration, s(5).minus(Rt(frame.num * 7, frame.den)));
+      expect(e.clipById('b')!.start, e.clipById('a')!.end);
+    });
+
+    test('slip shifts content inside a fixed span', () {
+      final e = harness(assetSeconds: 30);
+      addClip(e, id: 'a', start: 4, duration: 5, sourceIn: 5);
+
+      e.beginDrag(EditGesture.slip, 'a');
+      e.updateDrag(-2);
+      e.endGesture();
+
+      final clip = e.clipById('a')!;
+      expect(clip.start, s(4));
+      expect(clip.duration, s(5));
+      expect(clip.sourceIn, s(7));
+    });
+
+    test('slip clamps at source bounds — no negative durations (criterion 4)', () {
+      final e = harness(assetSeconds: 10);
+      addClip(e, id: 'a', start: 0, duration: 10, sourceIn: 0);
+
+      e.beginDrag(EditGesture.slip, 'a');
+      e.updateDrag(-50);
+
+      final clip = e.clipById('a')!;
+      // Handles are exhausted in both directions: nothing moved, and the drag
+      // reports that it is being held against a limit (TIM-7).
+      expect(clip.sourceIn, Rt.zero());
+      expect(clip.duration, s(10));
+      expect(e.trimAtLimit, isTrue);
+      e.endGesture();
+    });
+
+    test('slide moves a clip between neighbours which compensate', () {
+      final e = harness(assetSeconds: 30);
+      addClip(e, id: 'a', start: 0, duration: 5, sourceIn: 0);
+      addClip(e, id: 'b', start: 5, duration: 5, sourceIn: 5);
+      addClip(e, id: 'c', start: 10, duration: 5, sourceIn: 10);
+
+      e.beginDrag(EditGesture.slide, 'b');
+      e.updateDrag(2, snap: false);
+      e.endGesture();
+
+      expect(e.clipById('a')!.duration, s(7));
+      expect(e.clipById('b')!.start, s(7));
+      expect(e.clipById('b')!.duration, s(5));
+      expect(e.clipById('c')!.start, s(12));
+      expect(e.clipById('c')!.duration, s(3));
+    });
+  });
+
   group('delete', () {
     test('plain delete leaves the gap', () {
       final e = harness();
@@ -181,16 +307,197 @@ void main() {
       expect(e.clipById('b')!.start, s(5));
     });
 
-    test('ripple delete pulls later clips on that track left', () {
+    test('ripple delete of a linked pair pulls both tracks and undoes as one '
+        '(criterion 1)', () {
+      final e = harness(assetSeconds: 60);
+      final video = e.doc.videoTrack()!.id;
+      final audio = e.doc.audioTrack()!.id;
+      final other = e.addTrack('video').id;
+
+      addClip(e, id: 'v1', start: 0, duration: 5, trackId: video);
+      addClip(e, id: 'v2', start: 5, duration: 5, trackId: video, linkedGroup: 'g');
+      addClip(e, id: 'v3', start: 10, duration: 5, trackId: video);
+      addClip(e, id: 'a1', start: 0, duration: 5, trackId: audio);
+      addClip(e, id: 'a2', start: 5, duration: 5, trackId: audio, linkedGroup: 'g');
+      addClip(e, id: 'a3', start: 10, duration: 5, trackId: audio);
+      addClip(e, id: 'x1', start: 5, duration: 5, trackId: other);
+
+      e.selectClip('v2');
+      final before = e.history.depth;
+      e.deleteSelected(ripple: true);
+
+      expect(e.clipById('v2'), isNull);
+      expect(e.clipById('a2'), isNull);
+      expect(e.clipById('v3')!.start, s(5));
+      expect(e.clipById('a3')!.start, s(5));
+      // A track the selection did not span keeps its sync.
+      expect(e.clipById('x1')!.start, s(5));
+      expect(e.history.depth, before + 1);
+
+      e.undo();
+      expect(e.clipById('v2')!.start, s(5));
+      expect(e.clipById('a2')!.start, s(5));
+      expect(e.clipById('v3')!.start, s(10));
+      expect(e.clipById('a3')!.start, s(10));
+    });
+
+    test('magnetic mode makes plain delete ripple (TIM-9)', () {
       final e = harness();
       addClip(e, id: 'a', start: 0, duration: 5);
       addClip(e, id: 'b', start: 5, duration: 5);
-      addClip(e, id: 'c', start: 10, duration: 5);
+      e.setMagnetic(true);
 
-      e.deleteClip('a', ripple: true);
+      e.deleteClip('a');
 
       expect(e.clipById('b')!.start, Rt.zero());
-      expect(e.clipById('c')!.start, s(5));
+    });
+  });
+
+  group('selection and clipboard', () {
+    test('marquee selects everything intersecting the span', () {
+      final e = harness();
+      final video = e.doc.videoTrack()!.id;
+      final audio = e.doc.audioTrack()!.id;
+      addClip(e, id: 'a', start: 0, duration: 4, trackId: video);
+      addClip(e, id: 'b', start: 6, duration: 4, trackId: video);
+      addClip(e, id: 'c', start: 0, duration: 4, trackId: audio);
+
+      e.selectRange(trackIds: [video], from: s(3), to: s(7));
+
+      expect(e.selection, {'a', 'b'});
+    });
+
+    test('select all, invert and track selection', () {
+      final e = harness();
+      final video = e.doc.videoTrack()!.id;
+      addClip(e, id: 'a', start: 0, duration: 4, trackId: video);
+      addClip(e, id: 'b', start: 6, duration: 4, trackId: e.doc.audioTrack()!.id);
+
+      e.selectAll();
+      expect(e.selection, {'a', 'b'});
+
+      e.selectClip('a');
+      e.invertSelection();
+      expect(e.selection, {'b'});
+
+      e.selectTrack(video);
+      expect(e.selection, {'a'});
+    });
+
+    test('paste lands at the playhead with fresh ids (TIM-17)', () {
+      final e = harness(assetSeconds: 60);
+      addClip(e, id: 'a', start: 0, duration: 5);
+      e.selectClip('a');
+      e.copySelection();
+      e.playhead = s(20);
+
+      final created = e.paste();
+
+      expect(created, hasLength(1));
+      expect(created.first, isNot('a'));
+      expect(e.clipById(created.first)!.start, s(20));
+      expect(e.doc.clips, hasLength(2));
+    });
+
+    test('cut removes the clip and keeps it on the clipboard', () {
+      final e = harness();
+      addClip(e, id: 'a', start: 0, duration: 5);
+      e.selectClip('a');
+
+      e.cutSelection();
+      expect(e.doc.clips, isEmpty);
+
+      e.playhead = s(2);
+      e.paste();
+      expect(e.doc.clips.single.start, s(2));
+    });
+
+    test('duplicate places a copy after the selection', () {
+      final e = harness(assetSeconds: 60);
+      addClip(e, id: 'a', start: 0, duration: 5);
+      e.selectClip('a');
+
+      final created = e.duplicateSelection();
+
+      expect(e.clipById(created.single)!.start, s(5));
+    });
+  });
+
+  group('tracks', () {
+    test('add, rename, reorder and remove', () {
+      final e = harness();
+      final v2 = e.addTrack('video');
+      expect(v2.name, 'V2');
+      expect(e.doc.videoTracks, hasLength(2));
+
+      e.renameTrack(v2.id, 'B-roll');
+      expect(e.doc.trackById(v2.id)!.name, 'B-roll');
+
+      e.reorderTrack(v2.id, -1);
+      expect(e.doc.videoTracks.first.id, v2.id);
+
+      addClip(e, id: 'a', start: 0, duration: 4, trackId: v2.id);
+      e.removeTrack(v2.id);
+      expect(e.doc.videoTracks, hasLength(1));
+      expect(e.clipById('a'), isNull);
+    });
+
+    test('the last track of a kind cannot be removed', () {
+      final e = harness();
+      e.removeTrack(e.doc.videoTrack()!.id);
+      expect(e.doc.videoTracks, hasLength(1));
+    });
+
+    test('audio solo clears the others', () {
+      final e = harness();
+      final a1 = e.doc.audioTrack()!;
+      final a2 = e.addTrack('audio');
+
+      e.setTrackFlags(a1.id, solo: true);
+      e.setTrackFlags(a2.id, solo: true);
+
+      expect(e.doc.trackById(a1.id)!.solo, isFalse);
+      expect(e.doc.trackById(a2.id)!.solo, isTrue);
+    });
+  });
+
+  group('placement (TIM-5)', () {
+    test('append puts the clip after the last one and links its audio', () {
+      final e = harness(assetSeconds: 8);
+      e.placeAsset('asset-1');
+      e.placeAsset('asset-1');
+
+      final video = e.doc.clipsOn(e.doc.videoTrack()!.id);
+      expect(video, hasLength(2));
+      expect(video[1].start, s(8));
+      // The asset has audio, so a linked audio clip lands too.
+      expect(e.doc.clipsOn(e.doc.audioTrack()!.id), hasLength(2));
+      expect(video.first.linkedGroup, isNotNull);
+    });
+
+    test('overwrite clears what it lands on', () {
+      final e = harness(assetSeconds: 4);
+      final video = e.doc.videoTrack()!.id;
+      addClip(e, id: 'a', start: 0, duration: 10);
+
+      e.placeAsset('asset-1', trackId: video, at: s(2), mode: DropMode.overwrite);
+
+      final clips = e.doc.clipsOn(video);
+      expect(clips, hasLength(3));
+      expect(clips[0].duration, s(2));
+      expect(clips[1].start, s(2));
+      expect(clips[2].start, s(6));
+    });
+
+    test('insert ripples the lane right', () {
+      final e = harness(assetSeconds: 4);
+      final video = e.doc.videoTrack()!.id;
+      addClip(e, id: 'a', start: 0, duration: 5);
+
+      e.placeAsset('asset-1', trackId: video, at: Rt.zero(), mode: DropMode.insert);
+
+      expect(e.clipById('a')!.start, s(4));
+      expect(e.doc.clipsOn(video).first.start, Rt.zero());
     });
   });
 
@@ -213,9 +520,9 @@ void main() {
       final e = harness();
       addClip(e, id: 'a', start: 0, duration: 10);
 
-      e.beginGesture();
+      e.beginDrag(EditGesture.move, 'a');
       for (var i = 1; i <= 5; i++) {
-        e.moveClip('a', start: s(i.toDouble()), snap: false);
+        e.updateDrag(i.toDouble(), snap: false);
       }
       e.endGesture();
 
@@ -236,25 +543,77 @@ void main() {
       e.moveClip('a', start: s(2), snap: false);
       expect(e.canRedo, isFalse);
     });
+
+    test('undo restores deleted clips with all their fields', () {
+      final e = harness();
+      final clip = addClip(e, id: 'a', start: 0, duration: 10);
+      clip.volume = 0.4;
+      clip.mute = true;
+      clip.fadeIn.duration = s(1);
+
+      e.deleteClip('a');
+      e.undo();
+
+      final restored = e.clipById('a')!;
+      expect(restored.volume, 0.4);
+      expect(restored.mute, isTrue);
+      expect(restored.fadeIn.duration, s(1));
+    });
+
+    test('the stack drops the oldest commands past its memory budget', () {
+      final e = harness();
+      addClip(e, id: 'a', start: 0, duration: 10);
+      // A tiny budget: every edit evicts the previous one.
+      final small = Edits(e.doc);
+      for (var i = 1; i <= 50; i++) {
+        small.moveClip('a', start: s(i.toDouble()), snap: false);
+      }
+      expect(small.history.depth, lessThanOrEqualTo(50));
+      expect(small.history.bytes, lessThan(small.history.memoryBudgetBytes));
+    });
   });
 
-  test('markers land on the playhead and survive a round trip', () {
-    final e = harness();
-    e.playhead = s(7.5);
-    final marker = e.addMarker(name: 'chapter');
+  group('in / out and markers', () {
+    test('markers land on the playhead and survive a round trip', () {
+      final e = harness();
+      e.playhead = s(7.5);
+      final marker = e.addMarker(name: 'chapter');
 
-    final restored = ProjectDoc.decode(e.doc.encode());
-    expect(restored.markers.single.id, marker.id);
-    expect(restored.markers.single.time, s(7.5));
-    expect(restored.markers.single.name, 'chapter');
-  });
+      final restored = ProjectDoc.decode(e.doc.encode());
+      expect(restored.markers.single.id, marker.id);
+      expect(restored.markers.single.time, s(7.5));
+      expect(restored.markers.single.name, 'chapter');
+    });
 
-  test('nextEdge walks cut points in both directions', () {
-    final e = harness();
-    addClip(e, id: 'a', start: 0, duration: 5);
-    addClip(e, id: 'b', start: 8, duration: 4);
+    test('marker navigation walks in both directions', () {
+      final e = harness();
+      e.playhead = s(2);
+      e.addMarker();
+      e.playhead = s(8);
+      e.addMarker();
 
-    expect(e.nextEdge(s(1)), s(5));
-    expect(e.nextEdge(s(9), forward: false), s(8));
+      expect(e.nextMarker(s(0)), s(2));
+      expect(e.nextMarker(s(9), forward: false), s(8));
+    });
+
+    test('in/out points keep their order', () {
+      final e = harness();
+      e.setInPoint(s(5));
+      e.setOutPoint(s(3));
+      expect(e.inPoint, isNull);
+      expect(e.outPoint, s(3));
+
+      e.clearInOut();
+      expect(e.outPoint, isNull);
+    });
+
+    test('nextEdge walks cut points in both directions', () {
+      final e = harness();
+      addClip(e, id: 'a', start: 0, duration: 5);
+      addClip(e, id: 'b', start: 8, duration: 4);
+
+      expect(e.nextEdge(s(1)), s(5));
+      expect(e.nextEdge(s(9), forward: false), s(8));
+    });
   });
 }

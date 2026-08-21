@@ -14,6 +14,7 @@ class ProjectSummary {
     required this.lastOpened,
     required this.aspect,
     required this.thumbnail,
+    required this.createdAt,
     this.path,
   });
 
@@ -30,6 +31,7 @@ class ProjectSummary {
       lastOpened: 'Opened ${relativeTime(modified ?? doc.modifiedAt.toLocal())}',
       aspect: aspectLabel(s.width, s.height),
       thumbnail: thumbGradient(paletteFor(doc.id), _panel),
+      createdAt: doc.createdAt.toLocal(),
       path: path,
     );
   }
@@ -41,6 +43,7 @@ class ProjectSummary {
   final String lastOpened;
   final String aspect;
   final Gradient thumbnail;
+  final DateTime createdAt;
 
   /// Absolute path of the `.crazycut` file, when the card came from disk.
   final String? path;

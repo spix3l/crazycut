@@ -1,15 +1,17 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:auto_route/auto_route.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' hide Clip;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:flutter/widgets.dart';
 
 import '../../../../app/router/app_router.gr.dart';
 import '../../../../app/session.dart';
 import '../../../../core/design/tokens.dart';
+import '../../../../core/widgets/cc_dialog.dart';
 import '../../../../core/widgets/empty_state.dart';
 import '../../../../core/widgets/primitives.dart';
 import '../../../../models/rational.dart';
@@ -22,9 +24,8 @@ import '../widgets/monitor_panel.dart';
 import '../widgets/timeline/timeline_panel.dart';
 
 /// The editor: toolbar on top, media pool / monitor / inspector in the middle,
-/// timeline at the bottom. Everything is bound to the open project's
-/// [EditorController]; the screen only translates gestures and keys into
-/// controller calls.
+/// timeline at the bottom. The screen translates gestures and keys into
+/// controller calls and owns only view state (zoom, snap, fullscreen).
 @RoutePage()
 class EditorScreen extends StatefulWidget {
   const EditorScreen({super.key});
@@ -38,17 +39,9 @@ class _EditorScreenState extends State<EditorScreen> {
     XTypeGroup(
       label: 'Media',
       extensions: [
-        'mp4',
-        'mov',
-        'm4v',
-        'mkv',
-        'wav',
-        'mp3',
-        'aac',
-        'm4a',
-        'png',
-        'jpg',
-        'jpeg',
+        'mp4', 'mov', 'mkv', 'webm', 'm4v',
+        'wav', 'mp3', 'aac', 'm4a', 'flac', 'ogg',
+        'png', 'jpg', 'jpeg', 'webp', 'gif',
       ],
     ),
   ];
@@ -57,6 +50,7 @@ class _EditorScreenState extends State<EditorScreen> {
   int _tool = 0;
   bool _snap = true;
   bool _dropActive = false;
+  bool _fullscreen = false;
   double _pxPerSec = kPixelsPerSecond;
   double _lanesWidth = 800;
 
@@ -69,10 +63,10 @@ class _EditorScreenState extends State<EditorScreen> {
     super.dispose();
   }
 
-  // --- Zoom -----------------------------------------------------------------
+  // --- Zoom (TIM-14) --------------------------------------------------------
 
-  /// Slider position 0..1 mapped exponentially, so the low end still gives
-  /// useful frame-level steps.
+  /// Slider position 0..1 mapped exponentially so the low end still gives
+  /// frame-level steps.
   void _setZoom(double t) {
     final clamped = t.clamp(0.0, 1.0);
     setState(() {
@@ -88,6 +82,9 @@ class _EditorScreenState extends State<EditorScreen> {
 
   void _zoomBy(double delta) => _setZoom(_zoomT + delta);
 
+  /// Pointer-anchored zoom: the time under the cursor stays put.
+  void _zoomAt(double steps, double anchorSeconds) => _zoomBy(steps * 0.25);
+
   void _fit(EditorController c) {
     final seconds = c.duration.seconds;
     if (seconds <= 0) return;
@@ -96,12 +93,36 @@ class _EditorScreenState extends State<EditorScreen> {
     });
   }
 
-  // --- Import ---------------------------------------------------------------
+  // --- Import / export ------------------------------------------------------
 
   Future<void> _browseForMedia(EditorController c) async {
     final files = await openFiles(acceptedTypeGroups: _mediaTypes);
     if (files.isEmpty) return;
-    await c.importFiles(files.map((f) => f.path).toList());
+    await c.importPaths(files.map((f) => f.path).toList());
+  }
+
+  Future<void> _saveCopy(EditorController c) async {
+    final location = await getSaveLocation(
+      suggestedName: '${c.doc.name}.crazycut',
+      acceptedTypeGroups: const [XTypeGroup(label: 'CrazyCut project', extensions: ['crazycut'])],
+    );
+    if (location == null) return;
+    await c.saveCopy(location.path);
+  }
+
+  Future<void> _relinkOffline(EditorController c) async {
+    final missing = c.offlineAssets;
+    if (missing.isEmpty) return;
+    final files = await openFiles(acceptedTypeGroups: _mediaTypes);
+    if (files.isEmpty) return;
+    // IMP-16: match by name, then by size, before giving up.
+    for (final asset in missing) {
+      final match = files.firstWhere(
+        (f) => f.path.split(Platform.pathSeparator).last == asset.name,
+        orElse: () => files.first,
+      );
+      await c.relinkAsset(asset.id, match.path);
+    }
   }
 
   // --- Keyboard (04-ui-ux §7) ----------------------------------------------
@@ -111,22 +132,47 @@ class _EditorScreenState extends State<EditorScreen> {
     final keys = HardwareKeyboard.instance;
     final meta = keys.isMetaPressed || keys.isControlPressed;
     final shift = keys.isShiftPressed;
+    final alt = keys.isAltPressed;
 
     switch (event.logicalKey) {
       case LogicalKeyboardKey.space:
         c.togglePlay();
+      case LogicalKeyboardKey.keyS when meta && shift:
+        _saveCopy(c);
       case LogicalKeyboardKey.keyS when meta:
         c.saveNow();
       case LogicalKeyboardKey.keyS:
         c.splitAtPlayhead();
       case LogicalKeyboardKey.keyM:
         c.addMarker();
+      case LogicalKeyboardKey.keyI when meta:
+        _browseForMedia(c);
+      case LogicalKeyboardKey.keyI:
+        c.setInPoint();
+      case LogicalKeyboardKey.keyO:
+        c.setOutPoint();
+      case LogicalKeyboardKey.keyX when alt:
+        c.clearInOut();
+      case LogicalKeyboardKey.keyX when meta:
+        c.cutSelection();
+      case LogicalKeyboardKey.keyC when meta:
+        c.copySelection();
+      case LogicalKeyboardKey.keyV when meta:
+        c.paste();
+      case LogicalKeyboardKey.keyD when meta:
+        c.duplicateSelection();
+      case LogicalKeyboardKey.keyA when meta:
+        c.selectAll();
+      case LogicalKeyboardKey.keyE when meta:
+        context.router.push(ExportRoute(empty: c.doc.clips.isEmpty));
+      case LogicalKeyboardKey.keyF:
+        setState(() => _fullscreen = !_fullscreen);
       case LogicalKeyboardKey.keyJ:
         c.shuttle(forward: false);
       case LogicalKeyboardKey.keyK:
         c.stopPlayback();
       case LogicalKeyboardKey.keyL:
-        c.shuttle(forward: true);
+        c.shuttle(forward: true, slow: keys.logicalKeysPressed.contains(LogicalKeyboardKey.keyK));
       case LogicalKeyboardKey.keyZ when meta && shift:
         c.redo();
       case LogicalKeyboardKey.keyZ when meta:
@@ -138,6 +184,10 @@ class _EditorScreenState extends State<EditorScreen> {
         shift ? c.seekTo(c.playhead.minus(Rt(1, 1))) : c.stepFrames(-1);
       case LogicalKeyboardKey.arrowRight:
         shift ? c.seekTo(c.playhead.plus(Rt(1, 1))) : c.stepFrames(1);
+      case LogicalKeyboardKey.arrowUp:
+        c.jumpToMarker(forward: false);
+      case LogicalKeyboardKey.arrowDown:
+        c.jumpToMarker(forward: true);
       case LogicalKeyboardKey.home:
         c.goToStart();
       case LogicalKeyboardKey.end:
@@ -153,7 +203,11 @@ class _EditorScreenState extends State<EditorScreen> {
       case LogicalKeyboardKey.backslash:
         _fit(c);
       case LogicalKeyboardKey.escape:
-        c.selectClip(null);
+        if (_fullscreen) {
+          setState(() => _fullscreen = false);
+        } else {
+          c.selectClip(null);
+        }
       default:
         return KeyEventResult.ignored;
     }
@@ -173,18 +227,7 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   Widget _buildEditor(BuildContext context, EditorController c) {
-    final doc = c.doc;
-    final empty = doc.clips.isEmpty;
-    final selected = c.selectedClip;
-    final tracks = tracksFromProject(
-      doc.tracks,
-      doc.clips,
-      selectedClipId: c.selectedClipId,
-      peaksFor: (mediaId) {
-        final asset = doc.assetById(mediaId);
-        return asset == null ? const [] : c.waveformFor(asset);
-      },
-    );
+    final empty = c.doc.clips.isEmpty;
 
     return Focus(
       focusNode: _focus,
@@ -195,139 +238,90 @@ class _EditorScreenState extends State<EditorScreen> {
         onDragExited: (_) => setState(() => _dropActive = false),
         onDragDone: (detail) {
           setState(() => _dropActive = false);
-          c.importFiles(detail.files.map((f) => f.path).toList());
+          c.importPaths(detail.files.map((f) => f.path).toList());
         },
         child: ColoredBox(
           color: CcColors.bg,
-          child: Column(
-            children: [
-              EditorToolbar(
-                selectedTool: _tool,
-                onToolChanged: (i) => setState(() => _tool = i),
-                onBack: () async {
-                  await c.saveNow();
-                  if (context.mounted) context.router.maybePop();
-                },
-                onExport: () => context.router.push(ExportRoute(empty: empty)),
-                onUndo: c.undo,
-                onRedo: c.redo,
-                canUndo: c.canUndo,
-                canRedo: c.canRedo,
-                snap: _snap,
-                onSnapChanged: (v) => setState(() => _snap = v),
-                saveState: c.isDirty ? 'Saving…' : 'Saved',
-              ),
-              Expanded(
-                flex: 560,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+          child: _fullscreen
+              ? MonitorPanel(
+                  controller: c,
+                  fullscreen: true,
+                  onExitFullscreen: () => setState(() => _fullscreen = false),
+                )
+              : Column(
                   children: [
-                    MediaPool(
-                      assets: _poolAssets(c),
-                      dropActive: _dropActive,
-                      onImport: () => _browseForMedia(c),
-                      onAssetTap: (asset) {
-                        if (asset.id != null) c.appendClip(asset.id!);
+                    EditorToolbar(
+                      selectedTool: _tool,
+                      onToolChanged: (i) => setState(() => _tool = i),
+                      onBack: () async {
+                        await AppSession.instance.close();
+                        if (context.mounted) context.router.maybePop();
                       },
+                      onExport: () => context.router.push(ExportRoute(empty: empty)),
+                      onUndo: c.undo,
+                      onRedo: c.redo,
+                      canUndo: c.canUndo,
+                      canRedo: c.canRedo,
+                      snap: _snap,
+                      onSnapChanged: (v) => setState(() => _snap = v),
+                      saveState: c.saveState,
+                      projectName: c.doc.name,
+                      onRename: () => _renameProject(c),
+                      offlineCount: c.offlineAssets.length,
+                      onRelink: () => _relinkOffline(c),
                     ),
                     Expanded(
-                      child: MonitorPanel(
-                        empty: empty,
-                        frame: c.previewFrame,
-                        playing: c.playing,
-                        currentTimecode: c.timecode,
-                        totalTimecode: c.durationTimecode,
-                        caption: null,
-                        onPlayPause: c.togglePlay,
-                        onStepBack: () => c.stepFrames(-1),
-                        onStepForward: () => c.stepFrames(1),
+                      flex: 560,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          MediaPool(
+                            controller: c,
+                            dropActive: _dropActive,
+                            onImport: () => _browseForMedia(c),
+                          ),
+                          Expanded(
+                            child: MonitorPanel(
+                              controller: c,
+                              onFullscreen: () => setState(() => _fullscreen = true),
+                            ),
+                          ),
+                          InspectorPanel(controller: c),
+                        ],
                       ),
                     ),
-                    InspectorPanel(
-                      key: ValueKey(selected?.id ?? 'none'),
-                      selection: selected == null ? InspectorTarget.none : InspectorTarget.clip,
-                      title: selected?.label,
-                      sequence: _sequenceSummary(c),
+                    Expanded(
+                      flex: 388,
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          _lanesWidth = constraints.maxWidth - 160;
+                          return TimelinePanel(
+                            controller: c,
+                            pxPerSec: _pxPerSec,
+                            snap: _snap,
+                            onSnapChanged: (v) => setState(() => _snap = v),
+                            onZoomChanged: _setZoom,
+                            onZoomAt: _zoomAt,
+                            onFit: () => _fit(c),
+                          );
+                        },
+                      ),
                     ),
                   ],
                 ),
-              ),
-              Expanded(
-                flex: 388,
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    _lanesWidth = constraints.maxWidth - 160;
-                    return TimelinePanel(
-                      tracks: tracks,
-                      pxPerSec: _pxPerSec,
-                      playheadSeconds: c.playhead.seconds,
-                      durationSeconds: c.duration.seconds,
-                      markers: [
-                        for (final m in doc.markers)
-                          TimelineMarker(id: m.id, seconds: m.time.seconds, label: m.name),
-                      ],
-                      snapIndicatorSeconds: c.snapIndicator,
-                      showGettingStartedHint: empty,
-                      selectedClipId: c.selectedClipId,
-                      snap: _snap,
-                      onSelect: c.selectClip,
-                      onScrub: (seconds) => c.seekTo(Rt.fromSeconds(seconds)),
-                      onGestureBegin: c.beginGesture,
-                      onGestureEnd: c.endGesture,
-                      onMove: (clipId, trackId, start) => c.moveClip(
-                        clipId,
-                        trackId: trackId,
-                        start: Rt.fromSeconds(start),
-                        snap: _snap,
-                        pxPerSec: _pxPerSec,
-                      ),
-                      onTrimStart: (clipId, start) => c.trimStart(
-                        clipId,
-                        Rt.fromSeconds(start),
-                        snap: _snap,
-                        pxPerSec: _pxPerSec,
-                      ),
-                      onTrimEnd: (clipId, end) => c.trimEnd(
-                        clipId,
-                        Rt.fromSeconds(end),
-                        snap: _snap,
-                        pxPerSec: _pxPerSec,
-                      ),
-                      onSplit: c.splitAtPlayhead,
-                      onDelete: ({required ripple}) => c.deleteSelected(ripple: ripple),
-                      onAddMarker: () => c.addMarker(),
-                      onAddTrack: c.addTrack,
-                      onSnapChanged: (v) => setState(() => _snap = v),
-                      onZoomChanged: _setZoom,
-                      onFit: () => _fit(c),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
   }
 
-  List<MediaAsset> _poolAssets(EditorController c) => [
-    for (final item in c.pool.values) poolItemToAsset(item, item.thumb),
-  ];
-
-  SequenceSummary _sequenceSummary(EditorController c) {
-    final s = c.doc.settings;
-    return SequenceSummary(
-      resolution: '${s.width} × ${s.height}',
-      frameRate: '${_trimZeros(s.fpsValue)} fps',
-      sampleRate: '${(s.audioSampleRate / 1000).round()} kHz',
-      duration: c.durationTimecode,
-      background: s.background,
+  Future<void> _renameProject(EditorController c) async {
+    final name = await promptForText(
+      context,
+      title: 'Rename project',
+      initialValue: c.doc.name,
     );
+    if (name != null && name.isNotEmpty) await c.rename(name);
   }
-
-  static String _trimZeros(double v) =>
-      v == v.roundToDouble() ? v.round().toString() : v.toStringAsFixed(2);
 }
 
 /// Reached only by deep link — the editor has nothing to show without a

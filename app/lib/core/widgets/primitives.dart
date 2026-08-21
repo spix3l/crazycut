@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -637,5 +638,219 @@ class CcDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(width: 1, height: height, color: CcColors.borderStrong);
+  }
+}
+
+/// One row of a [CcMenu].
+class CcMenuItem {
+  const CcMenuItem(
+    this.label, {
+    this.onTap,
+    this.icon,
+    this.shortcut,
+    this.danger = false,
+    this.checked,
+    this.separatorBefore = false,
+  });
+
+  final String label;
+  final VoidCallback? onTap;
+  final IconData? icon;
+  final String? shortcut;
+  final bool danger;
+
+  /// Non-null renders a check column (toggle items).
+  final bool? checked;
+  final bool separatorBefore;
+}
+
+/// Floating verb list used by context menus and the track menu. Disabled rows
+/// stay visible so the menu shape does not jump between targets.
+class CcMenu extends StatelessWidget {
+  const CcMenu({super.key, required this.items, this.onSelected, this.width = 210});
+
+  final List<CcMenuItem> items;
+  final VoidCallback? onSelected;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      decoration: BoxDecoration(
+        color: CcColors.elevated,
+        borderRadius: CcRadius.brMd,
+        border: CcBorders.allStrong,
+        boxShadow: const [
+          BoxShadow(color: Color(0x66000000), blurRadius: 20, offset: Offset(0, 8)),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final item in items) ...[
+            if (item.separatorBefore)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 4),
+                child: SizedBox(height: 1, child: ColoredBox(color: CcColors.border)),
+              ),
+            CcTappable(
+              onTap: item.onTap == null
+                  ? null
+                  : () {
+                      onSelected?.call();
+                      item.onTap!();
+                    },
+              builder: (context, hovered, _) => Container(
+                height: 28,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                color: hovered && item.onTap != null
+                    ? CcColors.elevated2
+                    : const Color(0x00000000),
+                child: Row(
+                  children: [
+                    if (item.checked != null) ...[
+                      CcIcon(
+                        item.checked! ? LucideIcons.check : LucideIcons.minus,
+                        size: 12,
+                        color: item.checked! ? CcColors.accent : CcColors.textTertiary,
+                      ),
+                      const SizedBox(width: 8),
+                    ] else if (item.icon != null) ...[
+                      CcIcon(item.icon!, size: 12, color: CcColors.textSecondary),
+                      const SizedBox(width: 8),
+                    ],
+                    Expanded(
+                      child: Text(
+                        item.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: CcType.style(
+                          size: 12,
+                          color: item.onTap == null
+                              ? CcColors.textTertiary
+                              : item.danger
+                                  ? CcColors.error
+                                  : CcColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    if (item.shortcut != null) Text(item.shortcut!, style: CcType.nano),
+                  ],
+                ),
+              ),
+              child: const SizedBox.shrink(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Opens a [CcMenu] at a global position (right-click menus).
+void showCcMenu(BuildContext context, Offset globalPosition, List<CcMenuItem> items) {
+  final overlay = Overlay.of(context);
+  final size = MediaQuery.of(context).size;
+  late OverlayEntry entry;
+  void close() => entry.remove();
+  final estimatedHeight = items.length * 28.0 + 10;
+  final dx = (globalPosition.dx).clamp(0.0, size.width - 220);
+  final dy = (globalPosition.dy).clamp(0.0, size.height - estimatedHeight - 8);
+  entry = OverlayEntry(
+    builder: (context) => Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: close),
+        ),
+        Positioned(
+          left: dx,
+          top: dy,
+          child: CcMenu(items: items, onSelected: close),
+        ),
+      ],
+    ),
+  );
+  overlay.insert(entry);
+}
+
+/// Hover tooltip. Material's `Tooltip` is off-limits here, and the timeline
+/// leans on tooltips for the trim/shortcut hints, so this is the smallest
+/// overlay-based stand-in that behaves.
+class CcTooltip extends StatefulWidget {
+  const CcTooltip({
+    super.key,
+    required this.message,
+    required this.child,
+    this.delay = const Duration(milliseconds: 450),
+  });
+
+  final String message;
+  final Widget child;
+  final Duration delay;
+
+  @override
+  State<CcTooltip> createState() => _CcTooltipState();
+}
+
+class _CcTooltipState extends State<CcTooltip> {
+  final _link = LayerLink();
+  OverlayEntry? _entry;
+  Timer? _timer;
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _remove();
+    super.dispose();
+  }
+
+  void _schedule() {
+    _timer?.cancel();
+    _timer = Timer(widget.delay, _show);
+  }
+
+  void _show() {
+    if (_entry != null || !mounted || widget.message.isEmpty) return;
+    _entry = OverlayEntry(
+      builder: (context) => CompositedTransformFollower(
+        link: _link,
+        targetAnchor: Alignment.topCenter,
+        followerAnchor: Alignment.bottomCenter,
+        offset: const Offset(0, -6),
+        child: IgnorePointer(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            decoration: BoxDecoration(
+              color: CcColors.elevated2,
+              borderRadius: CcRadius.brSm,
+              border: CcBorders.allStrong,
+            ),
+            child: Text(widget.message, style: CcType.nano),
+          ),
+        ),
+      ),
+    );
+    Overlay.of(context).insert(_entry!);
+  }
+
+  void _remove() {
+    _timer?.cancel();
+    _entry?.remove();
+    _entry = null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CompositedTransformTarget(
+      link: _link,
+      child: MouseRegion(
+        onEnter: (_) => _schedule(),
+        onExit: (_) => _remove(),
+        child: widget.child,
+      ),
+    );
   }
 }
