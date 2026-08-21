@@ -17,6 +17,8 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
+#include "timeline_job.hpp"
+
 using nlohmann::json;
 
 namespace {
@@ -459,7 +461,19 @@ int main(int argc, char** argv) {
   av_log_set_level(AV_LOG_ERROR);
 
   try {
-    const Job job = loadJob(parseJobFile(jobPath));
+    const json spec = cc::parseJobFile(jobPath);
+    if (spec.value("type", "") == "timeline") {
+      // M2 timeline render: document + media map → MP4 through the shared
+      // compositor (arch §1 "one render path").
+      const int rc = cc::runTimelineJob(spec);
+      if (rc == 0) {
+        emit(json{{"type", "done"},
+                  {"seconds", cc::lastJobSeconds()},
+                  {"bytes", cc::lastJobBytes()}});
+      }
+      return rc;
+    }
+    const Job job = loadJob(spec);
     return run(job);
   } catch (const std::exception& e) {
     emitFail(e.what());

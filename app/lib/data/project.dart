@@ -2,6 +2,10 @@ import 'dart:convert';
 
 import 'package:collection/collection.dart';
 
+import 'package:crazycut_app/data/clip_transform.dart';
+import 'package:crazycut_app/data/param_value.dart';
+import 'package:crazycut_app/data/text_content.dart';
+import 'package:crazycut_app/data/transition.dart';
 import 'package:crazycut_app/models/rational.dart';
 
 const String kSchemaVersion = 'crazycut/project@1';
@@ -323,11 +327,24 @@ class Clip {
     Fade? fadeOut,
     this.linkedGroup,
     List<dynamic>? effects,
+    this.blend = 'normal',
+    this.transform,
+    this.text,
     Map<String, dynamic>? extra,
   })  : fadeIn = fadeIn ?? Fade(),
         fadeOut = fadeOut ?? Fade(),
         effects = effects ?? [],
         extra = extra ?? {};
+
+  /// Blend mode of this clip over the composite below it (engine contract):
+  /// normal|multiply|screen|overlay|add|softLight.
+  String blend;
+
+  /// Built-in transform (FX-9); null until a transform edit exists.
+  ClipTransform? transform;
+
+  /// Text payload; non-null only on text clips (whose [mediaId] is '').
+  TextContent? text;
 
   factory Clip.fromJson(Map<String, dynamic> j) => Clip(
         id: j['id'] as String,
@@ -351,12 +368,21 @@ class Clip {
         fadeOut: Fade.fromJson(j['fadeOut'] as Map<String, dynamic>?),
         linkedGroup: j['linkedGroup'] as String?,
         effects: (j['effects'] as List<dynamic>?)?.toList(),
+        blend: (j['blend'] as String?) ?? 'normal',
+        transform: j['transform'] == null
+            ? null
+            : ClipTransform.fromJson(j['transform'] as Map<String, dynamic>),
+        text: j['text'] == null
+            ? null
+            : TextContent.fromJson(j['text'] as Map<String, dynamic>),
         extra: _unknown(j, {
           'id', 'trackId', 'mediaId', 'label', 'start', 'duration', 'sourceIn',
           'speed', 'reverse', 'volume', 'pan', 'mute', 'fadeIn', 'fadeOut',
           'linkedGroup', 'effects',
+          'blend', 'transform', 'text',
         }),
       );
+
 
   final String id;
   String trackId;
@@ -379,6 +405,10 @@ class Clip {
   final Map<String, dynamic> extra;
 
   Rt get end => start.plus(duration);
+
+  /// Lazily-defaulted transform for read paths; persistence is decided by the
+  /// ops layer, so mutating the returned default does not mark the clip.
+  ClipTransform get transformOrDefault => transform ?? ClipTransform();
 
   double get speedValue {
     final parts = speed.split('/');
@@ -423,6 +453,9 @@ class Clip {
         'fadeOut': fadeOut.toJson(),
         if (linkedGroup != null) 'linkedGroup': linkedGroup,
         'effects': effects,
+        if (blend != 'normal') 'blend': blend,
+        if (transform != null) 'transform': transform!.toJson(),
+        if (text != null) 'text': text!.toJson(),
       };
 }
 
@@ -526,6 +559,13 @@ class ProjectDoc {
         quarantine('clip', e);
       }
     }
+    for (final tr in (j['transitions'] as List<dynamic>? ?? const [])) {
+      try {
+        doc.transitions.add(Transition.fromJson(tr as Map<String, dynamic>));
+      } catch (e) {
+        quarantine('transition', e);
+      }
+    }
     for (final m in (j['markers'] as List<dynamic>? ?? const [])) {
       try {
         doc.markers.add(Marker.fromJson(m as Map<String, dynamic>));
@@ -533,7 +573,6 @@ class ProjectDoc {
         quarantine('marker', e);
       }
     }
-    doc.transitions.addAll(j['transitions'] as List<dynamic>? ?? const []);
     if (doc.tracks.isEmpty) doc._initDefaultTracks();
     doc._repair(report);
     return doc;
@@ -559,7 +598,107 @@ class ProjectDoc {
         c.start = Rt.zero();
       }
     }
+    _repairTransitions(report);
+    _repairParamValues(report);
   }
+
+  static Rt _overlap(Clip a, Clip b) {
+    final start = a.start > b.start ? a.start : b.start;
+    final end = a.end < b.end ? a.end : b.end;
+    final d = end.minus(start);
+    return d > Rt.zero() ? d : Rt.zero();
+  }
+
+  void _repairTransitions(RepairReport? report) {
+    // Transitions must reference clips on the same track and span exactly
+    // their computed overlap (§5 Transition).
+    final clipIds = {for (final c in clips) c.id: c};
+    transitions.removeWhere((tr) {
+      void drop(String reason) =>
+          report?.issues.add('transition ${tr.id}: $reason');
+      final a = clipIds[tr.aClipId];
+      final b = clipIds[tr.bClipId];
+      if (a == null || b == null) {
+        drop('unknown clip');
+      } else if (a.trackId != b.trackId) {
+        drop('clips on different tracks');
+      } else if (tr.duration <= Rt.zero()) {
+        drop('non-positive duration');
+      } else {
+        final overlap = _overlap(a, b);
+        if (overlap != tr.duration) {
+          drop('duration ${tr.duration} != overlap $overlap');
+        } else {
+          return false;
+        }
+      }
+      return true;
+    });
+  }
+
+
+  /// Drops keyframes outside [0, clip.duration] or non-increasing, silently
+  /// into the report like other repairs. O(n) over clips and their params.
+  void _repairParamValues(RepairReport? report) {
+    for (final c in clips) {
+      ParamValue fix(String what, ParamValue pv) =>
+          _repairedKeys(pv, what, c.duration, report);
+      for (final fx in c.effects) {
+        if (fx is! Map<String, dynamic>) continue;
+        final params = fx['params'];
+        if (params is! Map<String, dynamic>) continue;
+        for (final entry in params.entries) {
+          final v = entry.value;
+          if (v is ParamValue) {
+            params[entry.key] = fix('clip ${c.id} effect ${entry.key}', v);
+          }
+        }
+      }
+      final t = c.transform;
+      if (t == null) continue;
+      fix('clip ${c.id} transform x', t.x);
+      fix('clip ${c.id} transform y', t.y);
+      fix('clip ${c.id} transform scale', t.scale);
+      fix('clip ${c.id} transform rotation', t.rotation);
+      fix('clip ${c.id} transform anchor', t.anchor);
+      fix('clip ${c.id} transform opacity', t.opacity);
+    }
+  }
+
+  /// Returns [pv] unchanged when its keys are valid, otherwise a repaired copy.
+  static ParamValue _repairedKeys(
+    ParamValue pv,
+    String what,
+    Rt clipDuration,
+    RepairReport? report,
+  ) {
+    if (!pv.animated) return pv;
+    pv.sortKeys();
+    Rt? lastT;
+    var bad = false;
+    for (final k in pv.keyframes) {
+      final t = _keyTime(k['t']);
+      if (t < Rt.zero() || t > clipDuration || (lastT != null && t <= lastT)) {
+        k['__drop'] = true;
+        bad = true;
+      } else {
+        lastT = t;
+      }
+    }
+    if (!bad) return pv;
+    report?.issues.add('$what: dropped keyframe(s) outside span or non-increasing');
+    pv.keyframes.removeWhere((k) => k.remove('__drop') as bool? ?? false);
+    return pv;
+  }
+
+  static Rt _keyTime(dynamic t) =>
+      t is String ? Rt.parse(t) : (t is num ? Rt.fromSeconds(t.toDouble()) : Rt.zero());
+
+
+  Transition? transitionById(String id) =>
+      transitions.firstWhereOrNull((t) => t.id == id);
+
+
 
   factory ProjectDoc.decode(String contents, {RepairReport? report}) {
     final json = jsonDecode(contents) as Map<String, dynamic>;
@@ -582,7 +721,7 @@ class ProjectDoc {
   final List<Track> tracks;
   final List<Clip> clips;
   final List<Marker> markers;
-  final List<dynamic> transitions;
+  final List<Transition> transitions;
   final Map<String, dynamic> extra;
 
   Rt get frameDuration => settings.frameDuration;
@@ -632,7 +771,7 @@ class ProjectDoc {
         'media': media.map((m) => m.toJson()).toList(),
         'tracks': tracks.map((t) => t.toJson()).toList(),
         'clips': clips.map((c) => c.toJson()).toList(),
-        'transitions': transitions,
+        'transitions': [for (final t in transitions) t.toJson()],
         'markers': markers.map((m) => m.toJson()).toList(),
       };
 
@@ -667,6 +806,7 @@ class ProjectDoc {
       clone.tracks.add(Track.fromJson(t.toJson()..['id'] = id));
     }
     final groups = <String, String>{};
+    final clipIds = <String, String>{};
     for (final c in copy.clips) {
       final json = c.toJson();
       json['id'] = generateId();
@@ -676,9 +816,17 @@ class ProjectDoc {
         json['linkedGroup'] = groups.putIfAbsent(c.linkedGroup!, generateId);
       }
       clone.clips.add(Clip.fromJson(json));
+      clipIds[c.id] = clone.clips.last.id;
     }
     for (final m in copy.markers) {
       clone.markers.add(Marker(id: generateId(), time: m.time, name: m.name, color: m.color));
+    }
+    for (final tr in copy.transitions) {
+      clone.transitions.add(tr.copy(
+        id: generateId(),
+        aClipId: clipIds[tr.aClipId] ?? tr.aClipId,
+        bClipId: clipIds[tr.bClipId] ?? tr.bClipId,
+      ));
     }
     return clone;
   }

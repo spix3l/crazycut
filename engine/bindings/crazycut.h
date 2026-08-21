@@ -9,7 +9,7 @@
 #define CC_EXPORT __attribute__((visibility("default")))
 #endif
 
-#define CC_ABI_VERSION 1
+#define CC_ABI_VERSION 2
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,6 +40,32 @@ CC_EXPORT double cc_project_duration(cc_engine* engine);
 CC_EXPORT int32_t cc_evaluate_parameter(const char* utf8_parameter_json,
                                         int64_t time_num, int32_t time_den,
                                         const char** out_value_json);
+
+// Renders one composited frame of the installed snapshot at sequence time
+// (num/den seconds) into out_rgba (RGBA8, width×height, caller frees via
+// cc_buffer_free). Media paths map asset id → file path; text clips are keyed
+// "text:<clipId>" with a pre-rasterized RGBA texture (width/height/bytes).
+// Missing entries render the offline slate. This is the exact function the
+// export worker uses per frame — preview == export by construction.
+typedef struct cc_rgba_texture {
+  const uint8_t* bytes;
+  int32_t width;
+  int32_t height;
+} cc_rgba_texture;
+
+CC_EXPORT int32_t cc_render_frame_rgba(cc_engine* engine, int64_t time_num,
+                                       int32_t time_den, int32_t width,
+                                       int32_t height, int32_t media_count,
+                                       const char** utf8_keys,
+                                       const char** utf8_paths,
+                                       int32_t texture_count,
+                                       const char** texture_keys,
+                                       const cc_rgba_texture* textures,
+                                       uint8_t** out_rgba);
+
+// The v1 effect catalog as a JSON array (docs/03-features/effects.md). One
+// definition in the engine; the Dart inspector renders from it.
+CC_EXPORT int32_t cc_effect_catalog(cc_engine* engine, const char** out_json);
 
 CC_EXPORT int32_t cc_extract_thumbnail(cc_engine* engine, const char* utf8_path,
                                        double seconds, int32_t width, uint8_t** out_jpeg,

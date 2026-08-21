@@ -5,6 +5,8 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import 'package:crazycut_app/models/rational.dart';
+
 import 'crazycut_bindings_generated.dart';
 
 class EngineException implements Exception {
@@ -103,7 +105,7 @@ class CrazyCutEngine {
   late final ffi.DynamicLibrary _lib;
   late final CrazyCutNativeBindings _native = CrazyCutNativeBindings(_lib);
 
-  static const int expectedAbiVersion = 1;
+  static const int expectedAbiVersion = 2;
 
   ffi.Pointer<cc_engine>? _handle;
 
@@ -263,6 +265,108 @@ class CrazyCutEngine {
           jsonDecode(out.value.cast<Utf8>().toDartString()) as Map<String, dynamic>);
     } finally {
       calloc.free(pathPtr);
+      calloc.free(out);
+    }
+  }
+  /// One composited frame of the installed project snapshot at [time].
+  ///
+  /// [mediaPaths] maps asset id to decode path; [textures] maps
+  /// `"text:<clipId>"` to pre-rasterized RGBA pixels with their size in
+  /// [textureSizes] (TXT-7). This drives the same engine path the export
+  /// worker uses per frame, so preview == export by construction.
+  RawFrame renderFrameRgba({
+    required Rt time,
+    required int width,
+    required int height,
+    Map<String, String> mediaPaths = const {},
+    Map<String, Uint8List> textures = const {},
+    Map<String, (int, int)> textureSizes = const {},
+  }) {
+    final keys = calloc<ffi.Pointer<ffi.Char>>(mediaPaths.length);
+    final paths = calloc<ffi.Pointer<ffi.Char>>(mediaPaths.length);
+    var i = 0;
+    try {
+      for (final entry in mediaPaths.entries) {
+        keys[i] = entry.key.toNativeUtf8().cast<ffi.Char>();
+        paths[i] = entry.value.toNativeUtf8().cast<ffi.Char>();
+        i++;
+      }
+
+      ffi.Pointer<ffi.Pointer<ffi.Char>> texKeys =
+          ffi.nullptr;
+      ffi.Pointer<cc_rgba_texture> texArray = ffi.nullptr;
+      final texNativeKeys = <ffi.Pointer<ffi.Char>>[];
+      if (textures.isNotEmpty) {
+        texKeys = calloc<ffi.Pointer<ffi.Char>>(textures.length);
+        texArray = calloc<cc_rgba_texture>(textures.length);
+        var j = 0;
+        textures.forEach((key, bytes) {
+          texNativeKeys.add(key.toNativeUtf8().cast<ffi.Char>());
+          texKeys[j] = texNativeKeys.last;
+          final size = textureSizes[key];
+          final buf = calloc<ffi.Uint8>(bytes.length);
+          final texRef = texArray[j];
+          texRef.bytes = buf;
+          texRef.width = size?.$1 ?? 0;
+          texRef.height = size?.$2 ?? 0;
+          j++;
+        });
+      }
+
+      final outBuf = calloc<ffi.Pointer<ffi.Uint8>>();
+      try {
+        final code = _native.cc_render_frame_rgba(
+          _engine,
+          time.num,
+          time.den,
+          width,
+          height,
+          mediaPaths.length,
+          keys,
+          paths,
+          textures.length,
+          texKeys,
+          texArray,
+          outBuf,
+        );
+        if (code != 0) throw EngineException(code, _takeLastError());
+        // Dimensions are implied: caller knows width*height*4.
+        final bytes = Uint8List.fromList(
+            outBuf.value.asTypedList(width * height * 4));
+        _native.cc_buffer_free(outBuf.value);
+        return RawFrame(width, height, bytes);
+      } finally {
+        if (texArray != ffi.nullptr) {
+          for (var k = 0; k < textures.length; k++) {
+            calloc.free(texArray[k].bytes);
+          }
+        }
+        if (texKeys != ffi.nullptr) {
+          for (final p in texNativeKeys) {
+            calloc.free(p);
+          }
+          calloc.free(texKeys);
+        }
+      }
+    } finally {
+      for (var k = 0; k < mediaPaths.length; k++) {
+        calloc.free(keys[k]);
+        calloc.free(paths[k]);
+      }
+      calloc.free(keys);
+      calloc.free(paths);
+    }
+  }
+
+  /// The v1 effect catalog as parsed JSON (FX gallery + inspector schema).
+  List<Map<String, dynamic>> effectCatalog() {
+    final out = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final code = _native.cc_effect_catalog(_engine, out);
+      if (code != 0) throw EngineException(code, _takeLastError());
+      final list = jsonDecode(out.value.cast<Utf8>().toDartString()) as List<dynamic>;
+      return list.cast<Map<String, dynamic>>();
+    } finally {
       calloc.free(out);
     }
   }

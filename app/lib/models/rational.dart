@@ -101,4 +101,19 @@ class Rt implements Comparable<Rt> {
     final prefix = t.num < 0 ? '-' : '';
     return '$prefix${two(h)}:${two(m)}:${two(s)}:${two(frames)}';
   }
+
+  /// Half of this duration, rounded toward the nearest microsecond.
+  Rt half() => Rt.fromMicros((micros / 2).round());
+
+  /// Clamps into [lo, hi] (both inclusive).
+  Rt clampTo(Rt lo, Rt hi) => this < lo ? lo : (this > hi ? hi : this);
+
+  /// At least [lo].
+  Rt atLeast(Rt lo) => this < lo ? lo : this;
+
+  /// Converts a sequence-time span to source time for [speed].
+  Rt toSourceTime(double speed) {
+    if (speed <= 0) return this;
+    return Rt.fromMicros((micros * speed).round());
+  }
 }

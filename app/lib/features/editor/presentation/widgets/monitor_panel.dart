@@ -1,14 +1,15 @@
 import 'dart:typed_data';
-
+import 'package:flutter/material.dart' show showModalBottomSheet, TextField, InputDecoration;
 import 'package:flutter/widgets.dart' hide Clip;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../../core/design/tokens.dart';
 import '../../../../core/widgets/primitives.dart';
+import '../../../../core/widgets/rgba_frame.dart';
 import '../../../../state/editor_controller.dart';
 
 /// Centre column: overlay toggles, the program monitor and the transport bar.
-class MonitorPanel extends StatelessWidget {
+class MonitorPanel extends StatefulWidget {
   const MonitorPanel({
     super.key,
     required this.controller,
@@ -23,6 +24,24 @@ class MonitorPanel extends StatelessWidget {
   final VoidCallback? onExitFullscreen;
 
   @override
+  State<MonitorPanel> createState() => _MonitorPanelState();
+}
+
+class _MonitorPanelState extends State<MonitorPanel> {
+  EditorController get controller => widget.controller;
+
+  /// TXT-6: double-click a text clip's frame opens an inline editor bound to
+  /// the clip under the playhead.
+  void _editTextUnderPlayhead(BuildContext context) {
+    final clip = controller.textClipUnderPlayhead();
+    if (clip == null) return;
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (_) => _TextEditorSheet(controller: controller, clipId: clip.id),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     final c = controller;
     final empty = c.doc.clips.isEmpty;
@@ -30,24 +49,33 @@ class MonitorPanel extends StatelessWidget {
       color: CcColors.bg,
       child: Column(
         children: [
-          if (!fullscreen)
-            _MonitorToolbar(onFullscreen: onFullscreen)
+          if (!widget.fullscreen)
+            _MonitorToolbar(onFullscreen: widget.onFullscreen)
           else
-            _FullscreenBar(onExit: onExitFullscreen),
+            _FullscreenBar(onExit: widget.onExitFullscreen),
           Expanded(
             child: Padding(
               padding: EdgeInsets.symmetric(
-                horizontal: fullscreen ? 0 : 24,
-                vertical: fullscreen ? 0 : 20,
+                horizontal: widget.fullscreen ? 0 : 24,
+                vertical: widget.fullscreen ? 0 : 20,
               ),
               child: Center(
                 child: AspectRatio(
                   aspectRatio: c.doc.settings.width / c.doc.settings.height,
-                  child: switch ((empty, c.previewFrame)) {
-                    (true, _) => const _Placeholder(message: 'Nothing on the timeline yet'),
-                    (false, final bytes?) => _FramePreview(bytes: bytes),
-                    _ => const _Placeholder(message: 'No frame under the playhead'),
-                  },
+                  child: GestureDetector(
+                    onDoubleTap: () => _editTextUnderPlayhead(context),
+                    child: switch ((empty, c.previewFrame)) {
+                      (true, _) =>
+                        const _Placeholder(message: 'Nothing on the timeline yet'),
+                      (false, final bytes?) when c.previewFrameSize != null =>
+                        _FramePreview(
+                          bytes: bytes,
+                          width: c.previewFrameSize!.$1,
+                          height: c.previewFrameSize!.$2,
+                        ),
+                      _ => const _Placeholder(message: 'No frame under the playhead'),
+                    },
+                  ),
                 ),
               ),
             ),
@@ -149,15 +177,17 @@ class _Placeholder extends StatelessWidget {
 }
 
 class _FramePreview extends StatelessWidget {
-  const _FramePreview({required this.bytes});
+  const _FramePreview({required this.bytes, required this.width, required this.height});
 
   final Uint8List bytes;
+  final int width;
+  final int height;
 
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
       color: const Color(0xFF000000),
-      child: Image.memory(bytes, fit: BoxFit.contain, gaplessPlayback: true),
+      child: RgbaFrame(bytes: bytes, width: width, height: height),
     );
   }
 }
@@ -290,6 +320,63 @@ class _MasterMeter extends StatelessWidget {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+
+/// Minimal inline text editor (TXT-6): content plus quick style controls.
+class _TextEditorSheet extends StatefulWidget {
+  const _TextEditorSheet({required this.controller, required this.clipId});
+
+  final EditorController controller;
+  final String clipId;
+
+  @override
+  State<_TextEditorSheet> createState() => _TextEditorSheetState();
+}
+
+class _TextEditorSheetState extends State<_TextEditorSheet> {
+  late final TextEditingController _field;
+
+  @override
+  void initState() {
+    super.initState();
+    _field = TextEditingController(
+      text: widget.controller.clipById(widget.clipId)?.text?.content ?? '',
+    );
+  }
+
+  @override
+  void dispose() {
+    _field.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final clip = widget.controller.clipById(widget.clipId);
+    if (clip == null) return const SizedBox.shrink();
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _field,
+            autofocus: true,
+            maxLines: 3,
+            decoration: const InputDecoration(hintText: 'Type…'),
+            onChanged: (v) => widget.controller.setTextContent(clip.id, v),
+          ),
         ],
       ),
     );

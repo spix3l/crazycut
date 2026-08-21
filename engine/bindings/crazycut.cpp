@@ -5,23 +5,26 @@
 #include <vector>
 
 #include "core/result.h"
+#include "graph/keyframes.h"
 #include "media/frame.h"
 #include "media/prepare.h"
 #include "media/probe.h"
-#include "graph/keyframes.h"
 #include "model/project.h"
 #include "playback/player.h"
+#include "render/effects.h"
+#include "render/renderer.h"
 
-struct cc_engine {
-  std::string jsonBuffer;
-  cc::ProjectSnapshot project;
-};
 
 namespace {
 thread_local std::string g_value_buffer;
 }
 
 extern "C" {
+
+struct cc_engine {
+  std::string jsonBuffer;
+  cc::ProjectSnapshot project;
+};
 
 int32_t cc_abi_version(void) { return CC_ABI_VERSION; }
 
@@ -248,4 +251,79 @@ void cc_playback_unlock_frame(cc_playback* playback) {
     reinterpret_cast<cc::PlaybackSession*>(playback)->unlockFrame();
 }
 
-}  // extern "C"
+int32_t cc_render_frame_rgba(cc_engine* engine, int64_t time_num,
+                             int32_t time_den, int32_t width, int32_t height,
+                             int32_t media_count, const char** utf8_keys,
+                             const char** utf8_paths, int32_t texture_count,
+                             const char** texture_keys,
+                             const cc_rgba_texture* textures, uint8_t** out_rgba) {
+  if (!engine || !out_rgba || width <= 0 || height <= 0 || time_den <= 0 ||
+      media_count < 0 || texture_count < 0) {
+    cc::setLastError("cc_render_frame_rgba: invalid argument");
+    return static_cast<int32_t>(cc::Error::InvalidArgument);
+  }
+  try {
+    std::map<std::string, std::string> paths;
+    for (int32_t i = 0; i < media_count; ++i) {
+      if (utf8_keys[i] && utf8_paths[i]) paths[utf8_keys[i]] = utf8_paths[i];
+    }
+    // Text textures arrive per call; copy them into surfaces once.
+    std::map<std::string, cc::RgbaSurface> tex;
+    for (int32_t i = 0; i < texture_count; ++i) {
+      if (!texture_keys[i] || !textures[i].bytes || textures[i].width <= 0 ||
+          textures[i].height <= 0) {
+        continue;
+      }
+      cc::RgbaSurface surf;
+      surf.width = textures[i].width;
+      surf.height = textures[i].height;
+      surf.rgba.assign(textures[i].bytes,
+                       textures[i].bytes +
+                           static_cast<size_t>(textures[i].width) *
+                               textures[i].height * 4);
+      tex[texture_keys[i]] = std::move(surf);
+    }
+    cc::RgbaSurface out;
+    const cc::Error err = cc::renderFrame(
+        engine->project.document(),
+        cc::RationalTime{time_num, time_den}.normalized(), width, height,
+        [&](const std::string& key) -> std::optional<cc::ClipSource> {
+          if (const auto it = tex.find(key); it != tex.end()) {
+            cc::ClipSource src;
+            src.texture = it->second;
+            return src;
+          }
+          if (const auto it = paths.find(key); it != paths.end()) {
+            cc::ClipSource src;
+            src.path = it->second;
+            return src;
+          }
+          return std::nullopt;
+        },
+        &out);
+    if (err != cc::Error::None) return static_cast<int32_t>(err);
+    uint8_t* copy = static_cast<uint8_t*>(malloc(out.rgba.size()));
+    if (!copy) {
+      cc::setLastError("out of memory");
+      return static_cast<int32_t>(cc::Error::InternalError);
+    }
+    memcpy(copy, out.rgba.data(), out.rgba.size());
+    *out_rgba = copy;
+    return 0;
+  } catch (const std::exception& e) {
+    cc::setLastError(std::string("render frame error: ") + e.what());
+    return static_cast<int32_t>(cc::Error::InternalError);
+  }
+}
+
+int32_t cc_effect_catalog(cc_engine* engine, const char** out_json) {
+  if (!engine || !out_json) {
+    cc::setLastError("cc_effect_catalog: null argument");
+    return static_cast<int32_t>(cc::Error::InvalidArgument);
+  }
+  engine->jsonBuffer = cc::effectCatalogJson();
+  *out_json = engine->jsonBuffer.c_str();
+  return 0;
+}
+
+}

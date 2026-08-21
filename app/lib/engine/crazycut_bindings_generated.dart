@@ -42,6 +42,27 @@ class CrazyCutNativeBindings {
   late final _cc_buffer_free = _cc_buffer_freePtr
       .asFunction<void Function(ffi.Pointer<ffi.Uint8>)>();
 
+  int cc_effect_catalog(
+    ffi.Pointer<cc_engine> engine,
+    ffi.Pointer<ffi.Pointer<ffi.Char>> out_json,
+  ) {
+    return _cc_effect_catalog(engine, out_json);
+  }
+
+  late final _cc_effect_catalogPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<cc_engine>,
+            ffi.Pointer<ffi.Pointer<ffi.Char>>,
+          )
+        >
+      >('cc_effect_catalog');
+  late final _cc_effect_catalog = _cc_effect_catalogPtr
+      .asFunction<
+        int Function(ffi.Pointer<cc_engine>, ffi.Pointer<ffi.Pointer<ffi.Char>>)
+      >();
+
   ffi.Pointer<cc_engine> cc_engine_create() {
     return _cc_engine_create();
   }
@@ -513,10 +534,97 @@ class CrazyCutNativeBindings {
           ffi.Pointer<ffi.Pointer<ffi.Char>>,
         )
       >();
+
+  int cc_render_frame_rgba(
+    ffi.Pointer<cc_engine> engine,
+    int time_num,
+    int time_den,
+    int width,
+    int height,
+    int media_count,
+    ffi.Pointer<ffi.Pointer<ffi.Char>> utf8_keys,
+    ffi.Pointer<ffi.Pointer<ffi.Char>> utf8_paths,
+    int texture_count,
+    ffi.Pointer<ffi.Pointer<ffi.Char>> texture_keys,
+    ffi.Pointer<cc_rgba_texture> textures,
+    ffi.Pointer<ffi.Pointer<ffi.Uint8>> out_rgba,
+  ) {
+    return _cc_render_frame_rgba(
+      engine,
+      time_num,
+      time_den,
+      width,
+      height,
+      media_count,
+      utf8_keys,
+      utf8_paths,
+      texture_count,
+      texture_keys,
+      textures,
+      out_rgba,
+    );
+  }
+
+  late final _cc_render_frame_rgbaPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<cc_engine>,
+            ffi.Int64,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Pointer<ffi.Pointer<ffi.Char>>,
+            ffi.Pointer<ffi.Pointer<ffi.Char>>,
+            ffi.Int32,
+            ffi.Pointer<ffi.Pointer<ffi.Char>>,
+            ffi.Pointer<cc_rgba_texture>,
+            ffi.Pointer<ffi.Pointer<ffi.Uint8>>,
+          )
+        >
+      >('cc_render_frame_rgba');
+  late final _cc_render_frame_rgba = _cc_render_frame_rgbaPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<cc_engine>,
+          int,
+          int,
+          int,
+          int,
+          int,
+          ffi.Pointer<ffi.Pointer<ffi.Char>>,
+          ffi.Pointer<ffi.Pointer<ffi.Char>>,
+          int,
+          ffi.Pointer<ffi.Pointer<ffi.Char>>,
+          ffi.Pointer<cc_rgba_texture>,
+          ffi.Pointer<ffi.Pointer<ffi.Uint8>>,
+        )
+      >();
 }
 
-const int CC_ABI_VERSION = 1;
+const int CC_ABI_VERSION = 2;
 
 final class cc_engine extends ffi.Opaque {}
 
 final class cc_playback extends ffi.Opaque {}
+
+final class cc_rgba_texture extends ffi.Struct {
+  external ffi.Pointer<ffi.Uint8> bytes;
+
+  @ffi.Int32()
+  external int width;
+
+  @ffi.Int32()
+  external int height;
+
+  static ffi.Pointer<cc_rgba_texture> $allocate(
+    ffi.Allocator $allocator, {
+    required ffi.Pointer<ffi.Uint8> bytes,
+    required int width,
+    required int height,
+  }) => $allocator<cc_rgba_texture>()
+    ..ref.bytes = bytes
+    ..ref.width = width
+    ..ref.height = height;
+}

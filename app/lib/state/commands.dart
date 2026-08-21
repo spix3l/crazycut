@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:crazycut_app/data/project.dart';
+import 'package:crazycut_app/data/transition.dart';
 
 /// A reversible document mutation (TIM-20). Commands own the *data* needed to
 /// go back and forth; they never hold references to live entities, so undo
@@ -43,6 +44,7 @@ class DocumentEdit implements Command {
     this.clips = const {},
     this.tracks = const {},
     this.markers = const {},
+    this.transitions = const {},
     this.nameBefore,
     this.nameAfter,
     this.settingsBefore,
@@ -55,6 +57,10 @@ class DocumentEdit implements Command {
   final Map<String, EntityDelta> clips;
   final Map<String, EntityDelta> tracks;
   final Map<String, EntityDelta> markers;
+
+  /// Transition deltas so transition ops undo in ONE step (TRA-2/4/6).
+  final Map<String, EntityDelta> transitions;
+
   final String? nameBefore;
   final String? nameAfter;
   final Map<String, dynamic>? settingsBefore;
@@ -64,8 +70,10 @@ class DocumentEdit implements Command {
       clips.values.every((d) => d.isNoop) &&
       tracks.values.every((d) => d.isNoop) &&
       markers.values.every((d) => d.isNoop) &&
+      transitions.values.every((d) => d.isNoop) &&
       nameBefore == nameAfter &&
-      (settingsBefore == null || jsonEncode(settingsBefore) == jsonEncode(settingsAfter));
+      (settingsBefore == null ||
+          jsonEncode(settingsBefore) == jsonEncode(settingsAfter));
 
   @override
   int get sizeBytes {
@@ -77,6 +85,9 @@ class DocumentEdit implements Command {
       total += d.sizeBytes;
     }
     for (final d in markers.values) {
+      total += d.sizeBytes;
+    }
+    for (final d in transitions.values) {
       total += d.sizeBytes;
     }
     return total;
@@ -101,6 +112,9 @@ class DocumentEdit implements Command {
     markers.forEach((id, delta) {
       if (side(delta) == null) doc.markers.removeWhere((m) => m.id == id);
     });
+    transitions.forEach((id, delta) {
+      if (side(delta) == null) doc.transitions.removeWhere((t) => t.id == id);
+    });
 
     tracks.forEach((id, delta) {
       final json = side(delta);
@@ -124,15 +138,15 @@ class DocumentEdit implements Command {
         doc.clips.add(clip);
       }
     });
-    markers.forEach((id, delta) {
+    transitions.forEach((id, delta) {
       final json = side(delta);
       if (json == null) return;
-      final marker = Marker.fromJson(json);
-      final at = doc.markers.indexWhere((m) => m.id == id);
+      final transition = Transition.fromJson(json);
+      final at = doc.transitions.indexWhere((t) => t.id == id);
       if (at >= 0) {
-        doc.markers[at] = marker;
+        doc.transitions[at] = transition;
       } else {
-        doc.markers.add(marker);
+        doc.transitions.add(transition);
       }
     });
 
@@ -166,14 +180,42 @@ class EditTransaction {
   final Map<String, Map<String, dynamic>?> _clips = {};
   final Map<String, Map<String, dynamic>?> _tracks = {};
   final Map<String, Map<String, dynamic>?> _markers = {};
+  final Map<String, Map<String, dynamic>?> _transitions = {};
   String? _nameBefore;
   Map<String, dynamic>? _settingsBefore;
 
-  void clip(String id) => _clips.putIfAbsent(id, () => doc.clipById(id)?.toJson());
+  void clip(String id) => _clips.putIfAbsent(
+      id, () => _deepCopyJson(doc.clipById(id)?.toJson()));
+
+  /// `Clip.toJson` hands out the live [Clip.effects] list; a shallow copy
+  /// would alias it and make every effect edit look like a no-op. Copies the
+  /// nested maps/lists so snapshots are frozen at touch time. Map keys keep
+  /// their runtime type (fromJson casts to `Map<String, dynamic>`).
+  static Map<String, dynamic>? _deepCopyJson(Map<String, dynamic>? json) {
+    if (json == null) return null;
+
+    dynamic copyValue(dynamic value) {
+      if (value is Map<String, dynamic>) {
+        return {
+          for (final e in value.entries) e.key: copyValue(e.value),
+        };
+      }
+      if (value is Map) {
+        return {
+          for (final e in value.entries) e.key: copyValue(e.value),
+        };
+      }
+      if (value is List) return [for (final e in value) copyValue(e)];
+      return value;
+    }
+
+    return copyValue(json) as Map<String, dynamic>;
+  }
 
   void clips(Iterable<String> ids) => ids.forEach(clip);
 
-  void track(String id) => _tracks.putIfAbsent(id, () => doc.trackById(id)?.toJson());
+  void track(String id) =>
+      _tracks.putIfAbsent(id, () => doc.trackById(id)?.toJson());
 
   void tracks(Iterable<String> ids) => ids.forEach(track);
 
@@ -185,6 +227,18 @@ class EditTransaction {
     }
     return null;
   }
+
+  void transition(String id) =>
+      _transitions.putIfAbsent(id, () => doc.transitionById(id)?.toJson());
+
+  /// The "before" JSON snapshotted for [id], or null when untouched/absent.
+  /// Sanitize passes read these to see the pre-op geometry of a clip without
+  /// holding live references.
+  Map<String, dynamic>? clipSnapshot(String id) => _clips[id];
+
+  Map<String, dynamic>? transitionSnapshot(String id) => _transitions[id];
+
+  bool touchedClip(String id) => _clips.containsKey(id);
 
   void name() => _nameBefore ??= doc.name;
 
@@ -202,15 +256,28 @@ class EditTransaction {
       label: label,
       clips: {
         for (final entry in _clips.entries)
-          entry.key: EntityDelta(entry.value, doc.clipById(entry.key)?.toJson()),
+          entry.key: EntityDelta(
+            entry.value,
+            doc.clipById(entry.key)?.toJson(),
+          ),
       },
       tracks: {
         for (final entry in _tracks.entries)
-          entry.key: EntityDelta(entry.value, doc.trackById(entry.key)?.toJson()),
+          entry.key: EntityDelta(
+            entry.value,
+            doc.trackById(entry.key)?.toJson(),
+          ),
       },
       markers: {
         for (final entry in _markers.entries)
           entry.key: EntityDelta(entry.value, _markerJson(entry.key)),
+      },
+      transitions: {
+        for (final entry in _transitions.entries)
+          entry.key: EntityDelta(
+            entry.value,
+            doc.transitionById(entry.key)?.toJson(),
+          ),
       },
       nameBefore: _nameBefore,
       nameAfter: _nameBefore == null ? null : doc.name,

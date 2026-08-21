@@ -37,6 +37,9 @@ add_library(crazycut_core STATIC
   media/prepare.cpp
   media/frame.cpp
   playback/player.cpp
+  render/effects.cpp
+  render/composite.cpp
+  render/renderer.cpp
 )
 target_include_directories(crazycut_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} PRIVATE ${miniaudio_SOURCE_DIR})
 target_link_libraries(crazycut_core
@@ -48,8 +51,7 @@ target_link_libraries(crazycut_core
 add_library(crazycut SHARED bindings/crazycut.cpp)
 target_link_libraries(crazycut PRIVATE crazycut_core)
 set_target_properties(crazycut PROPERTIES OUTPUT_NAME crazycut)
-
-add_executable(crazycut_worker apps/worker/main.cpp)
+add_executable(crazycut_worker apps/worker/main.cpp apps/worker/timeline_job.cpp)
 target_link_libraries(crazycut_worker PRIVATE crazycut_core)
 
 option(CC_BUILD_TESTS "Build unit tests" ON)
@@ -62,8 +64,7 @@ if(CC_BUILD_TESTS)
   )
   set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(googletest)
-
-  add_executable(cc_tests tests/time_test.cpp tests/project_test.cpp tests/keyframes_test.cpp tests/prepare_test.cpp tests/probe_test.cpp tests/playback_test.cpp)
+  add_executable(cc_tests tests/time_test.cpp tests/project_test.cpp tests/keyframes_test.cpp tests/prepare_test.cpp tests/probe_test.cpp tests/playback_test.cpp tests/golden_test.cpp)
   target_compile_definitions(cc_tests PRIVATE CC_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
   target_link_libraries(cc_tests PRIVATE crazycut_core GTest::gtest_main)
   include(GoogleTest)

@@ -6,7 +6,10 @@ import '../../../../../core/widgets/primitives.dart';
 import '../../../../../data/project.dart';
 import '../../../../../models/rational.dart';
 import '../../../../../state/editor_controller.dart';
+import 'inspector_effects_tab.dart';
 import 'inspector_rows.dart';
+import 'inspector_text_tab.dart';
+import 'inspector_transform_tab.dart';
 import 'inspector_tabs.dart';
 
 /// Right rail. Binds to the current selection: sequence facts when nothing is
@@ -28,6 +31,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
   EditorController get c => widget.controller;
 
   static const _clipTabs = ['Timing', 'Audio', 'Transform', 'Effects'];
+  static const _textClipTabs = ['Text', 'Transform', 'Effects'];
 
   @override
   Widget build(BuildContext context) {
@@ -72,7 +76,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
           ),
           if (selected != null)
             CcTabBar(
-              tabs: _clipTabs,
+              tabs: selected.text != null ? _textClipTabs : _clipTabs,
               selectedIndex: _tab.clamp(0, _clipTabs.length - 1),
               fontSize: 11,
               horizontalPadding: 9,
@@ -91,17 +95,16 @@ class _InspectorPanelState extends State<InspectorPanel> {
   }
 
   Widget _clipBody(Clip clip) {
+    if (clip.text != null && _clipTabs[_tab.clamp(0, _clipTabs.length - 1)] == 'Text') {
+      return TextTab(controller: c, clip: clip);
+    }
     return switch (_clipTabs[_tab.clamp(0, _clipTabs.length - 1)]) {
       'Timing' => ClipTimingTab(controller: c, clip: clip),
       'Audio' => ClipAudioTab(controller: c, clip: clip),
-      'Transform' => const PlaceholderTab(
-          name: 'Transform',
-          note: 'Transform, crop and keyframes arrive with the effect system (M2).',
-        ),
-      _ => const PlaceholderTab(
-          name: 'Effects',
-          note: 'Colour and blur stacks arrive with the effect system (M2).',
-        ),
+      'Transform' => TransformTab(controller: c, clip: clip),
+      'Effects' => EffectsTab(controller: c, clip: clip),
+      'Text' => TextTab(controller: c, clip: clip),
+      _ => const PlaceholderTab(name: 'Text', note: 'Select a text clip to edit it.'),
     };
   }
 }

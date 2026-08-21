@@ -9,6 +9,7 @@ import '../../../../../core/design/tokens.dart';
 import '../../../../../core/widgets/cc_dialog.dart';
 import '../../../../../core/widgets/primitives.dart';
 import '../../../../../data/project.dart';
+import '../../../../../data/transition.dart';
 import '../../../../../models/rational.dart';
 import '../../../../../state/editor_controller.dart';
 import '../../../../../state/timeline_edits.dart';
@@ -582,6 +583,10 @@ class _TimelinePanelState extends State<TimelinePanel> {
             child: _laneBackground(track),
           ),
           for (final clip in visible) _clipWidget(track, clip),
+          for (final tr in doc.transitions.where((t) =>
+              _touches(t, track.id) &&
+              _trVisible(t, visibleFrom, visibleTo)))
+            _transitionBadge(track, tr),
           for (var i = 0; i < clips.length - 1; i++)
             if (clips[i].end == clips[i + 1].start &&
                 clips[i].end.seconds >= visibleFrom &&
@@ -802,6 +807,73 @@ class _TimelinePanelState extends State<TimelinePanel> {
         ],
       ),
     );
+  }
+
+  bool _touches(Transition t, String trackId) =>
+      doc.clipById(t.aClipId)?.trackId == trackId;
+
+  bool _trVisible(Transition t, double from, double to) {
+    final a = doc.clipById(t.aClipId);
+    final b = doc.clipById(t.bClipId);
+    if (a == null || b == null) return false;
+    final end = a.end > b.end ? a.end : b.end;
+    return end.seconds >= from && b.start.seconds <= to;
+  }
+
+  /// Hourglass badge straddling the overlap; drag edges to retime (TRA-6),
+  /// click to select, right-click for type/alignment/delete.
+  Widget _transitionBadge(Track track, Transition tr) {
+    final a = doc.clipById(tr.aClipId);
+    final b = doc.clipById(tr.bClipId);
+    if (a == null || b == null) return const SizedBox.shrink();
+    final start = a.start > b.start ? b.start : a.start;
+    final width =
+        ((a.end > b.end ? b.end : a.end).minus(start)).seconds * pxPerSec;
+    return Positioned(
+      left: start.seconds * pxPerSec,
+      width: width.clamp(10, double.infinity),
+      top: 2,
+      height: track.height - 4,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => c.selectClip(null),
+        onHorizontalDragStart: (_) => c.beginGesture('Retime transition'),
+        onHorizontalDragUpdate: (d) => c.setTransitionDurationLive(
+            tr.id, tr.duration.plus(Rt.fromSeconds(d.delta.dx / pxPerSec))),
+        onHorizontalDragEnd: (_) => c.endGesture(),
+        onSecondaryTapDown: (d) => _transitionMenu(context, d.globalPosition, tr),
+        child: CcTooltip(
+          message:
+              '${tr.type} · ${tr.duration.seconds.toStringAsFixed(2)}s',
+          child: const TransitionBadge(height: 20),
+        ),
+      ),
+    );
+  }
+
+  void _transitionMenu(BuildContext context, Offset at, Transition tr) {
+    showCcMenu(context, at, [
+      const CcMenuItem('Type', onTap: null),
+      CcMenuItem('Cross dissolve', checked: tr.type == 'crossDissolve',
+          onTap: () => c.setTransitionType(tr.id, 'crossDissolve')),
+      CcMenuItem('Dip to black', checked: tr.type == 'dipToBlack',
+          onTap: () => c.setTransitionType(tr.id, 'dipToBlack')),
+      CcMenuItem('Dip to white', checked: tr.type == 'dipToWhite',
+          onTap: () => c.setTransitionType(tr.id, 'dipToWhite')),
+      CcMenuItem('Push left', checked: tr.type == 'pushLeft',
+          onTap: () => c.setTransitionType(tr.id, 'pushLeft')),
+      CcMenuItem('Zoom in', checked: tr.type == 'zoomIn',
+          onTap: () => c.setTransitionType(tr.id, 'zoomIn')),
+      const CcMenuItem('Alignment', onTap: null),
+      CcMenuItem('Center', checked: tr.alignment == 'center',
+          onTap: () => c.setTransitionAlignment(tr.id, 'center')),
+      CcMenuItem('Start', checked: tr.alignment == 'start',
+          onTap: () => c.setTransitionAlignment(tr.id, 'start')),
+      CcMenuItem('End', checked: tr.alignment == 'end',
+          onTap: () => c.setTransitionAlignment(tr.id, 'end')),
+      CcMenuItem('Remove transition',
+          danger: true, onTap: () => c.removeTransition(tr.id)),
+    ]);
   }
 
   /// Straddles a cut: dragging it rolls both sides (TIM-6).

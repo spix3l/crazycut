@@ -11,6 +11,7 @@ import 'package:crazycut_app/data/repository.dart';
 import 'package:crazycut_app/engine/engine.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/proxy_service.dart';
+import 'package:crazycut_app/state/text_rasterizer.dart';
 import 'package:crazycut_app/state/timeline_edits.dart';
 
 enum ImportStatus { probing, ready, failed, offline }
@@ -68,7 +69,27 @@ class EditorController extends ChangeNotifier with TimelineEdits {
 
   final Map<String, PoolItem> pool = {};
   Uint8List? previewFrame;
+  (int, int)? previewFrameSize;
   double previewFrameTime = -1;
+
+  /// Effect catalog from the engine (cc_effect_catalog), lazily fetched once
+  /// per session; falls back to the bundled catalog when the engine is
+  /// unavailable so the inspector always renders.
+  List<Map<String, dynamic>>? _catalogCache;
+  Future<List<Map<String, dynamic>>> effectCatalogOrFallback() async {
+    if (_catalogCache != null) return _catalogCache!;
+    try {
+      _catalogCache = CrazyCutEngine.instance.effectCatalog();
+    } catch (e) {
+      debugPrint('effect catalog unavailable: $e');
+      _catalogCache = TimelineEdits.kFallbackEffectCatalog;
+    }
+    return _catalogCache!;
+  }
+
+  /// Synchronous view of the last-fetched (or fallback) catalog for widgets
+  /// that only need labels/ranges.
+  List<Map<String, dynamic>> get catalogCache => _catalogCache ?? TimelineEdits.kFallbackEffectCatalog;
 
   /// Names skipped on the last import (IMP-4).
   List<String> lastSkipped = const [];
@@ -355,6 +376,22 @@ class EditorController extends ChangeNotifier with TimelineEdits {
     notifyListeners();
   }
 
+  /// Text clip under the playhead on a visible video track, topmost first
+  /// (TXT-6 inline editing target).
+  Clip? textClipUnderPlayhead() {
+    final tracks = doc.videoTracks.where((t) => !t.hidden).toList().reversed;
+    for (final track in tracks) {
+      final hit = doc.clipsOn(track.id).firstWhereOrNull(
+            (c) =>
+                c.text != null &&
+                playhead >= c.start &&
+                playhead < c.end,
+          );
+      if (hit != null) return hit;
+    }
+    return null;
+  }
+
   /// Topmost visible video clip under the playhead.
   Clip? clipUnderPlayhead() {
     final tracks = doc.videoTracks.where((t) => !t.hidden).toList().reversed;
@@ -367,28 +404,45 @@ class EditorController extends ChangeNotifier with TimelineEdits {
     return null;
   }
 
+  /// Composited preview: the engine renders every visible video track at the
+  /// playhead through the same path export uses (arch §1). Text clips are
+  /// rasterized here (Flutter) and pushed in as textures so on-canvas text is
+  /// WYSIWYG with the inline editor.
   Future<void> updatePreviewFrame() async {
     if (_frameBusy) return;
-    final clip = clipUnderPlayhead();
-    if (clip == null) {
-      if (previewFrame != null) {
-        previewFrame = null;
-        previewFrameTime = -1;
-        notifyListeners();
-      }
-      return;
-    }
-    final asset = doc.assetById(clip.mediaId);
-    if (asset == null || asset.offline) return;
     _frameBusy = true;
     try {
-      final localSeconds = playhead.minus(clip.start).seconds * clip.speedValue;
-      final sourceSeconds = clip.sourceIn.seconds + localSeconds;
-      previewFrame = CrazyCutEngine.instance.extractThumbnail(
-        ProxyService.decodePath(asset),
-        seconds: sourceSeconds,
+      final mediaPaths = <String, String>{};
+      for (final asset in doc.media) {
+        if (asset.offline || asset.type == 'audio') continue;
+        mediaPaths[asset.id] = ProxyService.decodePath(asset);
+      }
+      final textures = <String, Uint8List>{};
+      final textureSizes = <String, (int, int)>{};
+      for (final clip in doc.clips) {
+        if (clip.text == null) continue;
+        final track = doc.trackById(clip.trackId);
+        if (track == null || !track.isVideo || track.hidden) continue;
+        if (!(playhead >= clip.start && playhead < clip.end)) continue;
+        final raster = await TextRasterizer.instance.render(
+          clip.text!,
+          canvasWidth: 1024,
+          sequenceHeight: doc.settings.height,
+        );
+        if (raster == null) continue;
+        textures['text:${clip.id}'] = raster.bytes;
+        textureSizes['text:${clip.id}'] = (raster.width, raster.height);
+      }
+      final frame = CrazyCutEngine.instance.renderFrameRgba(
+        time: playhead,
         width: previewWidth,
+        height: (previewWidth * doc.settings.height / doc.settings.width).round(),
+        mediaPaths: mediaPaths,
+        textures: textures,
+        textureSizes: textureSizes,
       );
+      previewFrame = frame.rgba;
+      previewFrameSize = (frame.width, frame.height);
       previewFrameTime = playhead.seconds;
       notifyListeners();
     } catch (e) {
