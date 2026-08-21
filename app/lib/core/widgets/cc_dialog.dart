@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -145,4 +146,109 @@ class CcField extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Small modal text prompt (rename track, rename marker, rename project).
+/// Returns null when dismissed.
+Future<String?> promptForText(
+  BuildContext context, {
+  required String title,
+  String initialValue = '',
+  String label = 'Name',
+  String confirmLabel = 'Rename',
+}) {
+  final completer = Completer<String?>();
+  final controller = TextEditingController(text: initialValue);
+  final overlay = Overlay.of(context);
+  late OverlayEntry entry;
+
+  void finish(String? value) {
+    if (completer.isCompleted) return;
+    entry.remove();
+    controller.dispose();
+    completer.complete(value);
+  }
+
+  entry = OverlayEntry(
+    builder: (context) => CcModalBarrier(
+      onDismiss: () => finish(null),
+      child: CcDialogShell(
+        title: title,
+        width: 420,
+        onClose: () => finish(null),
+        sections: [
+          CcField(
+            label: label,
+            child: CcTextField(
+              controller: controller,
+              autofocus: true,
+              onSubmitted: (value) => finish(value.trim()),
+            ),
+          ),
+        ],
+        actions: [
+          CcButton(
+            label: 'Cancel',
+            kind: CcButtonKind.secondary,
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            onPressed: () => finish(null),
+          ),
+          CcButton(
+            label: confirmLabel,
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            onPressed: () => finish(controller.text.trim()),
+          ),
+        ],
+      ),
+    ),
+  );
+  overlay.insert(entry);
+  return completer.future;
+}
+
+/// Yes/no confirmation with a destructive-styled confirm button.
+Future<bool> confirmAction(
+  BuildContext context, {
+  required String title,
+  required String message,
+  String confirmLabel = 'Delete',
+}) {
+  final completer = Completer<bool>();
+  final overlay = Overlay.of(context);
+  late OverlayEntry entry;
+
+  void finish(bool value) {
+    if (completer.isCompleted) return;
+    entry.remove();
+    completer.complete(value);
+  }
+
+  entry = OverlayEntry(
+    builder: (context) => CcModalBarrier(
+      onDismiss: () => finish(false),
+      child: CcDialogShell(
+        title: title,
+        width: 440,
+        onClose: () => finish(false),
+        sections: [
+          Text(message, style: CcType.style(size: 13, color: CcColors.textSecondary, height: 1.5)),
+        ],
+        actions: [
+          CcButton(
+            label: 'Cancel',
+            kind: CcButtonKind.secondary,
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            onPressed: () => finish(false),
+          ),
+          CcButton(
+            label: confirmLabel,
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            onPressed: () => finish(true),
+          ),
+        ],
+      ),
+    ),
+  );
+  overlay.insert(entry);
+  return completer.future;
 }

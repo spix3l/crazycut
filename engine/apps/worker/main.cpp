@@ -33,6 +33,10 @@ struct VideoSettings {
   int crf = 18;
   std::string preset = "medium";
   bool enabled = true;
+  // 0 = keep the source size. Proxy jobs set maxHeight (arch §5: 960x540
+  // equivalent) and the encoder scales while preserving aspect.
+  int maxWidth = 0;
+  int maxHeight = 0;
 };
 
 struct AudioSettings {
@@ -72,6 +76,8 @@ Job loadJob(const json& j) {
       if (v.contains("codec")) job.video.codec = v["codec"].get<std::string>();
       if (v.contains("crf")) job.video.crf = v["crf"].get<int>();
       if (v.contains("preset")) job.video.preset = v["preset"].get<std::string>();
+      if (v.contains("maxWidth")) job.video.maxWidth = v["maxWidth"].get<int>();
+      if (v.contains("maxHeight")) job.video.maxHeight = v["maxHeight"].get<int>();
     }
   }
   if (j.contains("audio")) {
@@ -87,11 +93,30 @@ Job loadJob(const json& j) {
   return job;
 }
 
+// Scales (width, height) down so neither exceeds the caps, keeping aspect and
+// landing on even dimensions that yuv420p requires.
+void fitInside(int maxW, int maxH, int* width, int* height) {
+  double scale = 1.0;
+  if (maxW > 0 && *width > maxW) scale = static_cast<double>(maxW) / *width;
+  if (maxH > 0 && *height > maxH) {
+    const double s = static_cast<double>(maxH) / *height;
+    if (s < scale) scale = s;
+  }
+  if (scale >= 1.0) return;
+  int w = static_cast<int>(*width * scale + 0.5);
+  int h = static_cast<int>(*height * scale + 0.5);
+  *width = w < 2 ? 2 : w;
+  *height = h < 2 ? 2 : h;
+}
+
 AVCodecContext* openEncoder(const AVCodec* codec, AVCodecContext* sourceVideo,
-                            AVRational fps) {
+                            AVRational fps, const VideoSettings& settings) {
   AVCodecContext* enc = avcodec_alloc_context3(codec);
-  enc->width = sourceVideo->width - sourceVideo->width % 2;
-  enc->height = sourceVideo->height - sourceVideo->height % 2;
+  int width = sourceVideo->width;
+  int height = sourceVideo->height;
+  fitInside(settings.maxWidth, settings.maxHeight, &width, &height);
+  enc->width = width - width % 2;
+  enc->height = height - height % 2;
   enc->pix_fmt = AV_PIX_FMT_YUV420P;
   enc->time_base = av_inv_q(fps);
   enc->framerate = fps;
@@ -176,7 +201,7 @@ int run(const Job& job) {
       const AVCodec* encoder = avcodec_find_encoder_by_name(encoderName.c_str());
       if (!encoder) throw std::runtime_error("encoder not found: " + encoderName);
 
-      vEnc = openEncoder(encoder, vDec, srcFps);
+      vEnc = openEncoder(encoder, vDec, srcFps, job.video);
       char crfStr[16];
       snprintf(crfStr, sizeof(crfStr), "%d", job.video.crf);
       av_opt_set(vEnc->priv_data, "crf", crfStr, 0);

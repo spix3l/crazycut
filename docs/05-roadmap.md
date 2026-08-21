@@ -24,6 +24,10 @@ The timeline becomes real.
 - Thumbnails/waveforms in timeline; proxy generation background (IMP-8).
 - **Exit criteria:** TIM acceptance tests pass incl. 500-clip perf suite; crash-recovery drill (kill -9) loses ≤ 30 s.
 
+> **Status (2026-08):** complete. The timeline is a real NLE: move/trim/roll/slip/slide, snapping with a bypass and an indicator, markers with rename and navigation, in/out points with looping, JKL shuttle (incl. K+L creep), pointer-anchored zoom and zoom-to-fit, multi-select with marquee/select-all/invert/track-select, copy-cut-paste-duplicate, linked A/V groups, ripple and magnetic delete, pool drag-drop with insert/overwrite/append preview, track add/remove/rename/reorder/height and mute-solo-lock-hide, frame-exact numeric trim, filmstrips and engine waveforms in lanes with viewport virtualization. Undo is a command stack (entity deltas, ~100 MB budget, one entry per gesture) that every mutation flows through. Autosave/backups/recovery per PRJ-6–9, and background proxy rendering per IMP-8 (worker gained a scaling option). 64 Dart tests + 25 engine tests green, including the TIM acceptance criteria and a 500-clip perf suite.
+>
+> **Deliberate deviations** (spec self-conflicts, recorded rather than silently resolved): the spec binds ⌥drag to both *duplicate* (TIM-3) and *slip* (TIM-6) — ⌥drag slips and breaks links, duplicate is ⌘D; it binds ⌘ to both *slide drag* (TIM-6) and *snap bypass* (TIM-15) — ⌘drag slides, ⌃ bypasses snapping. Track reordering is a header-menu verb rather than a drag. Not yet built: paste-attributes (⌥⌘V, needs the M2 effect model), marker colours, and hardware-accelerated decode tiers behind the proxy switch.
+
 ### M2 — Look & motion (~25%)
 - Effect stacks: color basics, blur family (+blur-island), transform/crop, blend modes (FX-*).
 - Transitions with handle semantics (TRA-*).

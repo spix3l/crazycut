@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:ffi' as ffi;
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
@@ -275,6 +276,16 @@ class PlatformHelper {
       '../engine/build/Debug/crazycut.dll',
       '../engine/build/Release/crazycut.dll',
     ];
+  }
+
+  /// First worker binary that exists, or null when the engine build is
+  /// missing (proxy and export features then report unavailable).
+  static String? workerBinary() {
+    for (final candidate in workerBinCandidates()) {
+      if (candidate.isEmpty) continue;
+      if (File(candidate).existsSync()) return candidate;
+    }
+    return null;
   }
 
   static List<String> workerBinCandidates() {

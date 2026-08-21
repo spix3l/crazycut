@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -56,8 +57,8 @@ class _CcTappableState extends State<CcTappable> {
       final opacity = _pressed
           ? widget.pressedOpacity
           : _hovered
-              ? widget.hoverOpacity
-              : 1.0;
+          ? widget.hoverOpacity
+          : 1.0;
       child = AnimatedOpacity(
         opacity: opacity,
         duration: const Duration(milliseconds: 90),
@@ -124,11 +125,11 @@ class CcButton extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (icon != null) ...[
-              CcIcon(icon!, size: 14, color: fg),
-              const SizedBox(width: 6),
-            ],
-            Text(label, style: CcType.style(size: 13, weight: CcType.semibold, color: fg)),
+            if (icon != null) ...[CcIcon(icon!, size: 14, color: fg), const SizedBox(width: 6)],
+            Text(
+              label,
+              style: CcType.style(size: 13, weight: CcType.semibold, color: fg),
+            ),
           ],
         ),
       ),
@@ -178,8 +179,8 @@ class CcIconButton extends StatelessWidget {
           color: !enabled
               ? CcColors.textTertiary
               : active
-                  ? (outlined ? CcColors.accent : CcColors.textPrimary)
-                  : CcColors.textSecondary,
+              ? (outlined ? CcColors.accent : CcColors.textPrimary)
+              : CcColors.textSecondary,
         ),
       ),
     );
@@ -187,7 +188,7 @@ class CcIconButton extends StatelessWidget {
 }
 
 /// Read-only text field shell (`Search projects`, `Name`, `Filename`).
-class CcTextField extends StatelessWidget {
+class CcTextField extends StatefulWidget {
   const CcTextField({
     super.key,
     this.value,
@@ -197,6 +198,10 @@ class CcTextField extends StatelessWidget {
     this.height = 36,
     this.bordered = true,
     this.radius = CcRadius.md,
+    this.controller,
+    this.focusNode,
+    this.autofocus = false,
+    this.onSubmitted,
   });
 
   final String? value;
@@ -207,35 +212,75 @@ class CcTextField extends StatelessWidget {
   final bool bordered;
   final double radius;
 
+  /// Supplying a controller turns the field into a real text input; without
+  /// one it stays a read-only shell.
+  final TextEditingController? controller;
+  final FocusNode? focusNode;
+  final bool autofocus;
+  final ValueChanged<String>? onSubmitted;
+
+  @override
+  State<CcTextField> createState() => _CcTextFieldState();
+}
+
+class _CcTextFieldState extends State<CcTextField> {
+  FocusNode? _ownedFocus;
+
+  FocusNode get _focus => widget.focusNode ?? (_ownedFocus ??= FocusNode());
+
+  @override
+  void dispose() {
+    _ownedFocus?.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final hasValue = value != null && value!.isNotEmpty;
+    final value = widget.value;
+    final controller = widget.controller;
+    final height = widget.height;
+    final icon = widget.icon;
+    final trailing = widget.trailing;
+    final hasValue = value != null && value.isNotEmpty;
+    final textStyle = CcType.style(
+      size: height <= 30 ? 12 : 13,
+      color: hasValue || controller != null ? CcColors.textPrimary : CcColors.textTertiary,
+    );
     return Container(
       height: height,
       padding: EdgeInsets.symmetric(horizontal: icon == null ? 12 : 10),
       decoration: BoxDecoration(
         color: CcColors.elevated,
-        borderRadius: BorderRadius.circular(radius),
-        border: bordered ? Border.all(color: CcColors.borderStrong) : null,
+        borderRadius: BorderRadius.circular(widget.radius),
+        border: widget.bordered ? Border.all(color: CcColors.borderStrong) : null,
       ),
       child: Row(
         children: [
           if (icon != null) ...[
-            CcIcon(icon!, size: height <= 30 ? 13 : 14, color: CcColors.textTertiary),
+            CcIcon(icon, size: height <= 30 ? 13 : 14, color: CcColors.textTertiary),
             const SizedBox(width: 8),
           ],
           Expanded(
-            child: Text(
-              hasValue ? value! : (placeholder ?? ''),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: CcType.style(
-                size: height <= 30 ? 12 : 13,
-                color: hasValue ? CcColors.textPrimary : CcColors.textTertiary,
-              ),
-            ),
+            child: controller != null
+                ? EditableText(
+                    controller: controller,
+                    focusNode: _focus,
+                    autofocus: widget.autofocus,
+                    style: textStyle,
+                    cursorColor: CcColors.accent,
+                    backgroundCursorColor: CcColors.elevated2,
+                    selectionColor: CcColors.accent.withValues(alpha: 0.35),
+                    onSubmitted: widget.onSubmitted,
+                    maxLines: 1,
+                  )
+                : Text(
+                    hasValue ? value : (widget.placeholder ?? ''),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textStyle,
+                  ),
           ),
-          if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+          if (trailing != null) ...[const SizedBox(width: 8), trailing],
         ],
       ),
     );
@@ -323,12 +368,7 @@ class CcDropdown extends StatelessWidget {
 
 /// Checkbox in the export options row / effect stack header.
 class CcCheckbox extends StatelessWidget {
-  const CcCheckbox({
-    super.key,
-    required this.checked,
-    this.size = 15,
-    this.onTap,
-  });
+  const CcCheckbox({super.key, required this.checked, this.size = 15, this.onTap});
 
   final bool checked;
   final double size;
@@ -363,6 +403,7 @@ class CcSlider extends StatelessWidget {
     this.trackHeight = 4,
     this.handleSize = 10,
     this.fillColor = CcColors.accent,
+    this.onChanged,
   });
 
   /// 0..1
@@ -371,45 +412,54 @@ class CcSlider extends StatelessWidget {
   final double handleSize;
   final Color fillColor;
 
+  /// Null keeps the slider decorative (the design has a few of those).
+  final ValueChanged<double>? onChanged;
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final filled = (width * value.clamp(0, 1));
-        return SizedBox(
-          height: handleSize,
-          child: Stack(
-            clipBehavior: Clip.none,
-            alignment: Alignment.centerLeft,
-            children: [
-              Container(
-                height: trackHeight,
-                decoration: BoxDecoration(
-                  color: CcColors.elevated2,
-                  borderRadius: BorderRadius.circular(trackHeight / 2),
-                ),
-              ),
-              Container(
-                width: filled,
-                height: trackHeight,
-                decoration: BoxDecoration(
-                  color: fillColor,
-                  borderRadius: BorderRadius.circular(trackHeight / 2),
-                ),
-              ),
-              Positioned(
-                left: (filled - handleSize / 2).clamp(0.0, width - handleSize),
-                child: Container(
-                  width: handleSize,
-                  height: handleSize,
-                  decoration: const BoxDecoration(
-                    color: CcColors.textPrimary,
-                    shape: BoxShape.circle,
+        void emit(Offset local) => onChanged?.call((local.dx / width).clamp(0.0, 1.0));
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: onChanged == null ? null : (d) => emit(d.localPosition),
+          onHorizontalDragUpdate: onChanged == null ? null : (d) => emit(d.localPosition),
+          child: SizedBox(
+            height: handleSize,
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.centerLeft,
+              children: [
+                Container(
+                  height: trackHeight,
+                  decoration: BoxDecoration(
+                    color: CcColors.elevated2,
+                    borderRadius: BorderRadius.circular(trackHeight / 2),
                   ),
                 ),
-              ),
-            ],
+                Container(
+                  width: filled,
+                  height: trackHeight,
+                  decoration: BoxDecoration(
+                    color: fillColor,
+                    borderRadius: BorderRadius.circular(trackHeight / 2),
+                  ),
+                ),
+                Positioned(
+                  left: (filled - handleSize / 2).clamp(0.0, width - handleSize),
+                  child: Container(
+                    width: handleSize,
+                    height: handleSize,
+                    decoration: const BoxDecoration(
+                      color: CcColors.textPrimary,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -588,5 +638,219 @@ class CcDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(width: 1, height: height, color: CcColors.borderStrong);
+  }
+}
+
+/// One row of a [CcMenu].
+class CcMenuItem {
+  const CcMenuItem(
+    this.label, {
+    this.onTap,
+    this.icon,
+    this.shortcut,
+    this.danger = false,
+    this.checked,
+    this.separatorBefore = false,
+  });
+
+  final String label;
+  final VoidCallback? onTap;
+  final IconData? icon;
+  final String? shortcut;
+  final bool danger;
+
+  /// Non-null renders a check column (toggle items).
+  final bool? checked;
+  final bool separatorBefore;
+}
+
+/// Floating verb list used by context menus and the track menu. Disabled rows
+/// stay visible so the menu shape does not jump between targets.
+class CcMenu extends StatelessWidget {
+  const CcMenu({super.key, required this.items, this.onSelected, this.width = 210});
+
+  final List<CcMenuItem> items;
+  final VoidCallback? onSelected;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      decoration: BoxDecoration(
+        color: CcColors.elevated,
+        borderRadius: CcRadius.brMd,
+        border: CcBorders.allStrong,
+        boxShadow: const [
+          BoxShadow(color: Color(0x66000000), blurRadius: 20, offset: Offset(0, 8)),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final item in items) ...[
+            if (item.separatorBefore)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 4),
+                child: SizedBox(height: 1, child: ColoredBox(color: CcColors.border)),
+              ),
+            CcTappable(
+              onTap: item.onTap == null
+                  ? null
+                  : () {
+                      onSelected?.call();
+                      item.onTap!();
+                    },
+              builder: (context, hovered, _) => Container(
+                height: 28,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                color: hovered && item.onTap != null
+                    ? CcColors.elevated2
+                    : const Color(0x00000000),
+                child: Row(
+                  children: [
+                    if (item.checked != null) ...[
+                      CcIcon(
+                        item.checked! ? LucideIcons.check : LucideIcons.minus,
+                        size: 12,
+                        color: item.checked! ? CcColors.accent : CcColors.textTertiary,
+                      ),
+                      const SizedBox(width: 8),
+                    ] else if (item.icon != null) ...[
+                      CcIcon(item.icon!, size: 12, color: CcColors.textSecondary),
+                      const SizedBox(width: 8),
+                    ],
+                    Expanded(
+                      child: Text(
+                        item.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: CcType.style(
+                          size: 12,
+                          color: item.onTap == null
+                              ? CcColors.textTertiary
+                              : item.danger
+                                  ? CcColors.error
+                                  : CcColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    if (item.shortcut != null) Text(item.shortcut!, style: CcType.nano),
+                  ],
+                ),
+              ),
+              child: const SizedBox.shrink(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Opens a [CcMenu] at a global position (right-click menus).
+void showCcMenu(BuildContext context, Offset globalPosition, List<CcMenuItem> items) {
+  final overlay = Overlay.of(context);
+  final size = MediaQuery.of(context).size;
+  late OverlayEntry entry;
+  void close() => entry.remove();
+  final estimatedHeight = items.length * 28.0 + 10;
+  final dx = (globalPosition.dx).clamp(0.0, size.width - 220);
+  final dy = (globalPosition.dy).clamp(0.0, size.height - estimatedHeight - 8);
+  entry = OverlayEntry(
+    builder: (context) => Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: close),
+        ),
+        Positioned(
+          left: dx,
+          top: dy,
+          child: CcMenu(items: items, onSelected: close),
+        ),
+      ],
+    ),
+  );
+  overlay.insert(entry);
+}
+
+/// Hover tooltip. Material's `Tooltip` is off-limits here, and the timeline
+/// leans on tooltips for the trim/shortcut hints, so this is the smallest
+/// overlay-based stand-in that behaves.
+class CcTooltip extends StatefulWidget {
+  const CcTooltip({
+    super.key,
+    required this.message,
+    required this.child,
+    this.delay = const Duration(milliseconds: 450),
+  });
+
+  final String message;
+  final Widget child;
+  final Duration delay;
+
+  @override
+  State<CcTooltip> createState() => _CcTooltipState();
+}
+
+class _CcTooltipState extends State<CcTooltip> {
+  final _link = LayerLink();
+  OverlayEntry? _entry;
+  Timer? _timer;
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _remove();
+    super.dispose();
+  }
+
+  void _schedule() {
+    _timer?.cancel();
+    _timer = Timer(widget.delay, _show);
+  }
+
+  void _show() {
+    if (_entry != null || !mounted || widget.message.isEmpty) return;
+    _entry = OverlayEntry(
+      builder: (context) => CompositedTransformFollower(
+        link: _link,
+        targetAnchor: Alignment.topCenter,
+        followerAnchor: Alignment.bottomCenter,
+        offset: const Offset(0, -6),
+        child: IgnorePointer(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            decoration: BoxDecoration(
+              color: CcColors.elevated2,
+              borderRadius: CcRadius.brSm,
+              border: CcBorders.allStrong,
+            ),
+            child: Text(widget.message, style: CcType.nano),
+          ),
+        ),
+      ),
+    );
+    Overlay.of(context).insert(_entry!);
+  }
+
+  void _remove() {
+    _timer?.cancel();
+    _entry?.remove();
+    _entry = null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CompositedTransformTarget(
+      link: _link,
+      child: MouseRegion(
+        onEnter: (_) => _schedule(),
+        onExit: (_) => _remove(),
+        child: widget.child,
+      ),
+    );
   }
 }

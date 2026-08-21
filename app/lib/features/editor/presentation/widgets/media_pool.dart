@@ -4,24 +4,94 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../../core/design/tokens.dart';
 import '../../../../core/widgets/empty_state.dart';
 import '../../../../core/widgets/primitives.dart';
-import '../models/editor_models.dart';
+import '../../../../state/editor_controller.dart';
+import '../../../../state/timeline_edits.dart';
 import 'asset_card.dart';
 
-/// Left rail: search, import drop zone and the asset grid. Falls back to an
-/// empty state when the project has no media yet.
-class MediaPool extends StatelessWidget {
-  const MediaPool({super.key, required this.assets, this.onImport});
+/// Left rail: search, import drop zone and the asset grid. Cards are draggable
+/// onto the timeline (TIM-5) and carry their own context menu (IMP-12).
+class MediaPool extends StatefulWidget {
+  const MediaPool({
+    super.key,
+    required this.controller,
+    this.onImport,
+    this.dropActive = false,
+  });
 
   static const double width = 280;
 
-  final List<MediaAsset> assets;
+  final EditorController controller;
   final VoidCallback? onImport;
+
+  /// Highlights the drop zone while files hover the window.
+  final bool dropActive;
+
+  @override
+  State<MediaPool> createState() => _MediaPoolState();
+}
+
+class _MediaPoolState extends State<MediaPool> {
+  final _search = TextEditingController();
+  bool _listView = false;
+
+  EditorController get c => widget.controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _search.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  List<PoolItem> get _items {
+    final query = _search.text.trim().toLowerCase();
+    final items = c.pool.values.toList()
+      ..sort((a, b) => a.asset.name.toLowerCase().compareTo(b.asset.name.toLowerCase()));
+    if (query.isEmpty) return items;
+    return items.where((i) => i.asset.name.toLowerCase().contains(query)).toList();
+  }
+
+  void _menu(PoolItem item, Offset position) {
+    final asset = item.asset;
+    showCcMenu(context, position, [
+      CcMenuItem(
+        'Insert at playhead',
+        onTap: () => c.placeAsset(asset.id, at: c.playhead, mode: DropMode.overwrite),
+      ),
+      CcMenuItem('Append to timeline', onTap: () => c.placeAsset(asset.id)),
+      CcMenuItem(
+        'Generate proxy now',
+        separatorBefore: true,
+        onTap: () => c.proxies.request(asset, force: true),
+      ),
+      CcMenuItem(
+        asset.offline ? 'Relink…' : 'Reveal in folder',
+        onTap: () => widget.onImport == null ? null : _reveal(item),
+      ),
+      CcMenuItem(
+        'Remove from project',
+        danger: true,
+        separatorBefore: true,
+        onTap: () => c.removeAsset(asset.id, force: true),
+      ),
+    ]);
+  }
+
+  void _reveal(PoolItem item) => c.revealAsset(item.asset.id);
 
   @override
   Widget build(BuildContext context) {
-    final isEmpty = assets.isEmpty;
+    final items = _items;
+    final isEmpty = c.pool.isEmpty;
+    final offline = c.offlineAssets;
+
     return Container(
-      width: width,
+      width: MediaPool.width,
       decoration: const BoxDecoration(color: CcColors.panel, border: CcBorders.right),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -35,26 +105,41 @@ class MediaPool extends StatelessWidget {
                   children: [
                     Text('Media', style: CcType.panelTitle),
                     const Spacer(),
-                    CcIcon(
-                      LucideIcons.layoutGrid,
-                      size: 14,
-                      color: isEmpty ? CcColors.textTertiary : CcColors.textPrimary,
+                    CcTappable(
+                      onTap: () => setState(() => _listView = false),
+                      child: CcIcon(
+                        LucideIcons.layoutGrid,
+                        size: 14,
+                        color: _listView ? CcColors.textTertiary : CcColors.textPrimary,
+                      ),
                     ),
                     const SizedBox(width: 10),
-                    const CcIcon(LucideIcons.list, size: 14, color: CcColors.textTertiary),
+                    CcTappable(
+                      onTap: () => setState(() => _listView = true),
+                      child: CcIcon(
+                        LucideIcons.list,
+                        size: 14,
+                        color: _listView ? CcColors.textPrimary : CcColors.textTertiary,
+                      ),
+                    ),
                   ],
                 ),
                 if (!isEmpty) ...[
                   const SizedBox(height: 10),
-                  const CcTextField(
+                  CcTextField(
                     placeholder: 'Search media',
                     icon: LucideIcons.search,
                     height: 29,
                     bordered: false,
                     radius: CcRadius.sm,
+                    controller: _search,
                   ),
                   const SizedBox(height: 10),
-                  _ImportDropZone(onTap: onImport),
+                  _ImportDropZone(onTap: widget.onImport, active: widget.dropActive),
+                ],
+                if (offline.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  _MissingMediaBanner(count: offline.length),
                 ],
               ],
             ),
@@ -69,7 +154,7 @@ class MediaPool extends StatelessWidget {
                       description: 'Drag files or folders here, or',
                       footnote: 'MP4 · MOV · WAV · PNG and more',
                       action: CcTappable(
-                        onTap: onImport,
+                        onTap: widget.onImport,
                         child: Text(
                           'browse your files',
                           style: CcType.style(
@@ -81,7 +166,112 @@ class MediaPool extends StatelessWidget {
                       ),
                     ),
                   )
-                : _AssetGrid(assets: assets),
+                : _grid(items),
+          ),
+          if (c.lastSkipped.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              child: Text(
+                'Skipped ${c.lastSkipped.length} unsupported file'
+                '${c.lastSkipped.length == 1 ? '' : 's'}',
+                style: CcType.nano,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _grid(List<PoolItem> items) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('${items.length} items', style: CcType.tiny),
+          const SizedBox(height: 8),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const gap = 8.0;
+              final columns = _listView ? 1 : 2;
+              final cardWidth =
+                  (constraints.maxWidth - gap * (columns - 1)) / columns;
+              return Wrap(
+                spacing: gap,
+                runSpacing: gap,
+                children: [
+                  for (final item in items)
+                    SizedBox(
+                      width: cardWidth,
+                      child: Draggable<String>(
+                        data: item.asset.id,
+                        dragAnchorStrategy: pointerDragAnchorStrategy,
+                        feedback: _DragGhost(name: item.asset.name),
+                        child: AssetCard(
+                          item: item,
+                          usageCount: c.doc.usageCount(item.asset.id),
+                          proxyState: c.proxies.stateOf(item.asset.id),
+                          proxyProgress: c.proxies.progressOf(item.asset.id),
+                          onTap: () => c.placeAsset(item.asset.id),
+                          onContextMenu: (position) => _menu(item, position),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DragGhost extends StatelessWidget {
+  const _DragGhost({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    return Transform.translate(
+      offset: const Offset(-60, -14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: CcColors.elevated2,
+          borderRadius: CcRadius.brSm,
+          border: Border.all(color: CcColors.accent),
+        ),
+        child: Text(name, style: CcType.style(size: 11, weight: CcType.medium)),
+      ),
+    );
+  }
+}
+
+class _MissingMediaBanner extends StatelessWidget {
+  const _MissingMediaBanner({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: CcColors.elevated,
+        borderRadius: CcRadius.brSm,
+        border: Border.all(color: CcColors.warning),
+      ),
+      child: Row(
+        children: [
+          const CcIcon(LucideIcons.triangleAlert, size: 12, color: CcColors.warning),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '$count file${count == 1 ? '' : 's'} offline — right-click to relink',
+              style: CcType.style(size: 10, color: CcColors.textSecondary),
+            ),
           ),
         ],
       ),
@@ -90,9 +280,10 @@ class MediaPool extends StatelessWidget {
 }
 
 class _ImportDropZone extends StatelessWidget {
-  const _ImportDropZone({this.onTap});
+  const _ImportDropZone({this.onTap, this.active = false});
 
   final VoidCallback? onTap;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
@@ -102,9 +293,9 @@ class _ImportDropZone extends StatelessWidget {
         height: 86,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: CcColors.elevated,
+          color: active ? CcColors.elevated2 : CcColors.elevated,
           borderRadius: CcRadius.brMd,
-          border: CcBorders.allStrong,
+          border: active ? Border.all(color: CcColors.accent) : CcBorders.allStrong,
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -119,40 +310,6 @@ class _ImportDropZone extends StatelessWidget {
             Text('or click to import', style: CcType.tiny),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _AssetGrid extends StatelessWidget {
-  const _AssetGrid({required this.assets});
-
-  final List<MediaAsset> assets;
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text('${assets.length} items', style: CcType.tiny),
-          const SizedBox(height: 8),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              const gap = 8.0;
-              final cardWidth = (constraints.maxWidth - gap) / 2;
-              return Wrap(
-                spacing: gap,
-                runSpacing: gap,
-                children: [
-                  for (final asset in assets)
-                    SizedBox(width: cardWidth, child: AssetCard(asset: asset)),
-                ],
-              );
-            },
-          ),
-        ],
       ),
     );
   }
