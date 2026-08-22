@@ -74,3 +74,23 @@ TEST(Frame, ThumbnailProducesJpegBytes) {
   EXPECT_EQ(jpeg[0], 0xFF);
   EXPECT_EQ(jpeg[1], 0xD8);
 }
+
+// Regression: playing to the end of a clip and staying there wiped the frame
+// the decoder was holding. avcodec_receive_frame unrefs its destination before
+// it reports EAGAIN/EOF, so the drain path handed back a zero-sized frame and
+// the compositor drew the offline slate — the preview blinked between picture
+// and checkerboard for the rest of the clip.
+TEST(Frame, HoldsTheLastFrameAtEndOfFile) {
+  if (!fixtureExists()) {
+    GTEST_SKIP() << "fixture not generated";
+  }
+  cc::DecodedFrame frame;
+  // Walk into the tail of the file and keep asking past its end.
+  for (double t = 9.0; t <= 10.5; t += 1.0 / 30.0) {
+    ASSERT_EQ(cc::extractFrameRgba(fixturePath(), t, 320, &frame), cc::Error::None)
+        << "at t=" << t;
+    EXPECT_GT(frame.width, 0) << "at t=" << t;
+    EXPECT_GT(frame.height, 0) << "at t=" << t;
+    EXPECT_FALSE(frame.rgba.empty()) << "at t=" << t;
+  }
+}

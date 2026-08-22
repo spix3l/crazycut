@@ -89,10 +89,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
     if (_syncing || !to.hasClients || !from.hasClients) return;
     if ((to.offset - from.offset).abs() < 0.5) return;
     _syncing = true;
-    to.jumpTo(from.offset.clamp(
-      to.position.minScrollExtent,
-      to.position.maxScrollExtent,
-    ));
+    to.jumpTo(from.offset.clamp(to.position.minScrollExtent, to.position.maxScrollExtent));
     _syncing = false;
   }
 
@@ -105,17 +102,13 @@ class _TimelinePanelState extends State<TimelinePanel> {
     final anchor = _zoomAnchorSeconds;
     _zoomAnchorSeconds = null;
     if (!_horizontal.hasClients) return;
-    final pointerOffset = anchor == null
-        ? 0.0
-        : anchor * oldWidget.pxPerSec - _scrollX;
+    final pointerOffset = anchor == null ? 0.0 : anchor * oldWidget.pxPerSec - _scrollX;
     final target = anchor == null
         ? _scrollX * widget.pxPerSec / oldWidget.pxPerSec
         : anchor * widget.pxPerSec - pointerOffset;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_horizontal.hasClients) return;
-      _horizontal.jumpTo(
-        target.clamp(0.0, _horizontal.position.maxScrollExtent),
-      );
+      _horizontal.jumpTo(target.clamp(0.0, _horizontal.position.maxScrollExtent));
     });
   }
 
@@ -222,16 +215,8 @@ class _TimelinePanelState extends State<TimelinePanel> {
       CcMenuItem('Split at playhead', shortcut: 'S', onTap: c.splitAtPlayhead),
       CcMenuItem('Copy', shortcut: '⌘C', onTap: c.copySelection),
       CcMenuItem('Cut', shortcut: '⌘X', onTap: c.cutSelection),
-      CcMenuItem(
-        'Delete',
-        shortcut: '⌫',
-        onTap: () => c.deleteSelected(ripple: false),
-      ),
-      CcMenuItem(
-        'Ripple delete',
-        shortcut: '⇧⌫',
-        onTap: () => c.deleteSelected(ripple: true),
-      ),
+      CcMenuItem('Delete', shortcut: '⌫', onTap: () => c.deleteSelected(ripple: false)),
+      CcMenuItem('Ripple delete', shortcut: '⇧⌫', onTap: () => c.deleteSelected(ripple: true)),
       CcMenuItem(
         linked ? 'Unlink A/V' : 'Link selection',
         separatorBefore: true,
@@ -285,11 +270,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
                       Expanded(
                         child: SingleChildScrollView(
                           controller: _headerScroll,
-                          child: Column(
-                            children: [
-                              for (final track in lanes) _header(track),
-                            ],
-                          ),
+                          child: Column(children: [for (final track in lanes) _header(track)]),
                         ),
                       ),
                     ],
@@ -329,7 +310,9 @@ class _TimelinePanelState extends State<TimelinePanel> {
                                           ),
                                           if (doc.clips.isEmpty)
                                             const Positioned.fill(
-                                              child: IgnorePointer(child: _GettingStartedHint()),
+                                              child: IgnorePointer(
+                                                child: _GettingStartedHint(),
+                                              ),
                                             ),
                                           _inOutOverlay(lanesHeight),
                                           if (c.snapIndicator != null)
@@ -399,10 +382,8 @@ class _TimelinePanelState extends State<TimelinePanel> {
     return TrackHeaderTile(
       track: track,
       selected: doc.clipsOn(track.id).any((clip) => c.selection.contains(clip.id)),
-      onSelect: () => c.selectTrack(
-        track.id,
-        additive: HardwareKeyboard.instance.isShiftPressed,
-      ),
+      onSelect: () =>
+          c.selectTrack(track.id, additive: HardwareKeyboard.instance.isShiftPressed),
       onRename: (name) => c.renameTrack(track.id, name),
       onToggleMute: () => c.setTrackFlags(track.id, mute: !track.mute),
       onToggleSolo: () => c.setTrackFlags(track.id, solo: !track.solo),
@@ -486,6 +467,13 @@ class _TimelinePanelState extends State<TimelinePanel> {
           _draggingMarkerId = null;
           c.endGesture();
         },
+        // A cancelled pointer must close the transaction too: an open one
+        // swallows every later edit instead of letting it reach the undo
+        // stack.
+        onHorizontalDragCancel: () {
+          _draggingMarkerId = null;
+          c.endGesture();
+        },
         child: MouseRegion(
           cursor: SystemMouseCursors.resizeLeftRight,
           child: CcTooltip(
@@ -541,8 +529,10 @@ class _TimelinePanelState extends State<TimelinePanel> {
         final local = box.globalToLocal(details.offset);
         setState(() {
           _dropTrackId = track.id;
-          _dropSeconds = ((local.dx - TrackHeaderTile.width + _scrollX) / pxPerSec)
-              .clamp(0.0, double.infinity);
+          _dropSeconds = ((local.dx - TrackHeaderTile.width + _scrollX) / pxPerSec).clamp(
+            0.0,
+            double.infinity,
+          );
         });
       },
       onLeave: (_) => setState(() {
@@ -555,15 +545,16 @@ class _TimelinePanelState extends State<TimelinePanel> {
         final mode = keys.isShiftPressed
             ? DropMode.insert
             : keys.isAltPressed
-                ? DropMode.append
-                : DropMode.overwrite;
+            ? DropMode.append
+            : DropMode.overwrite;
         setState(() {
           _dropTrackId = null;
           _dropSeconds = null;
         });
         c.placeAsset(details.data, trackId: track.id, at: at, mode: mode);
       },
-      builder: (context, candidate, rejected) => _laneContent(track, dropping: candidate.isNotEmpty),
+      builder: (context, candidate, rejected) =>
+          _laneContent(track, dropping: candidate.isNotEmpty),
     );
   }
 
@@ -579,21 +570,18 @@ class _TimelinePanelState extends State<TimelinePanel> {
       child: Stack(
         clipBehavior: ui.Clip.none,
         children: [
-          Positioned.fill(
-            child: _laneBackground(track),
-          ),
+          Positioned.fill(child: _laneBackground(track)),
           for (final clip in visible) _clipWidget(track, clip),
-          for (final tr in doc.transitions.where((t) =>
-              _touches(t, track.id) &&
-              _trVisible(t, visibleFrom, visibleTo)))
+          for (final tr in doc.transitions.where(
+            (t) => _touches(t, track.id) && _trVisible(t, visibleFrom, visibleTo),
+          ))
             _transitionBadge(track, tr),
           for (var i = 0; i < clips.length - 1; i++)
             if (clips[i].end == clips[i + 1].start &&
                 clips[i].end.seconds >= visibleFrom &&
                 clips[i].end.seconds <= visibleTo)
               _rollHandle(track, clips[i], clips[i + 1]),
-          if (dropping && _dropTrackId == track.id && _dropSeconds != null)
-            _dropGhost(track),
+          if (dropping && _dropTrackId == track.id && _dropSeconds != null) _dropGhost(track),
         ],
       ),
     );
@@ -619,8 +607,8 @@ class _TimelinePanelState extends State<TimelinePanel> {
               HardwareKeyboard.instance.isShiftPressed
                   ? 'insert'
                   : HardwareKeyboard.instance.isAltPressed
-                      ? 'append'
-                      : 'overwrite',
+                  ? 'append'
+                  : 'overwrite',
               style: CcType.nano,
             ),
           ),
@@ -750,9 +738,9 @@ class _TimelinePanelState extends State<TimelinePanel> {
           onPanUpdate: locked
               ? null
               : (d) => _updateClipDrag(
-                    d,
-                    lanes: kind == EditGesture.move ? _laneDelta(track.id, _dragDelta.dy) : 0,
-                  ),
+                  d,
+                  lanes: kind == EditGesture.move ? _laneDelta(track.id, _dragDelta.dy) : 0,
+                ),
           onPanEnd: locked ? null : (_) => _endDrag(),
           onPanCancel: locked ? null : _endDrag,
           child: SizedBox(width: width, child: child ?? const SizedBox.expand()),
@@ -785,9 +773,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
               onFadeDrag: locked
                   ? null
                   : (fadeIn, deltaSeconds) {
-                      final current = fadeIn
-                          ? clip.fadeIn.duration
-                          : clip.fadeOut.duration;
+                      final current = fadeIn ? clip.fadeIn.duration : clip.fadeOut.duration;
                       c.setClipFade(
                         clip.id,
                         fadeIn: fadeIn,
@@ -821,8 +807,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
     );
   }
 
-  bool _touches(Transition t, String trackId) =>
-      doc.clipById(t.aClipId)?.trackId == trackId;
+  bool _touches(Transition t, String trackId) => doc.clipById(t.aClipId)?.trackId == trackId;
 
   bool _trVisible(Transition t, double from, double to) {
     final a = doc.clipById(t.aClipId);
@@ -839,8 +824,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
     final b = doc.clipById(tr.bClipId);
     if (a == null || b == null) return const SizedBox.shrink();
     final start = a.start > b.start ? b.start : a.start;
-    final width =
-        ((a.end > b.end ? b.end : a.end).minus(start)).seconds * pxPerSec;
+    final width = ((a.end > b.end ? b.end : a.end).minus(start)).seconds * pxPerSec;
     return Positioned(
       left: start.seconds * pxPerSec,
       width: width.clamp(10, double.infinity),
@@ -851,12 +835,14 @@ class _TimelinePanelState extends State<TimelinePanel> {
         onTapDown: (_) => c.selectClip(null),
         onHorizontalDragStart: (_) => c.beginGesture('Retime transition'),
         onHorizontalDragUpdate: (d) => c.setTransitionDurationLive(
-            tr.id, tr.duration.plus(Rt.fromSeconds(d.delta.dx / pxPerSec))),
+          tr.id,
+          tr.duration.plus(Rt.fromSeconds(d.delta.dx / pxPerSec)),
+        ),
         onHorizontalDragEnd: (_) => c.endGesture(),
+        onHorizontalDragCancel: () => c.endGesture(),
         onSecondaryTapDown: (d) => _transitionMenu(context, d.globalPosition, tr),
         child: CcTooltip(
-          message:
-              '${tr.type} · ${tr.duration.seconds.toStringAsFixed(2)}s',
+          message: '${tr.type} · ${tr.duration.seconds.toStringAsFixed(2)}s',
           child: const TransitionBadge(height: 20),
         ),
       ),
@@ -866,25 +852,48 @@ class _TimelinePanelState extends State<TimelinePanel> {
   void _transitionMenu(BuildContext context, Offset at, Transition tr) {
     showCcMenu(context, at, [
       const CcMenuItem('Type', onTap: null),
-      CcMenuItem('Cross dissolve', checked: tr.type == 'crossDissolve',
-          onTap: () => c.setTransitionType(tr.id, 'crossDissolve')),
-      CcMenuItem('Dip to black', checked: tr.type == 'dipToBlack',
-          onTap: () => c.setTransitionType(tr.id, 'dipToBlack')),
-      CcMenuItem('Dip to white', checked: tr.type == 'dipToWhite',
-          onTap: () => c.setTransitionType(tr.id, 'dipToWhite')),
-      CcMenuItem('Push left', checked: tr.type == 'pushLeft',
-          onTap: () => c.setTransitionType(tr.id, 'pushLeft')),
-      CcMenuItem('Zoom in', checked: tr.type == 'zoomIn',
-          onTap: () => c.setTransitionType(tr.id, 'zoomIn')),
+      CcMenuItem(
+        'Cross dissolve',
+        checked: tr.type == 'crossDissolve',
+        onTap: () => c.setTransitionType(tr.id, 'crossDissolve'),
+      ),
+      CcMenuItem(
+        'Dip to black',
+        checked: tr.type == 'dipToBlack',
+        onTap: () => c.setTransitionType(tr.id, 'dipToBlack'),
+      ),
+      CcMenuItem(
+        'Dip to white',
+        checked: tr.type == 'dipToWhite',
+        onTap: () => c.setTransitionType(tr.id, 'dipToWhite'),
+      ),
+      CcMenuItem(
+        'Push left',
+        checked: tr.type == 'pushLeft',
+        onTap: () => c.setTransitionType(tr.id, 'pushLeft'),
+      ),
+      CcMenuItem(
+        'Zoom in',
+        checked: tr.type == 'zoomIn',
+        onTap: () => c.setTransitionType(tr.id, 'zoomIn'),
+      ),
       const CcMenuItem('Alignment', onTap: null),
-      CcMenuItem('Center', checked: tr.alignment == 'center',
-          onTap: () => c.setTransitionAlignment(tr.id, 'center')),
-      CcMenuItem('Start', checked: tr.alignment == 'start',
-          onTap: () => c.setTransitionAlignment(tr.id, 'start')),
-      CcMenuItem('End', checked: tr.alignment == 'end',
-          onTap: () => c.setTransitionAlignment(tr.id, 'end')),
-      CcMenuItem('Remove transition',
-          danger: true, onTap: () => c.removeTransition(tr.id)),
+      CcMenuItem(
+        'Center',
+        checked: tr.alignment == 'center',
+        onTap: () => c.setTransitionAlignment(tr.id, 'center'),
+      ),
+      CcMenuItem(
+        'Start',
+        checked: tr.alignment == 'start',
+        onTap: () => c.setTransitionAlignment(tr.id, 'start'),
+      ),
+      CcMenuItem(
+        'End',
+        checked: tr.alignment == 'end',
+        onTap: () => c.setTransitionAlignment(tr.id, 'end'),
+      ),
+      CcMenuItem('Remove transition', danger: true, onTap: () => c.removeTransition(tr.id)),
     ]);
   }
 
@@ -1032,6 +1041,14 @@ class _TimelineToolbar extends StatelessWidget {
             onTap: c.linkSelection,
           ),
           _ToolIcon(
+            icon: c.linkAudioOnAdd ? LucideIcons.link2 : LucideIcons.link2Off,
+            tooltip: c.linkAudioOnAdd
+                ? 'Adding a video also lays down its linked audio. Click for picture only'
+                : 'Videos are added as picture only. Click to also lay down linked audio',
+            active: c.linkAudioOnAdd,
+            onTap: () => c.setLinkAudioOnAdd(!c.linkAudioOnAdd),
+          ),
+          _ToolIcon(
             icon: LucideIcons.magnet,
             tooltip: 'Snapping (hold ⌃ to bypass)',
             active: snap,
@@ -1048,12 +1065,18 @@ class _TimelineToolbar extends StatelessWidget {
           const SizedBox(width: 8),
           CcTappable(
             onTap: () => c.addTrack('video'),
-            child: Text('+ Video', style: CcType.style(size: 11, color: CcColors.textSecondary)),
+            child: Text(
+              '+ Video',
+              style: CcType.style(size: 11, color: CcColors.textSecondary),
+            ),
           ),
           const SizedBox(width: 10),
           CcTappable(
             onTap: () => c.addTrack('audio'),
-            child: Text('+ Audio', style: CcType.style(size: 11, color: CcColors.textSecondary)),
+            child: Text(
+              '+ Audio',
+              style: CcType.style(size: 11, color: CcColors.textSecondary),
+            ),
           ),
           const Spacer(),
           if (c.trimFeedback != null) ...[
@@ -1070,7 +1093,9 @@ class _TimelineToolbar extends StatelessWidget {
           _ToolIcon(
             icon: LucideIcons.zoomOut,
             tooltip: 'Zoom out (⌘−)',
-            onTap: onZoomChanged == null ? null : () => onZoomChanged!((zoom - 0.1).clamp(0, 1)),
+            onTap: onZoomChanged == null
+                ? null
+                : () => onZoomChanged!((zoom - 0.1).clamp(0, 1)),
           ),
           SizedBox(
             width: 80,
@@ -1084,7 +1109,9 @@ class _TimelineToolbar extends StatelessWidget {
           _ToolIcon(
             icon: LucideIcons.zoomIn,
             tooltip: 'Zoom in (⌘+)',
-            onTap: onZoomChanged == null ? null : () => onZoomChanged!((zoom + 0.1).clamp(0, 1)),
+            onTap: onZoomChanged == null
+                ? null
+                : () => onZoomChanged!((zoom + 0.1).clamp(0, 1)),
           ),
           _ToolIcon(icon: LucideIcons.scan, tooltip: 'Zoom to fit (\\)', onTap: onFit),
         ],
@@ -1122,8 +1149,8 @@ class _ToolIcon extends StatelessWidget {
             color: !enabled
                 ? CcColors.textTertiary
                 : active
-                    ? CcColors.accent
-                    : CcColors.textPrimary,
+                ? CcColors.accent
+                : CcColors.textPrimary,
           ),
         ),
       ),

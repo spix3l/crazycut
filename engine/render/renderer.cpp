@@ -7,6 +7,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 }
 
+#include "core/log.h"
 #include "media/frame.h"
 #include "model/project.h"
 
@@ -188,9 +189,15 @@ Error renderFrame(const json& document, const RationalTime& time, int width,
       const std::string mediaId = side.value("mediaId", "");
       // Text clips carry no media; the UI pushes their rasterized texture
       // through resolve() keyed by clip id (TXT-7).
-      std::optional<ClipSource> src =
-          resolve(mediaId.empty() ? "text:" + side.value("id", "") : mediaId);
+      const std::string key =
+          mediaId.empty() ? "text:" + side.value("id", "") : mediaId;
+      std::optional<ClipSource> src = resolve(key);
       if (!src) {
+        // The slate is what the user sees when a clip cannot find its pixels.
+        // Say which clip and why, or the black-and-grey checkerboard is the
+        // only evidence there is.
+        CC_LOG_WARN("clip " + side.value("id", "") + ": no source for '" + key +
+                    "' — drawing the offline slate");
         *surf = offlineSlate(ctx.sequenceWidth / 2, ctx.sequenceHeight / 2);
       } else if (!src->texture.rgba.empty()) {
         *surf = src->texture;  // text/image texture path
@@ -210,7 +217,12 @@ Error renderFrame(const json& document, const RationalTime& time, int width,
         const double sourceSeconds =
             sourceIn.toSeconds() + localOut->toSeconds() * speed;
         const Error err = loadMediaFrame(src->path, sourceSeconds, ctx, surf);
-        if (err != Error::None) *surf = offlineSlate(ctx.sequenceWidth / 2, ctx.sequenceHeight / 2);
+        if (err != Error::None) {
+          CC_LOG_WARN("clip " + side.value("id", "") + ": decode of " +
+                      src->path + " at " + std::to_string(sourceSeconds) +
+                      "s failed (" + lastError() + ") — drawing the offline slate");
+          *surf = offlineSlate(ctx.sequenceWidth / 2, ctx.sequenceHeight / 2);
+        }
       }
 
       const auto local = *localOut;

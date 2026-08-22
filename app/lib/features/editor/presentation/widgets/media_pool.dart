@@ -64,6 +64,13 @@ class _MediaPoolState extends State<MediaPool> {
         onTap: () => c.placeAsset(asset.id, at: c.playhead, mode: DropMode.overwrite),
       ),
       CcMenuItem('Append to timeline', onTap: () => c.placeAsset(asset.id)),
+      // Per-drop override of the toolbar's auto-link toggle (AUD-6).
+      if (asset.type == 'video' && asset.hasAudio)
+        CcMenuItem(
+          c.linkAudioOnAdd ? 'Append picture only' : 'Append with linked audio',
+          onTap: () =>
+              c.placeAsset(asset.id, withAudio: !c.linkAudioOnAdd),
+        ),
       CcMenuItem(
         'Generate proxy now',
         separatorBefore: true,

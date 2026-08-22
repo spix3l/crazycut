@@ -128,16 +128,47 @@ void main() {
       expect(e.snapIndicator, 5.0);
     });
 
-    test('pushes an overlapped neighbour to the right', () {
+    test('pushes a later overlapped neighbour to the right', () {
       final e = harness();
       addClip(e, id: 'a', start: 0, duration: 5);
       addClip(e, id: 'b', start: 5, duration: 5);
 
+      e.moveClip('a', start: s(2), snap: false);
+
+      expect(e.clipById('a')!.start, s(2));
+      // b starts after a's new position, so it slides right to make room.
+      expect(e.clipById('b')!.start, s(7));
+    });
+
+    test('a predecessor pins the dragged clip instead of swapping with it', () {
+      final e = harness();
+      addClip(e, id: 'a', start: 0, duration: 5);
+      addClip(e, id: 'b', start: 5, duration: 5);
+
+      // Dragging b left past a's tail must butt it against a, not trade places.
       e.moveClip('b', start: s(2), snap: false);
 
-      expect(e.clipById('b')!.start, s(2));
-      // a started before b's new position and overlaps it, so it slides past.
-      expect(e.clipById('a')!.start, s(7));
+      expect(e.clipById('a')!.start, s(0), reason: 'a must not move');
+      expect(e.clipById('b')!.start, s(5), reason: 'b lands flush against a');
+    });
+
+    test('linked partners keep sync when one is blocked by a predecessor', () {
+      final e = harness();
+      final video = e.doc.videoTrack()!;
+      final audio = e.doc.audioTrack()!;
+      addClip(e, id: 'wall', start: 0, duration: 5, trackId: video.id);
+      addClip(e,
+          id: 'v', start: 10, duration: 5, trackId: video.id, linkedGroup: 'g');
+      addClip(e,
+          id: 'a', start: 10, duration: 5, trackId: audio.id, linkedGroup: 'g');
+
+      e.beginDrag(EditGesture.move, 'v');
+      e.updateDrag(-8, snap: false);
+      e.endGesture();
+
+      // v is stopped by `wall`; a must stop with it, not slide to 2s.
+      expect(e.clipById('v')!.start, s(5));
+      expect(e.clipById('a')!.start, s(5));
     });
 
     test('will not move a clip onto a track of a different kind', () {
@@ -488,6 +519,31 @@ void main() {
       expect(video.first.linkedGroup, isNotNull);
     });
 
+    test('auto-link off adds picture only', () {
+      final e = harness(assetSeconds: 8);
+      e.setLinkAudioOnAdd(false);
+
+      e.placeAsset('asset-1');
+
+      final video = e.doc.clipsOn(e.doc.videoTrack()!.id);
+      expect(video, hasLength(1));
+      expect(video.first.linkedGroup, isNull);
+      expect(e.doc.clipsOn(e.doc.audioTrack()!.id), isEmpty);
+    });
+
+    test('withAudio overrides the toggle in both directions', () {
+      final e = harness(assetSeconds: 8);
+
+      // Toggle on, this one drop without audio.
+      e.placeAsset('asset-1', withAudio: false);
+      expect(e.doc.clipsOn(e.doc.audioTrack()!.id), isEmpty);
+
+      // Toggle off, this one drop with audio.
+      e.setLinkAudioOnAdd(false);
+      e.placeAsset('asset-1', withAudio: true);
+      expect(e.doc.clipsOn(e.doc.audioTrack()!.id), hasLength(1));
+    });
+
     test('overwrite clears what it lands on', () {
       final e = harness(assetSeconds: 4);
       final video = e.doc.videoTrack()!.id;
@@ -638,6 +694,53 @@ void main() {
     e.undo();
     expect(e.doc.clips.length, 1);
     expect(e.clipById('c1'), isNotNull);
+  });
+
+  group('undo integrity', () {
+    // Regression: a drag whose pointer was cancelled left the coalescing
+    // transaction open. Every later edit folded into it and never reached the
+    // history stack, so ctrl+Z reverted some older command while the newest
+    // edit stayed applied — the timeline came back with clips duplicated at
+    // stale positions.
+    test('an edit after an unclosed gesture is still undoable', () {
+      final e = harness();
+      addClip(e, id: 'a', start: 0, duration: 5);
+      addClip(e, id: 'b', start: 10, duration: 5);
+      addClip(e, id: 'c', start: 30, duration: 5);
+
+      // A gesture that begins and never ends.
+      e.beginGesture('Move clips');
+      e.moveClip('c', start: s(35), snap: false);
+
+      e.selection.add('b');
+      e.cutSelection();
+      expect(e.clipById('b'), isNull);
+
+      e.undo();
+
+      expect(e.clipById('b'), isNotNull,
+          reason: 'the cut clip must come back');
+      expect(e.clipById('b')!.start, s(10));
+      expect(e.clipById('a')!.start, s(0));
+    });
+
+    test('a new gesture commits one left open instead of adopting it', () {
+      final e = harness();
+      addClip(e, id: 'a', start: 0, duration: 5);
+      addClip(e, id: 'b', start: 10, duration: 5);
+
+      e.beginGesture('Move clips');
+      e.moveClip('b', start: s(20), snap: false);
+      // The next gesture starts without the previous one ever closing.
+      e.beginGesture('Move clips');
+      e.moveClip('b', start: s(25), snap: false);
+      e.endGesture();
+
+      e.undo();
+      expect(e.clipById('b')!.start, s(20), reason: 'only the last move undoes');
+      e.undo();
+      expect(e.clipById('b')!.start, s(10), reason: 'the leaked move undoes too');
+    });
   });
 
 }

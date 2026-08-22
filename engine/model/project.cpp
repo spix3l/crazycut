@@ -87,8 +87,8 @@ std::optional<RationalTime> parseJsonTime(const nlohmann::json& value) {
   }
   const int64_t n = value["n"].get<int64_t>();
   const int64_t d = value["d"].get<int64_t>();
-  if (d <= 0 || d > INT32_MAX) return std::nullopt;
-  return RationalTime{n, static_cast<int32_t>(d)}.normalized();
+  if (d <= 0) return std::nullopt;
+  return RationalTime{n, d}.normalized();
 }
 
 Error ProjectSnapshot::load(const std::string& jsonText, bool repairInvalid) {
@@ -188,9 +188,7 @@ Error ProjectSnapshot::load(const std::string& jsonText, bool repairInvalid) {
         else if (s.is_object()) speed = RationalTime{s.value("num", 1), s.value("den", 1)}.normalized();
       }
       if (!sourceIn || speed < RationalTime{1, 4} || speed > RationalTime{4, 1} ||
-          *sourceIn + RationalTime{duration->num * speed.num,
-                                   static_cast<int32_t>(duration->den * speed.den)}.normalized() >
-              mediaDurations[mediaId]) {
+          *sourceIn + *duration * speed > mediaDurations[mediaId]) {
         addIssue(&issues_, "source_range_exceeded", "clip", id,
                  "clip source range exceeds its media", false);
         valid = false;

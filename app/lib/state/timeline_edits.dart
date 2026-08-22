@@ -75,6 +75,11 @@ mixin TimelineEdits on ChangeNotifier {
   /// TIM-9 global magnetic mode: deletes close the gap by default.
   bool magnetic = false;
 
+  /// AUD-6: whether adding a video with sound also lays its audio on an audio
+  /// track, linked to the picture. Off means picture only — the video clip
+  /// keeps its own sound and nothing lands on the audio lane.
+  bool linkAudioOnAdd = true;
+
   /// Seconds of the snap candidate the current drag locked onto (TIM-15).
   double? snapIndicator;
 
@@ -149,8 +154,18 @@ mixin TimelineEdits on ChangeNotifier {
 
   /// Opens a coalescing window; everything until [endGesture] lands as one
   /// undo step (TIM-20).
+  ///
+  /// A transaction still open here belongs to a gesture that never closed —
+  /// a cancelled pointer, a disposed widget. Commit it rather than adopting
+  /// it: an inherited transaction never reaches the history stack, so every
+  /// later edit becomes invisible to undo.
   void beginGesture([String label = 'Edit']) {
-    _openTx ??= EditTransaction(doc, label);
+    final stale = _openTx;
+    if (stale != null) {
+      _openTx = null;
+      _commit(stale);
+    }
+    _openTx = EditTransaction(doc, label);
   }
 
   void endGesture() {
@@ -164,12 +179,17 @@ mixin TimelineEdits on ChangeNotifier {
   }
 
   void undo() {
+    // Never step the history stack with an edit still uncommitted: the open
+    // transaction would not be on the stack yet, so undo would revert an
+    // older command and leave the newest edit applied.
+    endGesture();
     final command = history.undo(doc);
     if (command == null) return;
     _afterHistory();
   }
 
   void redo() {
+    endGesture();
     final command = history.redo(doc);
     if (command == null) return;
     _afterHistory();
@@ -370,19 +390,52 @@ mixin TimelineEdits on ChangeNotifier {
 
   // --- Overlap policy (TIM-4) ----------------------------------------------
 
+  /// True when a transition deliberately overlaps [a] and [b], so neither may
+  /// be slid out from under the span. sanitizeTransitions re-seats those.
+  bool _partnered(Clip a, Clip b) => doc.transitions.any((t) =>
+      (t.aClipId == a.id && t.bClipId == b.id) ||
+      (t.bClipId == a.id && t.aClipId == b.id));
+
+  /// The earliest start [anchor] may take on [trackId] without landing on top
+  /// of a clip that begins before [desiredStart].
+  ///
+  /// Such a clip is a *predecessor*: sliding it right to make room would jump
+  /// it past the clip the user is placing, which reads as the two swapping
+  /// places. The clip being placed gives way instead, so overshooting a drag
+  /// lands it flush against its predecessor rather than inverting the pair.
+  Rt _floorFor(
+    Clip anchor,
+    String trackId,
+    Rt desiredStart, {
+    Set<String> moving = const {},
+  }) {
+    var floor = desiredStart;
+    for (final c in doc.clipsOn(trackId)) {
+      if (c.id == anchor.id || moving.contains(c.id)) continue;
+      if (c.start >= desiredStart) break; // sorted by start
+      if (_partnered(anchor, c)) continue;
+      if (c.end > floor) floor = c.end;
+    }
+    return floor;
+  }
+
   /// Slides everything colliding with [anchor] to the right, cascading down
   /// the lane. Manual drags can never create an overlap.
+  ///
+  /// Only clips that begin at or after the anchor are pushed; a predecessor
+  /// pins the anchor instead (see [_floorFor]).
   void _pushAside(EditTransaction tx, Clip anchor) {
+    final requested = anchor.start;
+    final floor = _floorFor(anchor, anchor.trackId, requested);
+    if (floor > anchor.start) {
+      tx.clip(anchor.id);
+      anchor.start = floor;
+    }
     var frontier = anchor.end;
     for (final c in doc.clipsOn(anchor.trackId)) {
       if (c.id == anchor.id) continue;
-      if (c.end <= anchor.start) continue;
-      // A transition partner sits deliberately overlapped with the anchor;
-      // pushing it would break the span. sanitizeTransitions re-seats it.
-      final partnered = doc.transitions.any((t) =>
-          (t.aClipId == anchor.id && t.bClipId == c.id) ||
-          (t.bClipId == anchor.id && t.aClipId == c.id));
-      if (partnered && c.start < anchor.end) continue;
+      if (c.start < requested) continue;
+      if (_partnered(anchor, c) && c.start < anchor.end) continue;
       if (c.start < frontier) {
         tx.clip(c.id);
         c.start = frontier;
@@ -560,6 +613,19 @@ mixin TimelineEdits on ChangeNotifier {
       if (target == null || source == null) return;
       if (target.kind != source.kind || target.lock) return;
       targets[entry.key] = target.id;
+    }
+
+    // One shift for the whole gesture, so a clip blocked by its predecessor
+    // does not slide out of sync with the linked partners moving with it.
+    final moving = origins.keys.toSet();
+    for (final entry in origins.entries) {
+      final clip = doc.clipById(entry.key);
+      if (clip == null) continue;
+      final desired = entry.value.start.plus(shift);
+      final floor = _floorFor(clip, targets[entry.key]!, desired,
+          moving: moving);
+      final needed = floor.minus(entry.value.start);
+      if (needed > shift) shift = needed;
     }
 
     _run('Move clips', (tx) {
@@ -1580,6 +1646,14 @@ mixin TimelineEdits on ChangeNotifier {
   void setMagnetic(bool value) {
     if (magnetic == value) return;
     magnetic = value;
+    notifyListeners();
+  }
+
+  /// AUD-6 auto-link toggle: applies to clips added from here on, never to
+  /// pairs already on the timeline.
+  void setLinkAudioOnAdd(bool value) {
+    if (linkAudioOnAdd == value) return;
+    linkAudioOnAdd = value;
     notifyListeners();
   }
 
@@ -2797,14 +2871,16 @@ mixin TimelineEdits on ChangeNotifier {
   // --- Media placement (TIM-5) ---------------------------------------------
 
   /// Puts an asset on the timeline. Video assets with sound also lay their
-  /// audio onto the first free audio track and the two are linked.
+  /// audio onto the first free audio track and the two are linked, unless
+  /// [linkAudioOnAdd] is off or [withAudio] overrides it for this call.
   List<String> placeAsset(
     String assetId, {
     String? trackId,
     Rt? at,
     DropMode mode = DropMode.append,
-    bool withAudio = true,
+    bool? withAudio,
   }) {
+    final placeAudio = withAudio ?? linkAudioOnAdd;
     final asset = doc.assetById(assetId);
     if (asset == null) return const [];
     var requested = trackById(trackId);
@@ -2829,7 +2905,7 @@ mixin TimelineEdits on ChangeNotifier {
       }
       final created = <String>[];
       final group =
-          (asset.type == 'video' && asset.hasAudio && withAudio)
+          (asset.type == 'video' && asset.hasAudio && placeAudio)
               ? generateId()
               : null;
 

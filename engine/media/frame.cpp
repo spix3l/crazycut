@@ -32,6 +32,11 @@ struct DecoderSession {
   AVStream* stream = nullptr;
 
   AVFrame* held = nullptr;      // last decoded frame, owned here
+  // avcodec_receive_frame unrefs its destination before it decides whether it
+  // has a frame, so decoding straight into `held` destroys the frame we are
+  // still holding whenever the call comes back EAGAIN or EOF. Receive into
+  // `scratch` and move into `held` only on success.
+  AVFrame* scratch = nullptr;
   bool heldValid = false;
   double heldPtsSec = -1.0;
 
@@ -40,6 +45,7 @@ struct DecoderSession {
 
   ~DecoderSession() {
     if (sws) sws_freeContext(sws);
+    if (scratch) av_frame_free(&scratch);
     if (held) av_frame_free(&held);
     if (codec) avcodec_free_context(&codec);
     if (format) avformat_close_input(&format);
@@ -169,15 +175,18 @@ double frameDurationOf(const DecoderSession* s) {
 Error decodeForwardTo(DecoderSession* s, double seconds, double epsilon) {
   AVPacket* pkt = av_packet_alloc();
   if (!s->held) s->held = av_frame_alloc();
+  if (!s->scratch) s->scratch = av_frame_alloc();
   const AVRational tb = s->stream->time_base;
   int decoded = 0;
   bool flushed = false;
 
   while (true) {
     int ret = 0;
-    // receive_frame unrefs the destination itself, so s->held always holds the
-    // most recent frame we decoded.
-    while ((ret = avcodec_receive_frame(s->codec, s->held)) == 0) {
+    // Decode into scratch, then hand ownership to held: a failed receive must
+    // not blank the frame we would otherwise fall back on.
+    while ((ret = avcodec_receive_frame(s->codec, s->scratch)) == 0) {
+      av_frame_unref(s->held);
+      av_frame_move_ref(s->held, s->scratch);
       ++decoded;
       s->heldValid = true;
       s->heldPtsSec = s->held->pts != AV_NOPTS_VALUE
@@ -211,7 +220,8 @@ Error decodeForwardTo(DecoderSession* s, double seconds, double epsilon) {
 
   av_packet_free(&pkt);
   // Past the end of the file: the last frame we decoded is the best answer.
-  if (s->heldValid) return Error::None;
+  if (s->heldValid && s->held->width > 0) return Error::None;
+  s->heldValid = false;
   setLastError("no decodable frame found near requested time");
   return Error::MediaDecodeFailed;
 }
@@ -223,7 +233,8 @@ Error decodeFrameNear(DecoderSession* s, double seconds, AVFrame** outFrame) {
   const double epsilon = frameDur * 0.5;
 
   // Same frame as last time (common while parking on a playhead).
-  if (s->heldValid && s->heldPtsSec >= 0 && seconds >= s->heldPtsSec - epsilon &&
+  if (s->heldValid && s->held && s->held->width > 0 && s->heldPtsSec >= 0 &&
+      seconds >= s->heldPtsSec - epsilon &&
       seconds < s->heldPtsSec + frameDur - epsilon) {
     *outFrame = s->held;
     return Error::None;
@@ -231,7 +242,8 @@ Error decodeFrameNear(DecoderSession* s, double seconds, AVFrame** outFrame) {
 
   // Slightly ahead: decoding forward beats a seek + keyframe re-decode, and it
   // is what playback and small scrubs do almost every frame.
-  const bool forwardOk = s->heldValid && s->heldPtsSec >= 0 &&
+  const bool forwardOk = s->heldValid && s->held && s->held->width > 0 &&
+                         s->heldPtsSec >= 0 &&
                          seconds > s->heldPtsSec &&
                          seconds - s->heldPtsSec <= 2.0;
   if (!forwardOk) {
@@ -252,6 +264,11 @@ Error decodeFrameNear(DecoderSession* s, double seconds, AVFrame** outFrame) {
 
   const Error err = decodeForwardTo(s, seconds, epsilon);
   if (err != Error::None) return err;
+  if (!s->held || s->held->width <= 0) {
+    s->heldValid = false;
+    setLastError("decoder produced an empty frame");
+    return Error::MediaDecodeFailed;
+  }
   *outFrame = s->held;
   return Error::None;
 }
