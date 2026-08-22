@@ -43,9 +43,23 @@ class _EditorScreenState extends State<EditorScreen> {
     XTypeGroup(
       label: 'Media',
       extensions: [
-        'mp4', 'mov', 'mkv', 'webm', 'm4v',
-        'wav', 'mp3', 'aac', 'm4a', 'flac', 'ogg',
-        'png', 'jpg', 'jpeg', 'webp', 'gif',
+        'mp4',
+        'mov',
+        'mkv',
+        'webm',
+        'm4v',
+        'wav',
+        'mp3',
+        'aac',
+        'm4a',
+        'flac',
+        'ogg',
+        'png',
+        'jpg',
+        'jpeg',
+        'webp',
+        'gif',
+        'svg',
       ],
     ),
   ];
@@ -123,7 +137,9 @@ class _EditorScreenState extends State<EditorScreen> {
   Future<void> _saveCopy(EditorController c) async {
     final location = await getSaveLocation(
       suggestedName: '${c.doc.name}.crazycut',
-      acceptedTypeGroups: const [XTypeGroup(label: 'CrazyCut project', extensions: ['crazycut'])],
+      acceptedTypeGroups: const [
+        XTypeGroup(label: 'CrazyCut project', extensions: ['crazycut']),
+      ],
     );
     if (location == null) return;
     await c.saveCopy(location.path);
@@ -249,6 +265,8 @@ class _EditorScreenState extends State<EditorScreen> {
         c.cutSelection();
       case LogicalKeyboardKey.keyC when meta:
         c.copySelection();
+      case LogicalKeyboardKey.keyV when meta && alt:
+        c.pasteAttributes();
       case LogicalKeyboardKey.keyV when meta:
         c.paste();
       case LogicalKeyboardKey.keyD when meta:
@@ -264,7 +282,10 @@ class _EditorScreenState extends State<EditorScreen> {
       case LogicalKeyboardKey.keyK:
         c.stopPlayback();
       case LogicalKeyboardKey.keyL:
-        c.shuttle(forward: true, slow: keys.logicalKeysPressed.contains(LogicalKeyboardKey.keyK));
+        c.shuttle(
+          forward: true,
+          slow: keys.logicalKeysPressed.contains(LogicalKeyboardKey.keyK),
+        );
       case LogicalKeyboardKey.keyZ when meta && shift:
         c.redo();
       case LogicalKeyboardKey.keyZ when meta:
@@ -349,7 +370,8 @@ class _EditorScreenState extends State<EditorScreen> {
                         await AppSession.instance.close();
                         if (context.mounted) context.router.maybePop();
                       },
-                      onExport: () => context.router.push(ExportRoute(empty: empty)),
+                      onExport: () =>
+                          context.router.push(ExportRoute(empty: empty)),
                       onUndo: c.undo,
                       onRedo: c.redo,
                       canUndo: c.canUndo,
@@ -379,7 +401,8 @@ class _EditorScreenState extends State<EditorScreen> {
                           Expanded(
                             child: MonitorPanel(
                               controller: c,
-                              onFullscreen: () => setState(() => _fullscreen = true),
+                              onFullscreen: () =>
+                                  setState(() => _fullscreen = true),
                             ),
                           ),
                           if (_mixer)
@@ -447,7 +470,8 @@ class _NoProjectOpen extends StatelessWidget {
             description: 'Pick a project from the browser to start editing.',
             action: CcButton(
               label: 'Go to projects',
-              onPressed: () => context.router.replaceAll([ProjectBrowserRoute()]),
+              onPressed: () =>
+                  context.router.replaceAll([ProjectBrowserRoute()]),
             ),
           ),
         ),

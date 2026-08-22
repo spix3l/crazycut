@@ -6,6 +6,7 @@ import '../../../../core/widgets/empty_state.dart';
 import '../../../../core/widgets/primitives.dart';
 import '../../../../state/editor_controller.dart';
 import '../../../../state/timeline_edits.dart';
+import '../models/editor_models.dart';
 import 'asset_card.dart';
 
 /// Left rail: search, import drop zone and the asset grid. Cards are draggable
@@ -33,6 +34,7 @@ class MediaPool extends StatefulWidget {
 class _MediaPoolState extends State<MediaPool> {
   final _search = TextEditingController();
   bool _listView = false;
+  MediaPoolFilter _filter = MediaPoolFilter.all;
 
   EditorController get c => widget.controller;
 
@@ -51,9 +53,17 @@ class _MediaPoolState extends State<MediaPool> {
   List<PoolItem> get _items {
     final query = _search.text.trim().toLowerCase();
     final items = c.pool.values.toList()
-      ..sort((a, b) => a.asset.name.toLowerCase().compareTo(b.asset.name.toLowerCase()));
-    if (query.isEmpty) return items;
-    return items.where((i) => i.asset.name.toLowerCase().contains(query)).toList();
+      ..sort(
+        (a, b) =>
+            a.asset.name.toLowerCase().compareTo(b.asset.name.toLowerCase()),
+      );
+    return items.where((item) {
+      final matchesType =
+          _filter == MediaPoolFilter.all || item.asset.kind == _filter.kind;
+      final matchesSearch =
+          query.isEmpty || item.asset.name.toLowerCase().contains(query);
+      return matchesType && matchesSearch;
+    }).toList();
   }
 
   void _menu(PoolItem item, Offset position) {
@@ -61,21 +71,25 @@ class _MediaPoolState extends State<MediaPool> {
     showCcMenu(context, position, [
       CcMenuItem(
         'Insert at playhead',
-        onTap: () => c.placeAsset(asset.id, at: c.playhead, mode: DropMode.overwrite),
+        onTap: () => c.placeAsset(
+          asset.id,
+          at: c.playhead,
+          mode: DropMode.overwrite,
+        ),
       ),
       CcMenuItem('Append to timeline', onTap: () => c.placeAsset(asset.id)),
       // Per-drop override of the toolbar's auto-link toggle (AUD-6).
       if (asset.type == 'video' && asset.hasAudio)
         CcMenuItem(
           c.linkAudioOnAdd ? 'Append picture only' : 'Append with linked audio',
-          onTap: () =>
-              c.placeAsset(asset.id, withAudio: !c.linkAudioOnAdd),
+          onTap: () => c.placeAsset(asset.id, withAudio: !c.linkAudioOnAdd),
         ),
-      CcMenuItem(
-        'Generate proxy now',
-        separatorBefore: true,
-        onTap: () => c.proxies.request(asset, force: true),
-      ),
+      if (asset.type == 'video')
+        CcMenuItem(
+          'Generate proxy now',
+          separatorBefore: true,
+          onTap: () => c.proxies.request(asset, force: true),
+        ),
       CcMenuItem(
         asset.offline ? 'Relink…' : 'Reveal in folder',
         onTap: () => widget.onImport == null ? null : _reveal(item),
@@ -99,7 +113,10 @@ class _MediaPoolState extends State<MediaPool> {
 
     return Container(
       width: MediaPool.width,
-      decoration: const BoxDecoration(color: CcColors.panel, border: CcBorders.right),
+      decoration: const BoxDecoration(
+        color: CcColors.panel,
+        border: CcBorders.right,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -117,7 +134,9 @@ class _MediaPoolState extends State<MediaPool> {
                       child: CcIcon(
                         LucideIcons.layoutGrid,
                         size: 14,
-                        color: _listView ? CcColors.textTertiary : CcColors.textPrimary,
+                        color: _listView
+                            ? CcColors.textTertiary
+                            : CcColors.textPrimary,
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -126,7 +145,9 @@ class _MediaPoolState extends State<MediaPool> {
                       child: CcIcon(
                         LucideIcons.list,
                         size: 14,
-                        color: _listView ? CcColors.textPrimary : CcColors.textTertiary,
+                        color: _listView
+                            ? CcColors.textPrimary
+                            : CcColors.textTertiary,
                       ),
                     ),
                   ],
@@ -141,8 +162,28 @@ class _MediaPoolState extends State<MediaPool> {
                     radius: CcRadius.sm,
                     controller: _search,
                   ),
+                  const SizedBox(height: 8),
+                  CcSegmented(
+                    height: 28,
+                    padding: 2,
+                    expand: true,
+                    selectedIndex: _filter.index,
+                    onChanged: (index) => setState(
+                      () => _filter = MediaPoolFilter.values[index],
+                    ),
+                    children: [
+                      for (final filter in MediaPoolFilter.values)
+                        Text(
+                          filter.label,
+                          style: CcType.style(size: 10, weight: CcType.medium),
+                        ),
+                    ],
+                  ),
                   const SizedBox(height: 10),
-                  _ImportDropZone(onTap: widget.onImport, active: widget.dropActive),
+                  _ImportDropZone(
+                    onTap: widget.onImport,
+                    active: widget.dropActive,
+                  ),
                 ],
                 if (offline.isNotEmpty) ...[
                   const SizedBox(height: 10),
@@ -159,7 +200,7 @@ class _MediaPoolState extends State<MediaPool> {
                       icon: LucideIcons.cloudUpload,
                       title: 'No media yet',
                       description: 'Drag files or folders here, or',
-                      footnote: 'MP4 · MOV · WAV · PNG and more',
+                      footnote: 'MP4 · MOV · WAV · PNG · SVG and more',
                       action: CcTappable(
                         onTap: widget.onImport,
                         child: Text(
@@ -272,7 +313,11 @@ class _MissingMediaBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const CcIcon(LucideIcons.triangleAlert, size: 12, color: CcColors.warning),
+          const CcIcon(
+            LucideIcons.triangleAlert,
+            size: 12,
+            color: CcColors.warning,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -297,27 +342,60 @@ class _ImportDropZone extends StatelessWidget {
     return CcTappable(
       onTap: onTap,
       child: Container(
-        height: 86,
+        key: const ValueKey('media-import-control'),
+        height: 38,
         alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
           color: active ? CcColors.elevated2 : CcColors.elevated,
           borderRadius: CcRadius.brMd,
-          border: active ? Border.all(color: CcColors.accent) : CcBorders.allStrong,
+          border:
+              active ? Border.all(color: CcColors.accent) : CcBorders.allStrong,
         ),
-        child: Column(
+        child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const CcIcon(LucideIcons.cloudUpload, size: 18),
-            const SizedBox(height: 4),
-            Text(
-              'Drag files or folders',
-              style: CcType.style(size: 12, weight: CcType.medium, color: CcColors.textSecondary),
+            CcIcon(
+              LucideIcons.cloudUpload,
+              size: 14,
+              color: active ? CcColors.accent : CcColors.textSecondary,
             ),
-            const SizedBox(height: 4),
-            Text('or click to import', style: CcType.tiny),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                active ? 'Drop to import' : 'Drop files or click to import',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: CcType.style(
+                  size: 10,
+                  weight: CcType.medium,
+                  color:
+                      active ? CcColors.textPrimary : CcColors.textSecondary,
+                ),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
+}
+
+enum MediaPoolFilter { all, videos, audios, images }
+
+extension MediaPoolFilterPresentation on MediaPoolFilter {
+  String get label => switch (this) {
+        MediaPoolFilter.all => 'All',
+        MediaPoolFilter.videos => 'Videos',
+        MediaPoolFilter.audios => 'Audios',
+        MediaPoolFilter.images => 'Images',
+      };
+
+  MediaKind? get kind => switch (this) {
+        MediaPoolFilter.all => null,
+        MediaPoolFilter.videos => MediaKind.video,
+        MediaPoolFilter.audios => MediaKind.audio,
+        MediaPoolFilter.images => MediaKind.image,
+      };
 }

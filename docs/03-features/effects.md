@@ -18,7 +18,7 @@ Per-clip effect stacks covering the creator basics: color correction, blur famil
 ### Effect stack
 - **FX-1** Every video/image/text clip has an ordered effect list; order = application order (list top → applied first? **Convention: list renders top-down; item at top of list is applied first**). Reorder via drag; enable/disable per effect (checkbox); reset per effect; remove.
 - **FX-2** Effects panel in inspector lists active effects + "Add effect" button opening a searchable gallery with categories and favorites (starred effects pin to top).
-- **FX-3** Copy/paste effects between clips (single or whole stack); "paste attributes" from TIM-17 reuses this.
+- **FX-3** Copy/paste effects between clips (single or whole stack); Paste Settings from TIM-17 reuses this.
 - **FX-4** Effect params are animatable unless marked static; keyframe UI per `03-features/text-keyframes.md`.
 
 ### Color (category: *Color*)
@@ -49,6 +49,7 @@ Per-clip effect stacks covering the creator basics: color correction, blur famil
 ### Transform (category: *Transform*)
 - **FX-9** Built-in transform on every visual clip (not an added effect): position X/Y, scale %, rotation °, anchor point, opacity 0–100%, flip H/V, fit/fill/stretch framing mode for mismatched aspect.
   - Position x/y are **document** pixels. The compositor scales them into whatever canvas it is rendering (`RenderContext.positionScaleX/Y`), so a preview rendered small and the delivered frame put a clip in the same place.
+  - Resampling: a layer drawn at 1:1 (text rasterized for the frame, footage at sequence size) is copied pixel for pixel; anything scaled or rotated is bilinear-filtered in premultiplied alpha. Nearest-neighbour was visibly blocky on scaled logos and text, and interpolating straight alpha put a dark fringe on every transparent edge.
   - Editable on the monitor as well as in the inspector — see TXT-6. `app/lib/state/canvas_geometry.dart` mirrors `rasterizeLayer()` so the handles land on the pixels; `app/test/canvas_gizmo_parity_test.dart` renders through the engine at several canvas sizes and asserts the two still agree.
 - **FX-10** Crop effect: left/right/top/bottom % or px, feather edge option, rounded corners (radius px) — rounded corners double as image styling favorite.
 - **FX-11** Drop shadow effect for images/text-on-image use: offset, blur, color, opacity.

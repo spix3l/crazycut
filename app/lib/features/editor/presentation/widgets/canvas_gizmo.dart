@@ -11,12 +11,15 @@ import '../../../../models/rational.dart';
 import '../../../../state/canvas_geometry.dart';
 import '../../../../state/editor_controller.dart';
 
-/// What a pointer landed on, and which handle if it was one.
+/// What a pointer landed on: which part, which handle if it was one, and the
+/// clip it belongs to — a click can land on an image other than the one the
+/// handles are currently drawn around.
 class _Hit {
-  const _Hit(this.part, [this.handle = 4]);
+  const _Hit(this.part, [this.handle = 4, this.clip]);
 
   final GizmoPart part;
   final int handle;
+  final Clip? clip;
 }
 
 /// TXT-6 on-canvas transform: drag the image on the program monitor to move it,
@@ -127,26 +130,39 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
   // --- Hit testing ----------------------------------------------------------
 
   _Hit _hitTest(Offset local, Size box) {
-    final clip = _clip;
-    if (clip == null) return const _Hit(GizmoPart.none);
-    final rect = _rectSeq(clip);
-    if (rect == null) return const _Hit(GizmoPart.none);
     final seqPerPx = _seqPerPx(box);
-    final rotation = _rotation(clip);
+    final target = _clip;
 
-    if ((_rotateKnob(rect, rotation, seqPerPx) - local).distance <= _hitSlop) {
-      return const _Hit(GizmoPart.rotate);
-    }
-    final points = _handlePoints(rect, rotation, seqPerPx);
-    for (var i = 0; i < points.length; i += 1) {
-      if (i == 4) continue; // the centre is not a handle
-      if ((points[i] - local).distance <= _hitSlop) {
-        return _Hit(GizmoPart.resize, i);
+    // The current target's chrome wins: its handles and rotation knob sit
+    // outside its rect, and reaching for one must not select whatever is
+    // behind them.
+    if (target != null) {
+      final rect = _rectSeq(target);
+      if (rect != null) {
+        final rotation = _rotation(target);
+        if ((_rotateKnob(rect, rotation, seqPerPx) - local).distance <=
+            _hitSlop) {
+          return _Hit(GizmoPart.rotate, 4, target);
+        }
+        final points = _handlePoints(rect, rotation, seqPerPx);
+        for (var i = 0; i < points.length; i += 1) {
+          if (i == 4) continue; // the centre is not a handle
+          if ((points[i] - local).distance <= _hitSlop) {
+            return _Hit(GizmoPart.resize, i, target);
+          }
+        }
       }
     }
-    // The inside test runs in the rect's own unrotated frame.
-    if (rect.contains(rotatePoint(local * seqPerPx, rect.center, -rotation))) {
-      return const _Hit(GizmoPart.move);
+
+    // Otherwise the click picks the front-most image it actually landed on.
+    // Targeting only the selected clip meant that with two images on screen,
+    // dragging one of them moved the other.
+    for (final clip in c.gizmoClipsUnderPlayhead()) {
+      final rect = _rectSeq(clip);
+      if (rect == null) continue;
+      // The inside test runs in the rect's own unrotated frame.
+      final point = rotatePoint(local * seqPerPx, rect.center, -_rotation(clip));
+      if (rect.contains(point)) return _Hit(GizmoPart.move, 4, clip);
     }
     return const _Hit(GizmoPart.none);
   }
@@ -169,10 +185,9 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
   bool get _shiftHeld => HardwareKeyboard.instance.isShiftPressed;
 
   void _onPanStart(Offset local, Size box) {
-    final clip = _clip;
-    if (clip == null) return;
     final hit = _hitTest(local, box);
-    if (hit.part == GizmoPart.none) return;
+    final clip = hit.clip;
+    if (hit.part == GizmoPart.none || clip == null) return;
     final rect = _rectSeq(clip);
     final unit = _unitRect(clip);
     if (rect == null || unit == null) return;

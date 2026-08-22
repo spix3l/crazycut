@@ -24,7 +24,7 @@ Importing rushes must feel instant: drag files (or folders) anywhere, keep worki
 ### Supported formats (v1)
 - Video containers: MP4, MOV, MKV, WebM, M4V. Codecs: H.264, H.265/HEVC, VP9, AV1 (decode availability per bundled ffmpeg build).
 - Audio: MP3, AAC/M4A, WAV, FLAC, OGG.
-- Images: PNG, JPEG, WebP, GIF (static frame; animated GIF = video-like asset at its native fps).
+- Images: PNG, JPEG, WebP, GIF, SVG (SVG is rasterized transparently for preview/export; the original remains the project source).
 - Out: image sequences, RAW/BRAW/ProRes RAW, MXF (v1.5 candidates), DRM content (never).
 
 ### Probing & preparation (background)

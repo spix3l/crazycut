@@ -1,4 +1,0 @@
-- Make it possible to sort media files (tabs for All | Videos | Audios | Images)
-- Would be awesome to be able to select multiple images and align them (horizontally, vertically, etc...)
-- Would be awesome to be able to copy audio, and transform settings from one clip and paste on another
-- Be able to move tracks from the timeline around using drag and drop

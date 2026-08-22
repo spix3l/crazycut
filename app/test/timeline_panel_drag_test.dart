@@ -11,16 +11,74 @@ import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
 
 void main() {
-  testWidgets('dragging a selected clip moves the whole selection', (
-    tester,
-  ) async {
-    final temp = Directory.systemTemp.createTempSync('crazycut-timeline-drag-');
-    final doc = ProjectDoc.empty(
-      'Timeline drag',
-      width: 1920,
-      height: 1080,
-      fps: 30,
+  testWidgets('dragging a track header reorders its lane', (tester) async {
+    final temp = Directory.systemTemp.createTempSync('crazycut-lane-drag-');
+    final doc =
+        ProjectDoc.empty('Lane drag', width: 1920, height: 1080, fps: 30);
+    final first = doc.videoTrack()!;
+    final second = Track(id: 'v2', kind: 'video', name: 'V2', index: 1);
+    doc.tracks.add(second);
+    doc.clips.add(
+      Clip(
+        id: 'clip',
+        trackId: first.id,
+        mediaId: 'offline',
+        label: 'clip',
+        start: Rt.zero(),
+        duration: Rt.fromSeconds(1),
+        sourceIn: Rt.zero(),
+      ),
     );
+    final controller =
+        EditorController(doc, path: '${temp.path}/timeline.crazycut');
+    addTearDown(() {
+      if (temp.existsSync()) temp.deleteSync(recursive: true);
+    });
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Overlay(
+          initialEntries: [
+            OverlayEntry(
+              builder: (_) => SizedBox(
+                width: 1200,
+                height: 500,
+                child: TimelinePanel(
+                    controller: controller, pxPerSec: 20, snap: false),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    expect(doc.videoTracks.reversed.map((track) => track.id),
+        [second.id, first.id]);
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(ValueKey('track-drag-handle-${first.id}'))),
+      kind: PointerDeviceKind.mouse,
+    );
+    await gesture.moveTo(tester
+        .getCenter(find.byKey(ValueKey('track-drop-target-${second.id}'))));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+
+    expect(doc.videoTracks.reversed.map((track) => track.id),
+        [first.id, second.id]);
+
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.dispose();
+  });
+
+  testWidgets('dragging a selected clip moves the whole selection',
+      (tester) async {
+    final temp = Directory.systemTemp.createTempSync('crazycut-timeline-drag-');
+    final doc =
+        ProjectDoc.empty('Timeline drag', width: 1920, height: 1080, fps: 30);
     doc.media.add(
       MediaAsset(
         id: 'asset',
@@ -52,10 +110,8 @@ void main() {
         sourceIn: Rt.zero(),
       ),
     ]);
-    final controller = EditorController(
-      doc,
-      path: '${temp.path}/timeline.crazycut',
-    );
+    final controller =
+        EditorController(doc, path: '${temp.path}/timeline.crazycut');
     addTearDown(() {
       if (temp.existsSync()) temp.deleteSync(recursive: true);
     });
@@ -65,42 +121,42 @@ void main() {
     await tester.pumpWidget(
       Directionality(
         textDirection: TextDirection.ltr,
-        child: SizedBox(
-          width: 1200,
-          height: 500,
-          child: TimelinePanel(
-            controller: controller,
-            pxPerSec: 20,
-            snap: false,
-          ),
+        child: Overlay(
+          initialEntries: [
+            OverlayEntry(
+              builder: (_) => SizedBox(
+                width: 1200,
+                height: 500,
+                child: TimelinePanel(
+                    controller: controller, pxPerSec: 20, snap: false),
+              ),
+            ),
+          ],
         ),
       ),
     );
 
     Finder clip(String id) => find.byWidgetPredicate(
-      (widget) => widget is TimelineClipTile && widget.clip.id == id,
-    );
+        (widget) => widget is TimelineClipTile && widget.clip.id == id);
 
     GestureDetector clipBody(String id) => tester.widget<GestureDetector>(
-      find.ancestor(
-        of: clip(id),
-        matching: find.byWidgetPredicate(
-          (widget) =>
-              widget is GestureDetector &&
-              widget.onPanStart != null &&
-              widget.onPanUpdate != null,
-        ),
-      ),
-    );
+          find.ancestor(
+            of: clip(id),
+            matching: find.byWidgetPredicate(
+              (widget) =>
+                  widget is GestureDetector &&
+                  widget.onPanStart != null &&
+                  widget.onPanUpdate != null,
+            ),
+          ),
+        );
 
     Future<void> dragClip(String id) async {
       final body = clipBody(id);
       body.onPanStart!(DragStartDetails());
       body.onPanUpdate!(
         DragUpdateDetails(
-          globalPosition: const Offset(20, 0),
-          delta: const Offset(20, 0),
-        ),
+            globalPosition: const Offset(20, 0), delta: const Offset(20, 0)),
       );
       body.onPanEnd!(DragEndDetails());
       await tester.pump();

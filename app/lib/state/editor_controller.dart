@@ -13,6 +13,7 @@ import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/audio_edits.dart';
 import 'package:crazycut_app/state/preview_renderer.dart';
 import 'package:crazycut_app/state/proxy_service.dart';
+import 'package:crazycut_app/state/svg_rasterizer.dart';
 import 'package:crazycut_app/state/text_rasterizer.dart';
 import 'package:crazycut_app/state/timeline_edits.dart';
 
@@ -47,6 +48,7 @@ const kSupportedExtensions = {
   'jpeg',
   'webp',
   'gif',
+  'svg',
 };
 
 /// Everything the editor screen reads and writes for one open project:
@@ -54,7 +56,7 @@ const kSupportedExtensions = {
 /// frame, autosave and proxies.
 class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   EditorController(this.doc, {required String path, ProxyService? proxies})
-    : proxies = proxies ?? ProxyService() {
+      : proxies = proxies ?? ProxyService() {
     autosave = ProjectAutosave(
       doc,
       path: path,
@@ -71,7 +73,7 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
       if (exists) this.proxies.request(asset);
     }
     _syncEngineGraph();
-    unawaited(_warmThumbnails());
+    unawaited(_prepareMedia());
     unawaited(_bootRenderer());
   }
 
@@ -262,18 +264,18 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   }) async {
     for (final path in paths) {
       final name = path.split(Platform.pathSeparator).last;
+      final svg = isSvgPath(path);
       final asset = MediaAsset(
         id: generateId(),
         name: name,
         path: path,
-        type: 'video',
+        type: svg ? 'image' : 'video',
         duration: Rt.zero(),
-        hasAudio: true,
+        hasAudio: !svg,
       );
       pool[asset.id] = PoolItem(asset: asset);
       notifyListeners();
       try {
-        final probe = CrazyCutEngine.instance.probeFile(path);
         final hash = CrazyCutEngine.instance.hashFile(path);
         final duplicate = doc.media.firstWhereOrNull(
           (item) => item.hash == hash,
@@ -289,19 +291,36 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
           continue;
         }
         asset.hash = hash;
-        asset.type = probe.type == 'unknown' ? 'video' : probe.type;
-        asset.duration = Rt.fromSeconds(probe.durationSeconds);
-        asset.hasAudio = probe.hasAudio;
-        asset.width = probe.width;
-        asset.height = probe.height;
-        asset.fps = probe.fps;
-        asset.rotation = probe.rotation;
-        asset.vfr = probe.vfr;
-        asset.codec = probe.codec;
-        asset.hdr = probe.hdr;
+        Uint8List? svgThumb;
+        if (svg) {
+          final raster = await SvgRasterizer.instance.rasterize(
+            asset,
+            canvasWidth: doc.settings.width,
+            canvasHeight: doc.settings.height,
+          );
+          asset
+            ..width = raster.width
+            ..height = raster.height
+            ..codec = 'svg';
+          svgThumb = raster.png;
+        } else {
+          final probe = CrazyCutEngine.instance.probeFile(path);
+          asset.type = probe.type == 'unknown' ? 'video' : probe.type;
+          asset.duration = Rt.fromSeconds(probe.durationSeconds);
+          asset.hasAudio = probe.hasAudio;
+          asset.width = probe.width;
+          asset.height = probe.height;
+          asset.fps = probe.fps;
+          asset.rotation = probe.rotation;
+          asset.vfr = probe.vfr;
+          asset.codec = probe.codec;
+          asset.hdr = probe.hdr;
+        }
         asset.thumbStatus = ThumbStatus.pending;
         doc.media.add(asset);
-        pool[asset.id]!.status = ImportStatus.ready;
+        pool[asset.id]!
+          ..status = ImportStatus.ready
+          ..thumb = svgThumb;
         proxies.request(asset);
         unawaited(_loadThumbnailInto(pool[asset.id]!));
         if (addToTimeline) placeAsset(asset.id);
@@ -338,6 +357,25 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     pool[assetId]?.status =
         asset.offline ? ImportStatus.offline : ImportStatus.ready;
     if (!asset.offline) {
+      if (isSvgPath(newPath)) {
+        asset.extra.remove('svgRasterPath');
+        try {
+          final raster = await SvgRasterizer.instance.rasterize(
+            asset,
+            canvasWidth: doc.settings.width,
+            canvasHeight: doc.settings.height,
+          );
+          asset
+            ..type = 'image'
+            ..hasAudio = false
+            ..width = raster.width
+            ..height = raster.height
+            ..codec = 'svg';
+          pool[assetId]?.thumb = raster.png;
+        } on Object catch (e) {
+          debugPrint('SVG relink rasterization failed: $e');
+        }
+      }
       proxies.request(asset);
       unawaited(_loadThumbnailInto(pool[assetId]!));
     }
@@ -365,14 +403,39 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     }
   }
 
-  Future<void> _warmThumbnails() async {
+  Future<void> _prepareMedia() async {
     for (final item in pool.values.toList()) {
+      if (isSvgPath(item.asset.path) && !item.asset.offline) {
+        try {
+          final raster = await SvgRasterizer.instance.rasterize(
+            item.asset,
+            canvasWidth: doc.settings.width,
+            canvasHeight: doc.settings.height,
+          );
+          item
+            ..thumb = raster.png
+            ..status = ImportStatus.ready;
+          item.asset
+            ..type = 'image'
+            ..hasAudio = false
+            ..width = raster.width
+            ..height = raster.height
+            ..codec = 'svg';
+        } on Object catch (e) {
+          item.status = ImportStatus.failed;
+          debugPrint('SVG preparation failed: $e');
+        }
+      }
       await _loadThumbnailInto(item);
     }
+    notifyListeners();
+    unawaited(updatePreviewFrame());
   }
 
   Future<void> _loadThumbnailInto(PoolItem item) async {
-    if (item.thumb != null || item.asset.type == 'audio' || item.asset.offline) {
+    if (item.thumb != null ||
+        item.asset.type == 'audio' ||
+        item.asset.offline) {
       return;
     }
     final bytes = await MediaCache.instance.thumb(
@@ -675,9 +738,7 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   Clip? textClipUnderPlayhead() {
     final tracks = doc.videoTracks.where((t) => !t.hidden).toList().reversed;
     for (final track in tracks) {
-      final hit = doc
-          .clipsOn(track.id)
-          .firstWhereOrNull(
+      final hit = doc.clipsOn(track.id).firstWhereOrNull(
             (c) => c.text != null && playhead >= c.start && playhead < c.end,
           );
       if (hit != null) return hit;
@@ -703,30 +764,36 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   /// Text clips are excluded — their texture is a Dart-side raster whose size
   /// is unrelated to any media asset, so the gizmo cannot derive their rect.
   Clip? gizmoClipUnderPlayhead() {
-    bool eligible(Clip c) {
-      if (c.text != null || c.mediaId.isEmpty) return false;
-      if (!(playhead >= c.start && playhead < c.end)) return false;
-      final track = doc.trackById(c.trackId);
-      if (track == null || !track.isVideo || track.hidden || track.lock) {
-        return false;
-      }
-      return gizmoSourceSize(c) != null;
-    }
-
     for (final id in selection) {
       final clip = doc.clipById(id);
-      if (clip != null && eligible(clip)) return clip;
+      if (clip != null && _gizmoEligible(clip)) return clip;
     }
     // A selected text/audio/off-playhead clip is still an intentional target.
     // Do not draw handles for an unrelated image underneath it; that made the
     // text editor look as if it were manipulating the wrong object.
     if (selection.isNotEmpty) return null;
-    final tracks = doc.videoTracks.where((t) => !t.hidden).toList().reversed;
-    for (final track in tracks) {
-      final hit = doc.clipsOn(track.id).firstWhereOrNull(eligible);
-      if (hit != null) return hit;
+    return gizmoClipsUnderPlayhead().firstOrNull;
+  }
+
+  /// Every clip the gizmo could target, front-most first — what a click on the
+  /// monitor has to choose between when images overlap. Without this, clicking
+  /// one image dragged whichever clip happened to be selected instead.
+  List<Clip> gizmoClipsUnderPlayhead() {
+    final out = <Clip>[];
+    for (final track in doc.videoTracks.where((t) => !t.hidden).toList().reversed) {
+      out.addAll(doc.clipsOn(track.id).where(_gizmoEligible));
     }
-    return null;
+    return out;
+  }
+
+  bool _gizmoEligible(Clip c) {
+    if (c.text != null || c.mediaId.isEmpty) return false;
+    if (!(playhead >= c.start && playhead < c.end)) return false;
+    final track = doc.trackById(c.trackId);
+    if (track == null || !track.isVideo || track.hidden || track.lock) {
+      return false;
+    }
+    return gizmoSourceSize(c) != null;
   }
 
   /// Natural pixel size of a clip's source, or null when the asset never got
@@ -843,10 +910,9 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
       );
       renderWatch.stop();
       if (playbackRequest) {
-        _previewRenderMicros =
-            (_previewRenderMicros * 0.75 +
-                    renderWatch.elapsedMicroseconds * 0.25)
-                .round();
+        _previewRenderMicros = (_previewRenderMicros * 0.75 +
+                renderWatch.elapsedMicroseconds * 0.25)
+            .round();
       }
       if (_disposed) return;
       final current = isPreviewFrameCurrent(
@@ -906,8 +972,8 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     final cap = playing
         ? maxPlaybackPreviewWidth
         : _liveEditing
-        ? maxLiveEditPreviewWidth
-        : _previewWidth;
+            ? maxLiveEditPreviewWidth
+            : _previewWidth;
     return cap < _previewWidth ? cap : _previewWidth;
   }
 

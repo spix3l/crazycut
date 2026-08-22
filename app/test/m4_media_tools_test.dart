@@ -8,6 +8,7 @@ import 'package:crazycut_app/engine/engine.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/media_relink.dart';
 import 'package:crazycut_app/state/project_tools.dart';
+import 'package:crazycut_app/state/svg_rasterizer.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -35,6 +36,46 @@ void main() {
       );
 
   group('relink (IMP-15/16)', () {
+    test('SVG files are accepted as media candidates', () {
+      final svg = writeFile(
+        'shoot/logo.svg',
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"/>',
+      );
+
+      final found = MediaRelinker.gatherCandidates([svg.path]);
+
+      expect(found.map((file) => file.path), contains(svg.path));
+    });
+
+    test('SVG files rasterize to transparent PNG media', () async {
+      final svg = writeFile(
+        'shoot/logo.svg',
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+            '<circle cx="50" cy="50" r="40" fill="#ff0000"/>'
+            '</svg>',
+      );
+      final logo = MediaAsset(
+        id: 'logo',
+        name: 'logo.svg',
+        path: svg.path,
+        type: 'image',
+        duration: Rt.zero(),
+        hasAudio: false,
+        hash: 'sha256:test-logo',
+      );
+
+      final raster = await SvgRasterizer.instance.rasterize(
+        logo,
+        canvasWidth: 100,
+        canvasHeight: 50,
+      );
+
+      expect((raster.width, raster.height), (50, 50));
+      expect(raster.png.take(8), [137, 80, 78, 71, 13, 10, 26, 10]);
+      expect(mediaDecodePath(logo), raster.path);
+      File(raster.path).deleteSync();
+    });
+
     test('gathers only supported media, recursively', () {
       writeFile('shoot/a.mp4', 'a');
       writeFile('shoot/nested/b.mov', 'b');
@@ -50,8 +91,9 @@ void main() {
       final hash = CrazyCutEngine.instance.hashFile(moved.path);
 
       final missing = asset('original.mp4', '/gone/original.mp4', hash: hash);
-      final plan = MediaRelinker.instance
-          .plan([missing], MediaRelinker.gatherCandidates(['${temp.path}/shoot']));
+      final plan = MediaRelinker.instance.plan([
+        missing,
+      ], MediaRelinker.gatherCandidates(['${temp.path}/shoot']));
 
       expect(plan.matches, hasLength(1));
       expect(plan.matches.first.path, moved.path);
@@ -64,18 +106,19 @@ void main() {
       final same = writeFile('shoot/clip.mp4', 'contents');
       final missing = asset('clip.mp4', '/gone/clip.mp4', hash: 'sha256:nope');
 
-      final plan = MediaRelinker.instance
-          .plan([missing], MediaRelinker.gatherCandidates([same.path]));
+      final plan = MediaRelinker.instance.plan([
+        missing,
+      ], MediaRelinker.gatherCandidates([same.path]));
       expect(plan.matches.single.confidence, RelinkConfidence.proposed);
       expect(plan.matches.single.path, same.path);
     });
 
     test('never points two assets at the same file', () {
       final only = writeFile('shoot/clip.mp4', 'contents');
-      final plan = MediaRelinker.instance.plan(
-        [asset('clip.mp4', '/gone/1.mp4'), asset('clip.mp4', '/gone/2.mp4')],
-        MediaRelinker.gatherCandidates([only.path]),
-      );
+      final plan = MediaRelinker.instance.plan([
+        asset('clip.mp4', '/gone/1.mp4'),
+        asset('clip.mp4', '/gone/2.mp4'),
+      ], MediaRelinker.gatherCandidates([only.path]));
       expect(plan.matches, hasLength(1));
       expect(plan.unmatched, hasLength(1));
       expect(plan.summary, contains('still missing'));
@@ -83,10 +126,9 @@ void main() {
 
     test('reports everything unmatched when nothing fits', () {
       writeFile('shoot/other.mp4', 'x');
-      final plan = MediaRelinker.instance.plan(
-        [asset('clip.mp4', '/gone/clip.mp4', hash: 'sha256:nope')],
-        MediaRelinker.gatherCandidates(['${temp.path}/shoot']),
-      );
+      final plan = MediaRelinker.instance.plan([
+        asset('clip.mp4', '/gone/clip.mp4', hash: 'sha256:nope'),
+      ], MediaRelinker.gatherCandidates(['${temp.path}/shoot']));
       expect(plan.matches, isEmpty);
       expect(plan.unmatched, hasLength(1));
       expect(plan.isEmpty, isTrue);
@@ -95,7 +137,12 @@ void main() {
 
   group('collect media (PRJ-14)', () {
     ProjectDoc docWithMedia(List<File> files) {
-      final doc = ProjectDoc.empty('Portable', width: 1920, height: 1080, fps: 30);
+      final doc = ProjectDoc.empty(
+        'Portable',
+        width: 1920,
+        height: 1080,
+        fps: 30,
+      );
       for (var i = 0; i < files.length; i++) {
         doc.media.add(asset('clip$i.mp4', files[i].path));
       }
@@ -194,7 +241,8 @@ void main() {
       expect(file.existsSync(), isTrue);
       expect(file.parent.path, '${temp.path}/project');
 
-      final report = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      final report =
+          jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
       expect((report['app'] as Map)['platform'], Platform.operatingSystem);
       expect((report['engine'] as Map)['library'], '/tmp/libcrazycut.dylib');
       final project = report['project'] as Map<String, dynamic>;

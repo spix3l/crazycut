@@ -12,6 +12,7 @@ class TrackHeaderTile extends StatefulWidget {
     super.key,
     required this.track,
     this.selected = false,
+    this.dragHandle,
     this.onSelect,
     this.onRename,
     this.onToggleMute,
@@ -27,6 +28,7 @@ class TrackHeaderTile extends StatefulWidget {
 
   final Track track;
   final bool selected;
+  final Widget? dragHandle;
   final VoidCallback? onSelect;
   final ValueChanged<String>? onRename;
   final VoidCallback? onToggleMute;
@@ -88,6 +90,10 @@ class _TrackHeaderTileState extends State<TrackHeaderTile> {
         ),
         child: Row(
           children: [
+            if (widget.dragHandle != null) ...[
+              widget.dragHandle!,
+              const SizedBox(width: 6)
+            ],
             CcIcon(
               track.isVideo ? LucideIcons.video : LucideIcons.audioWaveform,
               size: 13,
@@ -114,9 +120,11 @@ class _TrackHeaderTileState extends State<TrackHeaderTile> {
             if (!compact) ...[
               _Toggle(
                 icon: track.isVideo ? LucideIcons.eye : LucideIcons.volume2,
-                crossedIcon: track.isVideo ? LucideIcons.eyeOff : LucideIcons.volumeOff,
+                crossedIcon:
+                    track.isVideo ? LucideIcons.eyeOff : LucideIcons.volumeOff,
                 active: track.isVideo ? !track.hidden : !track.mute,
-                onTap: track.isVideo ? widget.onToggleHidden : widget.onToggleMute,
+                onTap:
+                    track.isVideo ? widget.onToggleHidden : widget.onToggleMute,
               ),
               const SizedBox(width: 4),
               if (!track.isVideo)
@@ -181,7 +189,8 @@ class _Toggle extends StatelessWidget {
 
 /// Track verbs that do not deserve a permanent button.
 class _TrackMenu extends StatefulWidget {
-  const _TrackMenu({this.onCycleHeight, this.onReorder, this.onRemove, this.onRename});
+  const _TrackMenu(
+      {this.onCycleHeight, this.onReorder, this.onRemove, this.onRename});
 
   final VoidCallback? onCycleHeight;
   final ValueChanged<int>? onReorder;
@@ -212,7 +221,8 @@ class _TrackMenuState extends State<_TrackMenu> {
       builder: (context) => Stack(
         children: [
           Positioned.fill(
-            child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: _close),
+            child: GestureDetector(
+                behavior: HitTestBehavior.opaque, onTap: _close),
           ),
           CompositedTransformFollower(
             link: _link,
@@ -225,13 +235,18 @@ class _TrackMenuState extends State<_TrackMenu> {
                   CcMenuItem('Cycle height', onTap: widget.onCycleHeight),
                   CcMenuItem(
                     'Move up',
-                    onTap: widget.onReorder == null ? null : () => widget.onReorder!(-1),
+                    onTap: widget.onReorder == null
+                        ? null
+                        : () => widget.onReorder!(-1),
                   ),
                   CcMenuItem(
                     'Move down',
-                    onTap: widget.onReorder == null ? null : () => widget.onReorder!(1),
+                    onTap: widget.onReorder == null
+                        ? null
+                        : () => widget.onReorder!(1),
                   ),
-                  CcMenuItem('Delete track', danger: true, onTap: widget.onRemove),
+                  CcMenuItem('Delete track',
+                      danger: true, onTap: widget.onRemove),
                 ],
                 onSelected: _close,
               ),
@@ -254,7 +269,8 @@ class _TrackMenuState extends State<_TrackMenu> {
       link: _link,
       child: CcTappable(
         onTap: _toggle,
-        child: const CcIcon(LucideIcons.ellipsis, size: 13, color: CcColors.textTertiary),
+        child: const CcIcon(LucideIcons.ellipsis,
+            size: 13, color: CcColors.textTertiary),
       ),
     );
   }

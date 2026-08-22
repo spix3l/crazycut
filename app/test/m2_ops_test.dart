@@ -788,16 +788,24 @@ void main() {
       expect(e.selectionOverloaded, isFalse);
     });
 
-    test('copyAttributes clones stack with fresh ids onto another clip', () {
+    test('copy captures look and audio settings for one-step paste', () {
       final e = harness(assetSeconds: 30);
       addClip(e, id: 'a', start: 0, duration: 5);
       addClip(e, id: 'b', start: 10, duration: 5);
       final srcFx = e.addEffect('a', 'saturation');
       e.setEffectParam('a', srcFx, 'amount', 1.7);
       e.setClipBlend('a', 'multiply');
+      e.setTransformParam('a', 'rotation', 12);
+      e.setClipAudio('a', volume: 0.4, pan: -0.25, mute: true);
+      final source = e.clipById('a')!;
+      source.fadeIn = Fade(duration: s(1), curve: 'scurve');
+      source.fadeOut = Fade(duration: s(2), curve: 'exponential');
       e.selectClip('a');
-      e.copyAttributes();
+      e.copySelection();
       expect(e.hasAttributeClipboard, isTrue);
+      e.setEffectParam('a', srcFx, 'amount', 0.2);
+      e.setTransformParam('a', 'rotation', 99);
+      e.setClipAudio('a', volume: 0.8);
 
       final historyDepth = e.history.depth;
       e.selectClip('b');
@@ -807,12 +815,116 @@ void main() {
       expect(pasted['id'], isNot(srcFx)); // FRESH instance id
       expect(pasted['type'], 'saturation');
       expect(pasted['params']['amount']['static'], 1.7);
-      expect(e.clipById('b')!.blend, 'multiply');
+      final target = e.clipById('b')!;
+      expect(target.blend, 'multiply');
+      expect(target.transform!.rotation.static, 12);
+      expect(target.volume, 0.4);
+      expect(target.pan, -0.25);
+      expect(target.mute, isTrue);
+      expect(target.fadeIn.duration, s(1));
+      expect(target.fadeIn.curve, 'scurve');
+      expect(target.fadeOut.duration, s(2));
+      expect(target.fadeOut.curve, 'exponential');
       expect(e.history.depth, historyDepth + 1); // ONE tx
 
       e.undo();
       expect(e.clipById('b')!.effects, isEmpty);
       expect(e.clipById('b')!.blend, 'normal');
+    });
+
+    test('paste settings overwrites defaults and scales fades to target', () {
+      final e = harness(assetSeconds: 30);
+      final source = addClip(e, id: 'a', start: 0, duration: 10)
+        ..fadeIn = Fade(duration: s(6), curve: 'scurve')
+        ..fadeOut = Fade(duration: s(4), curve: 'exponential');
+      addClip(e, id: 'b', start: 12, duration: 5);
+      e.selectClip(source.id);
+      e.copySelection();
+
+      e.selectClip('b');
+      e.pasteAttributes();
+
+      final target = e.clipById('b')!;
+      expect(target.fadeIn.duration, s(3));
+      expect(target.fadeOut.duration, s(2));
+
+      final targetFx = e.addEffect('b', 'contrast');
+      e.setTransformParam('b', 'scale', 140);
+      expect(targetFx, isNotEmpty);
+      e.selectClip('a');
+      source
+        ..effects.clear()
+        ..transform = null;
+      e.copySelection();
+      e.selectClip('b');
+      e.pasteAttributes();
+
+      expect(target.effects, isEmpty);
+      expect(target.transform, isNull);
+    });
+
+    test('mixed targets receive only compatible settings and skip locks', () {
+      final e = harness(assetSeconds: 30);
+      e.doc.media.add(
+        MediaAsset(
+          id: 'image',
+          name: 'still.png',
+          path: '/tmp/still.png',
+          type: 'image',
+          duration: Rt.zero(),
+          hasAudio: false,
+        ),
+      );
+      addClip(e, id: 'source', start: 0, duration: 5);
+      final image = addClip(
+        e,
+        id: 'image-target',
+        start: 6,
+        duration: 5,
+        mediaId: 'image',
+      )..volume = 0.9;
+      final audio = addClip(
+        e,
+        id: 'audio-target',
+        start: 0,
+        duration: 5,
+        trackId: e.doc.audioTrack()!.id,
+      )
+        ..blend = 'screen'
+        ..effects.add({'id': 'keep', 'type': 'contrast', 'params': {}});
+      final lockedTrack = e.addTrack('video');
+      final locked = addClip(
+        e,
+        id: 'locked',
+        start: 0,
+        duration: 5,
+        trackId: lockedTrack.id,
+      );
+      e.doc.trackById(lockedTrack.id)!.lock = true;
+
+      final fx = e.addEffect('source', 'saturation');
+      expect(fx, isNotEmpty);
+      e.setClipBlend('source', 'multiply');
+      e.setClipAudio('source', volume: 0.35, pan: 0.5, mute: true);
+      e.selectClip('source');
+      e.copySelection();
+
+      e.selection
+        ..clear()
+        ..addAll([image.id, audio.id, locked.id]);
+      expect(e.canPasteAttributes, isTrue);
+      e.pasteAttributes();
+
+      expect(image.blend, 'multiply');
+      expect(image.effects, hasLength(1));
+      expect(image.volume, 0.9); // no audio stream
+      expect(audio.blend, 'screen'); // audio lane keeps visual settings
+      expect((audio.effects.single as Map)['id'], 'keep');
+      expect(audio.volume, 0.35);
+      expect(audio.pan, 0.5);
+      expect(audio.mute, isTrue);
+      expect(locked.blend, 'normal');
+      expect(locked.volume, 1.0);
     });
   });
 

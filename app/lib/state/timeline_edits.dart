@@ -1563,6 +1563,7 @@ mixin TimelineEdits on ChangeNotifier {
     _clipboardOrigin = clips
         .map((c) => c.start)
         .reduce((a, b) => a < b ? a : b);
+    _copyAttributesFrom(clips.first);
     notifyListeners();
   }
 
@@ -3407,13 +3408,26 @@ mixin TimelineEdits on ChangeNotifier {
     });
   }
 
-  // --- Paste attributes (TIM-17 / FX-3) -----------------------------------------
+  // --- Paste settings (TIM-17 / FX-3) -------------------------------------------
 
-  /// Snapshot of one clip's look for copy/paste attributes. JSON all the way
-  /// down: pasting deep-copies and mints fresh effect instance ids.
+  /// Snapshot of one clip's look and audio controls. Timing, speed, source
+  /// range, links and text content deliberately remain destination-owned.
   Map<String, dynamic>? _attributeClipboard;
 
   bool get hasAttributeClipboard => _attributeClipboard != null;
+
+  /// Whether at least one unlocked selected clip can receive something from
+  /// the settings clipboard. Used to disable the context-menu action.
+  bool get canPasteAttributes {
+    final payload = _attributeClipboard;
+    if (payload == null) return false;
+    for (final clip in selectedClips) {
+      if (_locked(clip.trackId)) continue;
+      if (payload['visual'] == true && _isVisualClip(clip)) return true;
+      if (payload['audio'] == true && _hasClipAudio(clip)) return true;
+    }
+    return false;
+  }
 
   /// FX-14 data: >8 enabled effects on the selected clip shows a perf hint
   /// (never blocks).
@@ -3430,80 +3444,125 @@ mixin TimelineEdits on ChangeNotifier {
   void copyAttributes() {
     final clip = selectedClip;
     if (clip == null) return;
-    _attributeClipboard = {
-      'blend': clip.blend,
-      'transform': clip.transform?.toJson(),
-      'text':
-          clip.text != null
-              ? TextContent.fromJson(clip.text!.toJson()).toJson()
-              : null,
-      'effects': [
-        for (final e in clip.effects)
-          if (e is Map<String, dynamic>)
-            {
-              ...e,
-              'params': {
-                if (e['params'] is Map<String, dynamic>)
-                  for (final entry
-                      in (e['params'] as Map<String, dynamic>).entries)
-                    entry.key:
-                        entry.value is ParamValue
-                            ? (entry.value as ParamValue).toJson()
-                            : entry.value,
-              },
-            },
-      ],
-    };
+    _copyAttributesFrom(clip);
     notifyListeners();
   }
 
-  /// Pastes onto the whole selection; each flag opts that facet out. ONE
-  /// transaction, fresh effect ids.
+  void _copyAttributesFrom(Clip clip) {
+    _attributeClipboard = {
+      'visual': _isVisualClip(clip),
+      'audio': _hasClipAudio(clip),
+      'blend': clip.blend,
+      'transform': _cloneSettingValue(clip.transform?.toJson()),
+      'effects': [
+        for (final e in clip.effects)
+          if (e is Map<String, dynamic>) _cloneSettingValue(e),
+      ],
+      'volume': clip.volume,
+      'pan': clip.pan,
+      'mute': clip.mute,
+      'fadeIn': clip.fadeIn.toJson(),
+      'fadeOut': clip.fadeOut.toJson(),
+    };
+  }
+
+  dynamic _cloneSettingValue(dynamic value) {
+    if (value is ParamValue) return _cloneSettingValue(value.toJson());
+    if (value is Map) {
+      return <String, dynamic>{
+        for (final entry in value.entries)
+          entry.key.toString(): _cloneSettingValue(entry.value),
+      };
+    }
+    if (value is List) {
+      return <dynamic>[for (final item in value) _cloneSettingValue(item)];
+    }
+    return value;
+  }
+
+  Map<String, dynamic> _effectSettingCopy(
+    Map<String, dynamic> effect, {
+    bool freshId = false,
+  }) {
+    final copy = _cloneSettingValue(effect) as Map<String, dynamic>;
+    if (freshId) copy['id'] = generateId();
+    return copy;
+  }
+
+  bool _isVisualClip(Clip clip) =>
+      doc.trackById(clip.trackId)?.isVideo ?? false;
+
+  bool _hasClipAudio(Clip clip) {
+    if (clip.text != null) return false;
+    return doc.assetById(clip.mediaId)?.hasAudio ?? false;
+  }
+
+  /// Pastes compatible settings onto the whole selection in one transaction.
+  /// Effect stacks replace rather than merge, and receive fresh instance ids.
   void pasteAttributes({
     bool effects = true,
     bool transform = true,
-    bool text = true,
+    bool audio = true,
   }) {
     final payload = _attributeClipboard;
     if (payload == null) return;
-    final targets = selectedClips.where((c) => !_locked(c.trackId)).toList();
+    final targets = selectedClips.where((clip) {
+      if (_locked(clip.trackId)) return false;
+      return (payload['visual'] == true && _isVisualClip(clip)) ||
+          (audio && payload['audio'] == true && _hasClipAudio(clip));
+    }).toList();
     if (targets.isEmpty) return;
-    _run('Paste attributes', (tx) {
+    _run('Paste settings', (tx) {
       for (final clip in targets) {
         tx.clip(clip.id);
-        if (payload['blend'] is String) clip.blend = payload['blend'] as String;
-        if (transform && payload['transform'] is Map<String, dynamic>) {
-          clip.transform = ClipTransform.fromJson({
-            ...payload['transform'] as Map<String, dynamic>,
-          });
+        if (payload['visual'] == true && _isVisualClip(clip)) {
+          if (payload['blend'] is String) {
+            clip.blend = payload['blend'] as String;
+          }
+          if (transform) {
+            final value = payload['transform'];
+            clip.transform = value is Map<String, dynamic>
+                ? ClipTransform.fromJson(
+                    _cloneSettingValue(value) as Map<String, dynamic>,
+                  )
+                : null;
+          }
+          if (effects && payload['effects'] is List) {
+            clip.effects
+              ..clear()
+              ..addAll([
+                for (final e in (payload['effects'] as List))
+                  if (e is Map<String, dynamic>)
+                    _effectSettingCopy(e, freshId: true),
+              ]);
+          }
         }
-        if (text && payload['text'] is Map<String, dynamic>) {
-          clip.text = TextContent.fromJson({
-            ...payload['text'] as Map<String, dynamic>,
-          });
-        }
-        if (effects && payload['effects'] is List) {
-          clip.effects
-            ..clear()
-            ..addAll([
-              for (final e in (payload['effects'] as List))
-                if (e is Map<String, dynamic>)
-                  {
-                    ...e,
-                    'id': generateId(),
-                    'params': {
-                      if (e['params'] is Map<String, dynamic>)
-                        for (final entry
-                            in (e['params'] as Map<String, dynamic>).entries)
-                          entry.key:
-                              entry.value is ParamValue
-                                  ? (entry.value as ParamValue).toJson()
-                                  : entry.value is Map
-                                  ? {...entry.value as Map}
-                                  : entry.value,
-                    },
-                  },
-            ]);
+        if (audio && payload['audio'] == true && _hasClipAudio(clip)) {
+          if (payload['volume'] is num) {
+            clip.volume = (payload['volume'] as num).toDouble();
+          }
+          if (payload['pan'] is num) {
+            clip.pan = (payload['pan'] as num).toDouble();
+          }
+          if (payload['mute'] is bool) clip.mute = payload['mute'] as bool;
+          final fadeIn = Fade.fromJson(
+            payload['fadeIn'] as Map<String, dynamic>?,
+          );
+          final fadeOut = Fade.fromJson(
+            payload['fadeOut'] as Map<String, dynamic>?,
+          );
+          final total = fadeIn.duration.plus(fadeOut.duration);
+          if (total > clip.duration && total.micros > 0) {
+            final inMicros =
+                (clip.duration.micros * fadeIn.duration.micros /
+                        total.micros)
+                    .round();
+            fadeIn.duration = Rt.fromMicros(inMicros);
+            fadeOut.duration = clip.duration.minus(fadeIn.duration);
+          }
+          clip
+            ..fadeIn = fadeIn
+            ..fadeOut = fadeOut;
         }
       }
     });

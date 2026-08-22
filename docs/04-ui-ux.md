@@ -100,7 +100,7 @@ macOS ⌘ = Windows Ctrl unless noted.
 | Zoom in/out timeline | ⌘= / ⌘− | | Zoom to fit | \ |
 | New text at playhead | T | | Add transition | ⌘T |
 | Import | ⌘I | | Export | ⌘E |
-| Copy / Paste | ⌘C / ⌘V | | Paste attributes | ⌥⌘V |
+| Copy / Paste | ⌘C / ⌘V | | Paste Settings | ⌥⌘V |
 | Duplicate drag | ⌥drag | | Slip / Slide drag | ⌥drag / ⌘drag body |
 | Select all | ⌘A | | Deselect | Esc |
 | Preview fullscreen | F | | Snap bypass (hold) | ⌘ |

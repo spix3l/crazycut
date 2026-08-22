@@ -251,4 +251,87 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     c.dispose();
   });
+
+  testWidgets('clicking an image drags that image, not the selected one', (
+    tester,
+  ) async {
+    final doc = buildDoc();
+    final c = EditorController(doc, path: '${tmp.path}/p3.crazycut');
+    // A second image on a track above, off to the right so the two rects do
+    // not cover each other.
+    final upper = c.addTrack('video');
+    doc.clips.add(
+      Clip(
+        id: 'c2',
+        trackId: upper.id,
+        mediaId: 'i',
+        label: 'logo 2',
+        start: Rt.zero(),
+        duration: Rt.fromSeconds(5),
+        sourceIn: Rt.zero(),
+        transform: ClipTransform(
+          x: ParamValue.staticNum(400),
+          y: ParamValue.staticNum(0),
+          scale: ParamValue.staticNum(40),
+        ),
+      ),
+    );
+    c.playhead = Rt.fromSeconds(2);
+    // The *other* clip is selected, which is exactly the case that used to
+    // move the wrong image.
+    c.selection.add('c');
+
+    const boxW = 1114.0, boxH = 626.0;
+    tester.view.physicalSize = const ui.Size(boxW, boxH);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Center(
+          child: SizedBox(
+            width: boxW,
+            height: boxH,
+            child: CanvasGizmo(controller: c),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final other = doc.clipById('c')!;
+    final otherX = other.transformOrDefault.x.static;
+    final second = doc.clipById('c2')!;
+    final rect = layerRectInSequence(
+      seqW: seqW,
+      seqH: seqH,
+      srcW: srcW,
+      srcH: srcH,
+      framing: 'fit',
+      x: 400,
+      y: 0,
+      scalePercent: 40,
+    );
+    final seqPerPx = seqW / boxW;
+    final origin = tester.getTopLeft(find.byType(CanvasGizmo));
+    await tester.dragFrom(
+      origin + ui.Offset(rect.center.dx / seqPerPx, rect.center.dy / seqPerPx),
+      const ui.Offset(60, 30),
+    );
+    await tester.pump();
+
+    expect(c.selection, {'c2'}, reason: 'the click selects what it landed on');
+    expect(
+      (second.transformOrDefault.x.static as num) - 400,
+      closeTo(60 * seqPerPx, 1),
+    );
+    expect(
+      other.transformOrDefault.x.static,
+      otherX,
+      reason: 'the image that was not clicked must not move',
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    c.dispose();
+  });
 }

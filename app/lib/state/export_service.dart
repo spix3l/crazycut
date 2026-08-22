@@ -9,6 +9,7 @@ import 'package:crazycut_app/engine/engine.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/export_presets.dart';
 import 'package:crazycut_app/state/system_bridge.dart';
+import 'package:crazycut_app/state/svg_rasterizer.dart';
 
 enum ExportState { queued, running, completed, failed, cancelled }
 
@@ -111,8 +112,10 @@ class ExportService extends ChangeNotifier {
     super.notifyListeners();
     // Keep the host in step so quitting can warn and sleep stays disabled.
     final active = jobs
-        .where((j) =>
-            j.state == ExportState.queued || j.state == ExportState.running)
+        .where(
+          (j) =>
+              j.state == ExportState.queued || j.state == ExportState.running,
+        )
         .map((j) => j.name)
         .toList();
     if (!listEquals(active, _publishedActive)) {
@@ -127,11 +130,14 @@ class ExportService extends ChangeNotifier {
   /// same machine mostly steal cycles from each other and from preview.
   int parallelism = 1;
 
-  bool get hasActiveJobs =>
-      jobs.any((j) => j.state == ExportState.queued || j.state == ExportState.running);
+  bool get hasActiveJobs => jobs.any(
+        (j) => j.state == ExportState.queued || j.state == ExportState.running,
+      );
 
   int get activeCount => jobs
-      .where((j) => j.state == ExportState.queued || j.state == ExportState.running)
+      .where(
+        (j) => j.state == ExportState.queued || j.state == ExportState.running,
+      )
       .length;
 
   /// Builds a job from the document as it is right now (EXP-2) and queues it.
@@ -145,13 +151,13 @@ class ExportService extends ChangeNotifier {
     Rt? rangeStart,
     Rt? rangeEnd,
   }) {
-    final snapshot = jsonDecode(doc.encode(touchModified: false))
-        as Map<String, dynamic>;
+    final snapshot =
+        jsonDecode(doc.encode(touchModified: false)) as Map<String, dynamic>;
     final media = <String, String>{};
     for (final asset in doc.media) {
       if (asset.offline) continue;
       // Export always reads the originals, never the proxies.
-      media[asset.id] = asset.path;
+      media[asset.id] = mediaDecodePath(asset);
     }
 
     final start = rangeStart?.seconds ?? 0;
@@ -191,8 +197,10 @@ class ExportService extends ChangeNotifier {
       totalFrames: ((end - start) * fps).round(),
       durationSeconds: end - start,
     );
-    job.log.add('Preset ${preset.name} · $width×$height · '
-        '${quality.label}${hardware ? ' · hardware' : ''}');
+    job.log.add(
+      'Preset ${preset.name} · $width×$height · '
+      '${quality.label}${hardware ? ' · hardware' : ''}',
+    );
     jobs.add(job);
     notifyListeners();
     unawaited(_pump());
@@ -232,10 +240,12 @@ class ExportService extends ChangeNotifier {
   }
 
   void clearFinished() {
-    jobs.removeWhere((j) =>
-        j.state == ExportState.completed ||
-        j.state == ExportState.failed ||
-        j.state == ExportState.cancelled);
+    jobs.removeWhere(
+      (j) =>
+          j.state == ExportState.completed ||
+          j.state == ExportState.failed ||
+          j.state == ExportState.cancelled,
+    );
     notifyListeners();
   }
 
@@ -313,41 +323,47 @@ class ExportService extends ChangeNotifier {
     process.stdout
         .transform(utf8.decoder)
         .transform(const LineSplitter())
-        .listen((line) {
-      if (line.trim().isEmpty) return;
-      Map<String, dynamic> event;
-      try {
-        event = jsonDecode(line) as Map<String, dynamic>;
-      } on Object {
-        job.log.add(line);  // ffmpeg chatter, kept for diagnostics
-        return;
-      }
-      switch (event['type']) {
-        case 'started':
-          job.log.add('Rendering ${event['width']}×${event['height']} · '
-              '${event['totalFrames']} frames');
-        case 'encoder':
-          job.log.add('Encoder: ${event['video']}');
-        case 'progress':
-          job.framesDone = (event['frame'] as num?)?.toInt() ?? job.framesDone;
-          job.progress =
-              (((event['percent'] as num?) ?? 0).toDouble() / 100).clamp(0, 1);
-          final elapsed = stopwatch.elapsedMilliseconds / 1000;
-          if (elapsed > 0) job.fps = job.framesDone / elapsed;
-          notifyListeners();
-        case 'done':
-          job.outputBytes = (event['bytes'] as num?)?.toInt() ?? 0;
-          if (!finished.isCompleted) finished.complete(true);
-        case 'fail':
-          job.error = event['error']?.toString();
-          job.log.add('Error: ${job.error}');
-          if (!finished.isCompleted) finished.complete(false);
-      }
-    }, onDone: () {
-      if (!finished.isCompleted) {
-        finished.complete(File(job.outputPath).existsSync());
-      }
-    });
+        .listen(
+      (line) {
+        if (line.trim().isEmpty) return;
+        Map<String, dynamic> event;
+        try {
+          event = jsonDecode(line) as Map<String, dynamic>;
+        } on Object {
+          job.log.add(line); // ffmpeg chatter, kept for diagnostics
+          return;
+        }
+        switch (event['type']) {
+          case 'started':
+            job.log.add(
+              'Rendering ${event['width']}×${event['height']} · '
+              '${event['totalFrames']} frames',
+            );
+          case 'encoder':
+            job.log.add('Encoder: ${event['video']}');
+          case 'progress':
+            job.framesDone =
+                (event['frame'] as num?)?.toInt() ?? job.framesDone;
+            job.progress = (((event['percent'] as num?) ?? 0).toDouble() / 100)
+                .clamp(0, 1);
+            final elapsed = stopwatch.elapsedMilliseconds / 1000;
+            if (elapsed > 0) job.fps = job.framesDone / elapsed;
+            notifyListeners();
+          case 'done':
+            job.outputBytes = (event['bytes'] as num?)?.toInt() ?? 0;
+            if (!finished.isCompleted) finished.complete(true);
+          case 'fail':
+            job.error = event['error']?.toString();
+            job.log.add('Error: ${job.error}');
+            if (!finished.isCompleted) finished.complete(false);
+        }
+      },
+      onDone: () {
+        if (!finished.isCompleted) {
+          finished.complete(File(job.outputPath).existsSync());
+        }
+      },
+    );
     process.stderr
         .transform(utf8.decoder)
         .transform(const LineSplitter())
@@ -387,7 +403,10 @@ class ExportService extends ChangeNotifier {
   }
 
   void _removePartials(ExportJob job) {
-    for (final path in ['${job.outputPath}.part', '${job.outputPath}.job.json']) {
+    for (final path in [
+      '${job.outputPath}.part',
+      '${job.outputPath}.job.json',
+    ]) {
       final file = File(path);
       if (file.existsSync()) {
         try {
@@ -413,11 +432,13 @@ class ExportService extends ChangeNotifier {
       'frames': job.totalFrames,
       'bytes': job.outputBytes,
       'settings': spec,
-      'log': job.log.length > 40 ? job.log.sublist(job.log.length - 40) : job.log,
+      'log':
+          job.log.length > 40 ? job.log.sublist(job.log.length - 40) : job.log,
     };
     try {
-      await File('${job.outputPath}.log.json')
-          .writeAsString(const JsonEncoder.withIndent('  ').convert(report));
+      await File(
+        '${job.outputPath}.log.json',
+      ).writeAsString(const JsonEncoder.withIndent('  ').convert(report));
     } catch (e) {
       debugPrint('export sidecar failed: $e');
     }

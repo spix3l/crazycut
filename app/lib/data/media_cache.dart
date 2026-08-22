@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/engine/media_worker.dart';
+import 'package:crazycut_app/state/svg_rasterizer.dart';
 
 /// Disk + memory cache for derived media (`02-data-model.md` §7): thumbnails,
 /// peak envelopes and proxies, all keyed by content hash so they survive a
@@ -41,8 +42,9 @@ class MediaCache {
   String _key(MediaAsset asset) =>
       (asset.hash.isEmpty ? asset.id : asset.hash).replaceAll(':', '_');
 
-  Future<File> _file(MediaAsset asset, String variant) async =>
-      File('${(await dir()).path}${Platform.pathSeparator}${_key(asset)}-$variant');
+  Future<File> _file(MediaAsset asset, String variant) async => File(
+        '${(await dir()).path}${Platform.pathSeparator}${_key(asset)}-$variant',
+      );
 
   // --- Thumbnails (IMP-6, TIM-14 filmstrips) --------------------------------
 
@@ -67,13 +69,18 @@ class MediaCache {
     if (_inFlight.contains(key)) return null;
     _inFlight.add(key);
     try {
-      final file = File('${(await dir()).path}${Platform.pathSeparator}$key.jpg');
+      final file = File(
+        '${(await dir()).path}${Platform.pathSeparator}$key.jpg',
+      );
       Uint8List? bytes;
       if (file.existsSync()) {
         bytes = await file.readAsBytes();
       } else {
-        bytes = await MediaWorker.instance
-            .thumbnail(asset.path, seconds: seconds, width: width);
+        bytes = await MediaWorker.instance.thumbnail(
+          mediaDecodePath(asset),
+          seconds: seconds,
+          width: width,
+        );
         if (bytes != null) {
           try {
             await file.writeAsBytes(bytes, flush: false);
@@ -116,8 +123,10 @@ class MediaCache {
             .map((e) => (e as num).toDouble())
             .toList();
       } else {
-        peaks = await MediaWorker.instance
-            .waveform(asset.path, peaksPerSecond: peaksPerSecond);
+        peaks = await MediaWorker.instance.waveform(
+          asset.path,
+          peaksPerSecond: peaksPerSecond,
+        );
         if (peaks != null) {
           try {
             await file.writeAsString(jsonEncode(peaks));

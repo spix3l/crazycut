@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:crazycut_app/data/media_cache.dart';
 import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/engine/engine.dart';
+import 'package:crazycut_app/state/svg_rasterizer.dart';
 
 enum ProxyState { none, queued, running, ready, failed }
 
@@ -41,6 +42,7 @@ class ProxyService extends ChangeNotifier {
   /// Queues [asset] when the rules ask for a proxy, or when [force] is set
   /// (the pool's "Generate proxy now" action).
   void request(MediaAsset asset, {bool force = false}) {
+    if (asset.type != 'video') return;
     if (asset.proxyPath != null && File(asset.proxyPath!).existsSync()) return;
     if (!force && (!enabled || !asset.wantsProxy)) return;
     if (jobs[asset.id]?.state == ProxyState.running ||
@@ -88,32 +90,38 @@ class ProxyService extends ChangeNotifier {
 
     final output = await MediaCache.instance.proxyFile(asset);
     final jobFile = File('${output.path}.job.json');
-    await jobFile.writeAsString(jsonEncode({
-      'input': asset.path,
-      'output': output.path,
-      'video': {
-        'codec': 'h264',
-        'crf': 23,
-        'preset': 'veryfast',
-        'maxWidth': 960,
-        'maxHeight': 540,
-      },
-      'audio': asset.hasAudio ? {'codec': 'aac', 'bitrate': 128000} : null,
-      'faststart': true,
-    }));
+    await jobFile.writeAsString(
+      jsonEncode({
+        'input': asset.path,
+        'output': output.path,
+        'video': {
+          'codec': 'h264',
+          'crf': 23,
+          'preset': 'veryfast',
+          'maxWidth': 960,
+          'maxHeight': 540,
+        },
+        'audio': asset.hasAudio ? {'codec': 'aac', 'bitrate': 128000} : null,
+        'faststart': true,
+      }),
+    );
 
     try {
       final process = await Process.start(worker, ['--job', jobFile.path]);
       _process = process;
       final done = Completer<bool>();
-      process.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(
+      process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(
         (line) {
           if (line.trim().isEmpty) return;
           try {
             final event = jsonDecode(line) as Map<String, dynamic>;
             switch (event['type']) {
               case 'progress':
-                job.progress = ((event['percent'] as num?) ?? 0).toDouble() / 100;
+                job.progress =
+                    ((event['percent'] as num?) ?? 0).toDouble() / 100;
                 notifyListeners();
               case 'done':
                 if (!done.isCompleted) done.complete(true);
@@ -160,7 +168,7 @@ class ProxyService extends ChangeNotifier {
   static String decodePath(MediaAsset asset) {
     final proxy = asset.proxyPath;
     if (proxy != null && File(proxy).existsSync()) return proxy;
-    return asset.path;
+    return mediaDecodePath(asset);
   }
 
   @override
