@@ -203,6 +203,7 @@ class CcTextField extends StatefulWidget {
     this.focusNode,
     this.autofocus = false,
     this.onSubmitted,
+    this.onTapOutside,
   });
 
   final String? value;
@@ -219,6 +220,7 @@ class CcTextField extends StatefulWidget {
   final FocusNode? focusNode;
   final bool autofocus;
   final ValueChanged<String>? onSubmitted;
+  final TapRegionCallback? onTapOutside;
 
   @override
   State<CcTextField> createState() => _CcTextFieldState();
@@ -272,6 +274,7 @@ class _CcTextFieldState extends State<CcTextField> {
                     backgroundCursorColor: CcColors.elevated2,
                     selectionColor: CcColors.accent.withValues(alpha: 0.35),
                     onSubmitted: widget.onSubmitted,
+                    onTapOutside: widget.onTapOutside,
                     maxLines: 1,
                   )
                 : Text(
@@ -762,16 +765,25 @@ class CcMenuItem {
 /// Floating verb list used by context menus and the track menu. Disabled rows
 /// stay visible so the menu shape does not jump between targets.
 class CcMenu extends StatelessWidget {
-  const CcMenu({super.key, required this.items, this.onSelected, this.width = 210});
+  const CcMenu({
+    super.key,
+    required this.items,
+    this.onSelected,
+    this.width = 210,
+    this.maxHeight,
+  });
 
   final List<CcMenuItem> items;
   final VoidCallback? onSelected;
   final double width;
+  final double? maxHeight;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: width,
+      constraints:
+          maxHeight == null ? null : BoxConstraints(maxHeight: maxHeight!),
       padding: const EdgeInsets.symmetric(vertical: 5),
       decoration: BoxDecoration(
         color: CcColors.elevated,
@@ -781,65 +793,85 @@ class CcMenu extends StatelessWidget {
           BoxShadow(color: Color(0x66000000), blurRadius: 20, offset: Offset(0, 8)),
         ],
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final item in items) ...[
-            if (item.separatorBefore)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 4),
-                child: SizedBox(height: 1, child: ColoredBox(color: CcColors.border)),
-              ),
-            CcTappable(
-              onTap: item.onTap == null
-                  ? null
-                  : () {
-                      onSelected?.call();
-                      item.onTap!();
-                    },
-              builder: (context, hovered, _) => Container(
-                height: 28,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                color: hovered && item.onTap != null
-                    ? CcColors.elevated2
-                    : const Color(0x00000000),
-                child: Row(
-                  children: [
-                    if (item.checked != null) ...[
-                      CcIcon(
-                        item.checked! ? LucideIcons.check : LucideIcons.minus,
-                        size: 12,
-                        color: item.checked! ? CcColors.accent : CcColors.textTertiary,
-                      ),
-                      const SizedBox(width: 8),
-                    ] else if (item.icon != null) ...[
-                      CcIcon(item.icon!, size: 12, color: CcColors.textSecondary),
-                      const SizedBox(width: 8),
-                    ],
-                    Expanded(
-                      child: Text(
-                        item.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: CcType.style(
-                          size: 12,
-                          color: item.onTap == null
-                              ? CcColors.textTertiary
-                              : item.danger
-                                  ? CcColors.error
-                                  : CcColors.textPrimary,
-                        ),
+      child: SingleChildScrollView(
+        primary: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final item in items) ...[
+              if (item.separatorBefore)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 4),
+                  child: SizedBox(
+                    height: 1,
+                    child: ColoredBox(color: CcColors.border),
+                  ),
+                ),
+              CcTappable(
+                onTap:
+                    item.onTap == null
+                        ? null
+                        : () {
+                          onSelected?.call();
+                          item.onTap!();
+                        },
+                builder:
+                    (context, hovered, _) => Container(
+                      height: 28,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      color:
+                          hovered && item.onTap != null
+                              ? CcColors.elevated2
+                              : const Color(0x00000000),
+                      child: Row(
+                        children: [
+                          if (item.checked != null) ...[
+                            CcIcon(
+                              item.checked!
+                                  ? LucideIcons.check
+                                  : LucideIcons.minus,
+                              size: 12,
+                              color:
+                                  item.checked!
+                                      ? CcColors.accent
+                                      : CcColors.textTertiary,
+                            ),
+                            const SizedBox(width: 8),
+                          ] else if (item.icon != null) ...[
+                            CcIcon(
+                              item.icon!,
+                              size: 12,
+                              color: CcColors.textSecondary,
+                            ),
+                            const SizedBox(width: 8),
+                          ],
+                          Expanded(
+                            child: Text(
+                              item.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: CcType.style(
+                                size: 12,
+                                color:
+                                    item.onTap == null
+                                        ? CcColors.textTertiary
+                                        : item.danger
+                                        ? CcColors.error
+                                        : CcColors.textPrimary,
+                              ),
+                            ),
+                          ),
+                          if (item.shortcut != null)
+                            Text(item.shortcut!, style: CcType.nano),
+                        ],
                       ),
                     ),
-                    if (item.shortcut != null) Text(item.shortcut!, style: CcType.nano),
-                  ],
-                ),
+                child: const SizedBox.shrink(),
               ),
-              child: const SizedBox.shrink(),
-            ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -852,17 +884,38 @@ void showCcMenu(BuildContext context, Offset globalPosition, List<CcMenuItem> it
   if (overlayBox == null) return;
   late OverlayEntry entry;
   void close() => entry.remove();
-  const menuWidth = 210.0;
   const edgeMargin = 20.0;
+  const preferredMenuWidth = 210.0;
   final separatorHeight = items.where((item) => item.separatorBefore).length * 9.0;
   // Ten pixels of explicit vertical padding plus the one-pixel border on each
   // edge. Keeping this equal to CcMenu's real height prevents bottom clipping.
   final estimatedHeight = items.length * 28.0 + separatorHeight + 12;
   final requested = overlayBox.globalToLocal(globalPosition);
-  final dx = requested.dx.clamp(edgeMargin, overlayBox.size.width - menuWidth - edgeMargin);
+  final horizontalMargin =
+      overlayBox.size.width < edgeMargin * 2
+          ? overlayBox.size.width / 2
+          : edgeMargin;
+  final verticalMargin =
+      overlayBox.size.height < edgeMargin * 2
+          ? overlayBox.size.height / 2
+          : edgeMargin;
+  final availableWidth = (overlayBox.size.width - horizontalMargin * 2).clamp(
+    0.0,
+    double.infinity,
+  );
+  final availableHeight = (overlayBox.size.height - verticalMargin * 2).clamp(
+    0.0,
+    double.infinity,
+  );
+  final menuWidth = preferredMenuWidth.clamp(0.0, availableWidth);
+  final menuHeight = estimatedHeight.clamp(0.0, availableHeight);
+  final dx = requested.dx.clamp(
+    horizontalMargin,
+    overlayBox.size.width - menuWidth - horizontalMargin,
+  );
   final dy = requested.dy.clamp(
-    edgeMargin,
-    overlayBox.size.height - estimatedHeight - edgeMargin,
+    verticalMargin,
+    overlayBox.size.height - menuHeight - verticalMargin,
   );
   entry = OverlayEntry(
     builder: (context) => Stack(
@@ -873,7 +926,12 @@ void showCcMenu(BuildContext context, Offset globalPosition, List<CcMenuItem> it
         Positioned(
           left: dx,
           top: dy,
-          child: CcMenu(items: items, onSelected: close),
+          child: CcMenu(
+            items: items,
+            onSelected: close,
+            width: menuWidth,
+            maxHeight: availableHeight,
+          ),
         ),
       ],
     ),

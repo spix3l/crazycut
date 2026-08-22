@@ -16,11 +16,13 @@ class RgbaFrame extends StatefulWidget {
     required this.bytes,
     required this.width,
     required this.height,
+    this.filterQuality = FilterQuality.medium,
   });
 
   final Uint8List bytes;
   final int width;
   final int height;
+  final FilterQuality filterQuality;
 
   @override
   State<RgbaFrame> createState() => _RgbaFrameState();
@@ -43,25 +45,42 @@ class _RgbaFrameState extends State<RgbaFrame> {
     if (!identical(old.bytes, widget.bytes)) unawaited(_decode());
   }
 
+  /// A decode is outstanding. During playback frames arrive faster than the
+  /// engine can turn them into textures; starting a second decode before the
+  /// first finishes only queues uploads that are already stale by the time
+  /// they land. Coalescing to "newest wins" keeps the monitor on the freshest
+  /// frame instead of walking through a backlog.
+  bool _decoding = false;
+
   Future<void> _decode() async {
-    final bytes = widget.bytes;
-    final completer = Completer<ui.Image>();
-    ui.decodeImageFromPixels(
-      bytes,
-      widget.width,
-      widget.height,
-      ui.PixelFormat.rgba8888,
-      completer.complete,
-    );
-    final image = await completer.future;
-    // A newer frame arrived while decoding: drop this one.
-    if (!mounted || !identical(bytes, widget.bytes)) {
-      image.dispose();
-      return;
+    if (_decoding) return;
+    _decoding = true;
+    try {
+      while (mounted) {
+        final bytes = widget.bytes;
+        final completer = Completer<ui.Image>();
+        ui.decodeImageFromPixels(
+          bytes,
+          widget.width,
+          widget.height,
+          ui.PixelFormat.rgba8888,
+          completer.complete,
+        );
+        final image = await completer.future;
+        if (!mounted) {
+          image.dispose();
+          return;
+        }
+        // A newer frame arrived while decoding: show this one anyway (it is
+        // still newer than what is on screen) and loop to catch up.
+        final old = _image;
+        setState(() => _image = image);
+        old?.dispose();
+        if (identical(bytes, widget.bytes)) return;
+      }
+    } finally {
+      _decoding = false;
     }
-    final old = _image;
-    setState(() => _image = image);
-    old?.dispose();
   }
 
   @override
@@ -78,8 +97,9 @@ class _RgbaFrameState extends State<RgbaFrame> {
       image: image,
       fit: BoxFit.contain,
       // The frame is rendered at (roughly) display resolution, so the residual
-      // scale is small; medium keeps it crisp without a mipmap pass.
-      filterQuality: FilterQuality.medium,
+      // scale is small. The monitor drops to a cheaper sampler while the
+      // transport is moving.
+      filterQuality: widget.filterQuality,
     );
   }
 }

@@ -1,1 +1,1 @@
-- We lack (and this should be systematic) explicit entry and leave animations 
+- Work on reusable templates    

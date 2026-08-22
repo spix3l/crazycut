@@ -23,6 +23,10 @@ class TextRasterizer {
   static const int _cacheLimit = 32;
   final Map<String, RasterizedText> _cache = {};
 
+  /// Families whose async install has already been awaited, so the await below
+  /// happens once per font instead of once per preview frame.
+  final Set<String> _fontsReady = {};
+
   Future<RasterizedText?> render(
     TextContent text, {
     required int canvasWidth,
@@ -35,9 +39,11 @@ class TextRasterizer {
 
     // google_fonts installs a family asynchronously the first time it is used.
     // TextPainter does not wait for that side effect, and caching its fallback
-    // raster made a font selection look permanently broken. Trigger and await
-    // the load before either cache lookup or layout.
-    if (text.fontFamily != 'default') {
+    // raster made a font selection look permanently broken. Await the install
+    // once per family: every later frame then reaches the cache without an
+    // event-loop turn, which is what kept the raster off the playback path.
+    final fontKey = '${text.fontFamily}/${fontWeight.value}';
+    if (text.fontFamily != 'default' && !_fontsReady.contains(fontKey)) {
       _googleFont(text.fontFamily, fontWeight);
       try {
         await GoogleFonts.pendingFonts();
@@ -45,6 +51,7 @@ class TextRasterizer {
         // System/custom families and offline use still get Flutter's normal
         // font fallback instead of making the whole preview frame fail.
       }
+      _fontsReady.add(fontKey);
     }
 
     final key = jsonEncode({
@@ -192,7 +199,10 @@ class TextRasterizer {
   }
 
   /// Drops cached rasters (used when the sequence format changes).
-  void clearCache() => _cache.clear();
+  void clearCache() {
+    _cache.clear();
+    _fontsReady.clear();
+  }
 
   TextStyle _fontStyle(
     TextContent text, {

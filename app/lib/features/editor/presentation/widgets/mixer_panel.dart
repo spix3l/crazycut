@@ -98,32 +98,35 @@ class _TrackStrip extends StatelessWidget {
     final c = controller;
     final anySolo = c.doc.tracks.any((t) => t.solo);
     final audible = anySolo ? track.solo : !track.mute;
-    return _Strip(
-      title: track.name,
-      gainDb: AudioEdits.linearToDb(track.gain),
-      maxDb: 6,
-      onGainDb: (db) => c.setTrackGainDb(track.id, db),
-      pan: track.pan,
-      onPan: (v) => c.setTrackPan(track.id, v),
-      // Per-track metering needs a per-track mix; v1 meters the master and
-      // shows track strips as active/inactive instead of guessing a level.
-      level: audible && c.playing ? c.audioLevels : (0, 0),
-      dimmed: !audible,
-      buttons: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _ToggleChip(
-            label: 'M',
-            on: track.mute,
-            onTap: () => c.setTrackFlags(track.id, mute: !track.mute),
-          ),
-          const SizedBox(width: 6),
-          _ToggleChip(
-            label: 'S',
-            on: track.solo,
-            onTap: () => c.setTrackFlags(track.id, solo: !track.solo),
-          ),
-        ],
+    return _Metered(
+      controller: c,
+      builder: (level) => _Strip(
+        title: track.name,
+        gainDb: AudioEdits.linearToDb(track.gain),
+        maxDb: 6,
+        onGainDb: (db) => c.setTrackGainDb(track.id, db),
+        pan: track.pan,
+        onPan: (v) => c.setTrackPan(track.id, v),
+        // Per-track metering needs a per-track mix; v1 meters the master and
+        // shows track strips as active/inactive instead of guessing a level.
+        level: audible && c.playing ? level : (0, 0),
+        dimmed: !audible,
+        buttons: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _ToggleChip(
+              label: 'M',
+              on: track.mute,
+              onTap: () => c.setTrackFlags(track.id, mute: !track.mute),
+            ),
+            const SizedBox(width: 6),
+            _ToggleChip(
+              label: 'S',
+              on: track.solo,
+              onTap: () => c.setTrackFlags(track.id, solo: !track.solo),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -138,25 +141,45 @@ class _MasterStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = controller;
     final master = c.doc.settings.master;
-    return _Strip(
-      title: 'Master',
-      gainDb: AudioEdits.linearToDb(master.gain),
-      maxDb: 6,
-      onGainDb: c.setMasterGainDb,
-      pan: null,
-      onPan: null,
-      level: c.playing ? c.audioLevels : (0, 0),
-      dimmed: false,
-      accent: true,
-      buttons: CcTooltip(
-        message: 'Safety brickwall at ${master.ceilingDb.toStringAsFixed(0)} dBFS',
-        child: _ToggleChip(
-          label: 'LIM',
-          on: master.limiter,
-          width: 40,
-          onTap: () => c.setMasterLimiter(!master.limiter),
+    return _Metered(
+      controller: c,
+      builder: (level) => _Strip(
+        title: 'Master',
+        gainDb: AudioEdits.linearToDb(master.gain),
+        maxDb: 6,
+        onGainDb: c.setMasterGainDb,
+        pan: null,
+        onPan: null,
+        level: c.playing ? level : (0, 0),
+        dimmed: false,
+        accent: true,
+        buttons: CcTooltip(
+          message: 'Safety brickwall at ${master.ceilingDb.toStringAsFixed(0)} dBFS',
+          child: _ToggleChip(
+            label: 'LIM',
+            on: master.limiter,
+            width: 40,
+            onTap: () => c.setMasterLimiter(!master.limiter),
+          ),
         ),
       ),
+    );
+  }
+}
+
+/// Rebuilds one strip when the meter moves. Levels update every transport
+/// tick; the rest of the mixer does not have to.
+class _Metered extends StatelessWidget {
+  const _Metered({required this.controller, required this.builder});
+
+  final EditorController controller;
+  final Widget Function((double, double) level) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<(double, double)>(
+      valueListenable: controller.audioLevelsNotifier,
+      builder: (context, level, _) => builder(level),
     );
   }
 }

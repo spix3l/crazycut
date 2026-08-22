@@ -5,6 +5,30 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('full-width dropdown keeps its chevron at the trailing edge', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const Directionality(
+        textDirection: TextDirection.ltr,
+        child: Center(
+          child: SizedBox(
+            width: 300,
+            child: CcDropdown(
+              value: 'Haut-parleurs MacBook Air',
+              width: double.infinity,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final dropdown = tester.getRect(find.byType(CcDropdown));
+    final chevron = tester.getRect(find.byType(CcIcon));
+    expect(chevron.right, dropdown.right - 10);
+    expect(chevron.left, greaterThan(dropdown.center.dx));
+  });
+
   testWidgets('CcMultilineTextField works below WidgetsApp', (tester) async {
     final controller = TextEditingController();
     addTearDown(controller.dispose);

@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'package:flutter/material.dart' show showModalBottomSheet, TextField, InputDecoration;
 import 'package:flutter/widgets.dart' hide Clip;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -7,7 +6,9 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../../core/design/tokens.dart';
 import '../../../../core/widgets/primitives.dart';
 import '../../../../core/widgets/rgba_frame.dart';
+import '../../../../models/rational.dart';
 import '../../../../state/editor_controller.dart';
+import '../../../../state/preview_renderer.dart';
 import 'canvas_gizmo.dart';
 
 /// Centre column: overlay toggles, the program monitor and the transport bar.
@@ -71,19 +72,10 @@ class _MonitorPanelState extends State<MonitorPanel> {
                       children: [
                         _PreviewSizeReporter(
                           controller: c,
-                          child: switch ((empty, c.previewFrame)) {
-                            (true, _) => const _Placeholder(
-                                message: 'Nothing on the timeline yet'),
-                            (false, final bytes?)
-                                when c.previewFrameSize != null =>
-                              _FramePreview(
-                                bytes: bytes,
-                                width: c.previewFrameSize!.$1,
-                                height: c.previewFrameSize!.$2,
-                              ),
-                            _ => const _Placeholder(
-                                message: 'No frame under the playhead'),
-                          },
+                          child: empty
+                              ? const _Placeholder(
+                                  message: 'Nothing on the timeline yet')
+                              : _FramePreview(controller: c),
                         ),
                         // TXT-6: move/resize/rotate handles over the frame.
                         // Layered above the preview but only claims pointers
@@ -219,18 +211,40 @@ class _PreviewSizeReporter extends StatelessWidget {
   }
 }
 
+/// Repaints straight off the controller's preview channel.
+///
+/// Frames land 30-60 times a second while the transport runs; listening to the
+/// notifier instead of the controller keeps that rate inside this subtree
+/// rather than rebuilding the editor around it.
 class _FramePreview extends StatelessWidget {
-  const _FramePreview({required this.bytes, required this.width, required this.height});
+  const _FramePreview({required this.controller});
 
-  final Uint8List bytes;
-  final int width;
-  final int height;
+  final EditorController controller;
 
   @override
   Widget build(BuildContext context) {
+    // Sampling a moving image through a mipmap chain costs a filter pass per
+    // frame for detail nobody can see at transport speed; the parked frame
+    // gets the sharper sampler back.
+    final quality = controller.playing
+        ? FilterQuality.low
+        : FilterQuality.medium;
     return ColoredBox(
       color: const Color(0xFF000000),
-      child: RgbaFrame(bytes: bytes, width: width, height: height),
+      child: ValueListenableBuilder<PreviewFrame?>(
+        valueListenable: controller.previewImage,
+        builder: (context, frame, _) {
+          if (frame == null) {
+            return const _Placeholder(message: 'No frame under the playhead');
+          }
+          return RgbaFrame(
+            bytes: frame.rgba,
+            width: frame.width,
+            height: frame.height,
+            filterQuality: quality,
+          );
+        },
+      ),
     );
   }
 }
@@ -256,7 +270,13 @@ class _TransportBar extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(c.timecode, style: CcType.bodyStrong),
+                  // Follows the playhead at transport rate; the rest of the
+                  // transport bar only changes when the transport state does.
+                  ValueListenableBuilder<Rt>(
+                    valueListenable: c.playheadNotifier,
+                    builder: (context, _, _) =>
+                        Text(c.timecode, style: CcType.bodyStrong),
+                  ),
                   const SizedBox(width: 4),
                   Text('/', style: CcType.style(size: 13, color: CcColors.textTertiary)),
                   const SizedBox(width: 4),
@@ -326,7 +346,14 @@ class _TransportBar extends StatelessWidget {
             ),
             Align(
               alignment: Alignment.centerRight,
-              child: _MasterMeter(levels: c.playing && !empty ? c.audioLevels : (0, 0)),
+              // Meter ballistics come off their own channel, so the needle
+              // stays smooth without the transport bar rebuilding per tick.
+              child: ValueListenableBuilder<(double, double)>(
+                valueListenable: c.audioLevelsNotifier,
+                builder: (context, levels, _) => _MasterMeter(
+                  levels: c.playing && !empty ? levels : (0, 0),
+                ),
+              ),
             ),
           ],
         ),

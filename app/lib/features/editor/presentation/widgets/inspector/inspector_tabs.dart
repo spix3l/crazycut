@@ -73,10 +73,7 @@ class ClipTimingTab extends StatelessWidget {
                 InfoRow('Track', _value(track?.name ?? '—')),
                 if (asset != null)
                   InfoRow('Available', _value(Rt.toTimecode(asset.duration, fps))),
-                InfoRow(
-                  'Handles',
-                  _value(_handles(asset, fps)),
-                ),
+                InfoRow('Handles', _value(_handles(asset, fps))),
                 InfoRow('Linked', _value(clip.linkedGroup == null ? 'no' : 'A/V')),
               ],
             ),

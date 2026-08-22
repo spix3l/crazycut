@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' hide Clip;
 import 'package:flutter_test/flutter_test.dart';
 
@@ -119,5 +120,48 @@ void main() {
     expect(find.text('Leave'), findsOneWidget);
     expect(find.text('CONTINUOUS MOTION'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('transform values accept typed numbers and unit suffixes', (
+    tester,
+  ) async {
+    final (controller, clip) = videoHarness();
+
+    await tester.pumpWidget(subject(controller, clip));
+    await tester.tap(find.byKey(const ValueKey('transform-value-scale')));
+    await tester.pump();
+
+    final input = find.descendant(
+      of: find.byKey(const ValueKey('transform-value-input-scale')),
+      matching: find.byType(EditableText),
+    );
+    await tester.enterText(input, '125%');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpWidget(subject(controller, clip));
+    await tester.pump();
+
+    expect(clip.transform!.scale.static, 125);
+    expect(find.text('125%'), findsOneWidget);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('transform-value-rotation')),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey('transform-value-rotation')),
+      warnIfMissed: false,
+    );
+    await tester.pump();
+    final rotationInput = find.descendant(
+      of: find.byKey(const ValueKey('transform-value-input-rotation')),
+      matching: find.byType(EditableText),
+    );
+    await tester.enterText(rotationInput, '45°');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+
+    expect(clip.transform!.rotation.static, 0);
+    expect(find.text('0°'), findsOneWidget);
+    controller.dispose();
   });
 }

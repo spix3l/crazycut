@@ -304,7 +304,11 @@ class _OutputDeviceRow extends StatelessWidget {
         ? devices.first
         : controller.outputDeviceName;
     return Builder(
-      builder: (context) => CcTappable(
+      builder: (context) => CcDropdown(
+        value: current,
+        width: double.infinity,
+        height: 28,
+        fontSize: 11,
         onTap: () => showCcMenuBelow(context, [
           for (final device in devices)
             CcMenuItem(
@@ -313,7 +317,6 @@ class _OutputDeviceRow extends StatelessWidget {
               onTap: () => controller.setOutputDevice(device),
             ),
         ]),
-        child: CcDropdown(value: current, height: 28, fontSize: 11),
       ),
     );
   }

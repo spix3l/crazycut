@@ -16,10 +16,10 @@ class InfoRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
+        spacing: 16,
         children: [
           Text(label, style: CcType.small),
-          const Spacer(),
-          value,
+          Expanded(child: value),
         ],
       ),
     );
@@ -51,8 +51,9 @@ class TimecodeRow extends StatefulWidget {
 }
 
 class _TimecodeRowState extends State<TimecodeRow> {
-  late final TextEditingController _controller =
-      TextEditingController(text: Rt.toTimecode(widget.value, widget.fps));
+  late final TextEditingController _controller = TextEditingController(
+    text: Rt.toTimecode(widget.value, widget.fps),
+  );
   final _focus = FocusNode();
 
   @override
@@ -69,8 +70,7 @@ class _TimecodeRowState extends State<TimecodeRow> {
     if (!_focus.hasFocus && oldWidget.value != widget.value) _sync();
   }
 
-  void _sync() =>
-      _controller.text = Rt.toTimecode(widget.value, widget.fps);
+  void _sync() => _controller.text = Rt.toTimecode(widget.value, widget.fps);
 
   @override
   void dispose() {
@@ -94,10 +94,7 @@ class _TimecodeRowState extends State<TimecodeRow> {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
       child: Row(
         children: [
-          SizedBox(
-            width: 78,
-            child: Text(widget.label, style: CcType.small),
-          ),
+          SizedBox(width: 78, child: Text(widget.label, style: CcType.small)),
           Expanded(
             child: CcTextField(
               height: 28,
@@ -178,7 +175,10 @@ class SliderRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14),
         child: Row(
           children: [
-            SizedBox(width: labelWidth, child: Text(label, style: CcType.small)),
+            SizedBox(
+              width: labelWidth,
+              child: Text(label, style: CcType.small),
+            ),
             Expanded(
               child: CcSlider(value: value.clamp(0, 1), onChanged: onChanged),
             ),

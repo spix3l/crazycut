@@ -423,10 +423,19 @@ class _TimelinePanelState extends State<TimelinePanel> {
                                                 ),
                                               ),
                                             ),
-                                          Positioned(
-                                            left: _x(c.playhead) - 1,
-                                            top: 0,
-                                            height: lanesHeight,
+                                          // Tracks the playhead on its own
+                                          // notifier so the transport can move
+                                          // the cursor without rebuilding
+                                          // every clip in the timeline.
+                                          ValueListenableBuilder<Rt>(
+                                            valueListenable: c.playheadNotifier,
+                                            builder: (context, playhead, child) =>
+                                                Positioned(
+                                              left: _x(playhead) - 1,
+                                              top: 0,
+                                              height: lanesHeight,
+                                              child: child!,
+                                            ),
                                             child: const IgnorePointer(
                                               child: SizedBox(
                                                 width: 2,
@@ -634,9 +643,13 @@ class _TimelinePanelState extends State<TimelinePanel> {
               ),
             ),
             for (final marker in doc.markers) _markerFlag(marker),
-            Positioned(
-              left: _x(c.playhead) - 6,
-              bottom: 2,
+            ValueListenableBuilder<Rt>(
+              valueListenable: c.playheadNotifier,
+              builder: (context, playhead, child) => Positioned(
+                left: _x(playhead) - 6,
+                bottom: 2,
+                child: child!,
+              ),
               child: IgnorePointer(
                 child: Container(
                   width: 12,

@@ -92,17 +92,51 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   /// that queue must only be detached here, never disposed here.
   final bool _ownsProxies;
 
+  /// Playhead position.
+  ///
+  /// Assignment publishes on [playheadNotifier] rather than through
+  /// [notifyListeners]: the transport moves the playhead 30-60 times a second
+  /// and only a handful of widgets (the ruler head, the timeline cursor, the
+  /// timecode) need to follow it at that rate. Rebuilding the whole editor —
+  /// media pool, inspector, every timeline clip — on each step is what made
+  /// playback feel heavy.
   @override
-  Rt playhead = Rt.zero();
+  Rt get playhead => playheadNotifier.value;
+  set playhead(Rt value) => playheadNotifier.value = value;
+
+  /// Transport-rate playhead channel (see [playhead]).
+  final ValueNotifier<Rt> playheadNotifier = ValueNotifier(Rt.zero());
+
+  /// Transport-rate preview image channel. Only the monitor listens, so a new
+  /// frame repaints one widget instead of the whole editor.
+  final ValueNotifier<PreviewFrame?> previewImage = ValueNotifier(null);
 
   bool playing = false;
   bool looping = false;
   Timer? _playTimer;
-  bool _frameBusy = false;
+  int _framesInFlight = 0;
   bool _framePending = false;
   int _previewRevision = 0;
   int _previewRenderMicros = 33333;
   double _shuttleRate = 1;
+
+  /// How many composites may be outstanding at once.
+  ///
+  /// With a single slot the render isolate sits idle for the whole round trip
+  /// — completion hop, image decode, repaint — before the next frame is even
+  /// dispatched, so preview throughput was bounded by *latency* rather than by
+  /// compositing cost. A second slot lets the isolate composite frame N+1
+  /// while the UI thread is still putting frame N on screen. Deeper than two
+  /// only buys latency: frames would queue behind a playhead that has already
+  /// moved past them.
+  static const int _maxFramesInFlight = 2;
+
+  /// Dedupes dispatches: (revision, requested micros, render width). Renders
+  /// with an identical key produce an identical image, so re-issuing one only
+  /// burns a slot the newest playhead position could have used.
+  (int, int, int)? _lastRequestKey;
+
+  bool get _frameBusy => _framesInFlight >= _maxFramesInFlight;
 
   /// Wall clock for playback. The playhead is derived from elapsed real time
   /// rather than accumulated timer ticks, so a slow frame makes playback drop
@@ -119,15 +153,29 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   bool _audioDocDirty = true;
 
   /// Master output meter, updated while playing (AUD-10).
-  (double, double) audioLevels = (0, 0);
+  ///
+  /// On its own channel for the same reason as [playhead]: meter ballistics
+  /// need every tick, and the rest of the editor does not.
+  final ValueNotifier<(double, double)> audioLevelsNotifier =
+      ValueNotifier((0, 0));
+  (double, double) get audioLevels => audioLevelsNotifier.value;
+  set audioLevels((double, double) value) =>
+      audioLevelsNotifier.value = value;
 
   /// Output device chosen in settings; empty means system default (AUD-14).
   String outputDeviceName = '';
 
   final Map<String, PoolItem> pool = {};
-  Uint8List? previewFrame;
-  (int, int)? previewFrameSize;
-  double previewFrameTime = -1;
+
+  /// Last composited frame, as views onto [previewImage] for callers that only
+  /// read it occasionally (the monitor itself listens to the notifier).
+  Uint8List? get previewFrame => previewImage.value?.rgba;
+  (int, int)? get previewFrameSize {
+    final frame = previewImage.value;
+    return frame == null ? null : (frame.width, frame.height);
+  }
+
+  double get previewFrameTime => previewImage.value?.time.seconds ?? -1;
 
   /// Effect catalog from the engine (cc_effect_catalog), lazily fetched once
   /// per session; falls back to the bundled catalog when the engine is
@@ -217,11 +265,15 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   void dispose() {
     _disposed = true;
     _playTimer?.cancel();
+    _notifyTrailing?.cancel();
     _audio?.stop();
     _audio?.dispose();
     _audio = null;
     unawaited(_renderer?.dispose());
     _renderer = null;
+    playheadNotifier.dispose();
+    previewImage.dispose();
+    audioLevelsNotifier.dispose();
     proxies.removeListener(notifyListeners);
     if (_ownsProxies) proxies.dispose();
     autosave.dispose();
@@ -231,6 +283,7 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   Future<void> close() async {
     _disposed = true;
     _playTimer?.cancel();
+    _notifyTrailing?.cancel();
     playing = false;
     _audio?.stop();
     _audio?.dispose();
@@ -494,10 +547,44 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   void seekTo(Rt t) {
     var clamped = t < Rt.zero() ? Rt.zero() : t;
     if (clamped == playhead) return;
+    // The cursor, the timecode and the monitor follow on their own channels;
+    // a scrub drag emits seeks faster than the rest of the editor needs to be
+    // rebuilt, so those go out on the throttle.
     playhead = clamped;
     if (playing) _anchorPlayClock();
-    notifyListeners();
+    _notifyPlayback();
     unawaited(updatePreviewFrame());
+  }
+
+  static const Duration _playbackNotifyInterval = Duration(milliseconds: 100);
+  final Stopwatch _sinceNotify = Stopwatch()..start();
+  Timer? _notifyTrailing;
+
+  /// Coarse editor refresh while the playhead is moving.
+  ///
+  /// The playhead, the preview image and the meters reach the screen through
+  /// their own notifiers at full rate. Everything else that reads the playhead
+  /// — inspector values, the clip-under-playhead highlight — only has to look
+  /// current, so it rebuilds on a slow cadence instead of once per composited
+  /// frame.
+  ///
+  /// Leading edge plus a guaranteed trailing edge: an isolated seek refreshes
+  /// the editor at once, and the last position of a burst always lands even if
+  /// it arrived inside the quiet window.
+  void _notifyPlayback() {
+    final waited = _sinceNotify.elapsed;
+    if (waited >= _playbackNotifyInterval) {
+      _notifyTrailing?.cancel();
+      _notifyTrailing = null;
+      _sinceNotify.reset();
+      notifyListeners();
+      return;
+    }
+    _notifyTrailing ??= Timer(_playbackNotifyInterval - waited, () {
+      _notifyTrailing = null;
+      _sinceNotify.reset();
+      if (!_disposed) notifyListeners();
+    });
   }
 
   /// Restarts the wall clock from the current playhead.
@@ -718,8 +805,10 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
       next = Rt.fromMicros(frames * frameMicros);
     }
     if (next == playhead) return;
+    // Publishes on playheadNotifier: the cursor and the timecode follow every
+    // step, the rest of the editor refreshes on the slow cadence below.
     playhead = next;
-    notifyListeners();
+    _notifyPlayback();
     unawaited(updatePreviewFrame());
   }
 
@@ -1008,23 +1097,30 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
       unawaited(_bootRenderer());
       return;
     }
-    _frameBusy = true;
+    final revision = _previewRevision;
+    final playbackRequest = playing;
+    // Render the time at which this frame is expected to reach the screen,
+    // not the time at which expensive decoding began. The moving average
+    // self-corrects for effects/layer complexity and keeps visual cuts in
+    // step with the realtime playhead.
+    final requested = computePreviewRenderTime(
+      playhead: playhead,
+      rangeStart: rangeStart,
+      rangeEnd: rangeEnd,
+      frameDuration: frameDuration,
+      playing: playbackRequest,
+      rate: _shuttleRate,
+      renderMicros: _previewRenderMicros,
+    );
+    final width = previewRenderWidth;
+    // Same document, same time, same size: the composite would be pixel-for-
+    // pixel what is already queued or on screen.
+    final key = (revision, requested.micros, width);
+    if (key == _lastRequestKey) return;
+    _lastRequestKey = key;
+
+    _framesInFlight++;
     try {
-      final revision = _previewRevision;
-      final playbackRequest = playing;
-      // Render the time at which this frame is expected to reach the screen,
-      // not the time at which expensive decoding began. The moving average
-      // self-corrects for effects/layer complexity and keeps visual cuts in
-      // step with the realtime playhead.
-      final requested = computePreviewRenderTime(
-        playhead: playhead,
-        rangeStart: rangeStart,
-        rangeEnd: rangeEnd,
-        frameDuration: frameDuration,
-        playing: playbackRequest,
-        rate: _shuttleRate,
-        renderMicros: _previewRenderMicros,
-      );
       final activeMedia = <String>{};
       for (final clip in doc.clips) {
         final track = doc.trackById(clip.trackId);
@@ -1044,7 +1140,6 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
         }
         mediaPaths[asset.id] = ProxyService.decodePath(asset);
       }
-      final width = previewRenderWidth;
       var height = (width * doc.settings.height / doc.settings.width).round();
       if (height.isOdd) height += 1;
       final textures = <String, Uint8List>{};
@@ -1092,15 +1187,16 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
         frameDuration: frameDuration,
       );
       if (current) {
-        previewFrame = frame.rgba;
-        previewFrameSize = (frame.width, frame.height);
-        previewFrameTime = frame.time.seconds;
-        notifyListeners();
+        // One targeted repaint of the monitor. Nothing else on screen depends
+        // on the frame, so nothing else is rebuilt.
+        previewImage.value = frame;
       }
     } catch (e) {
+      // Let the same request through again; the failure may be transient.
+      _lastRequestKey = null;
       debugPrint('preview frame failed: $e');
     } finally {
-      _frameBusy = false;
+      _framesInFlight--;
     }
     if (_disposed) return;
     // A move that arrived while this frame was in flight: push the document it
