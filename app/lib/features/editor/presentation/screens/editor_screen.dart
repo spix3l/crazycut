@@ -15,11 +15,14 @@ import '../../../../core/widgets/cc_dialog.dart';
 import '../../../../core/widgets/empty_state.dart';
 import '../../../../core/widgets/primitives.dart';
 import '../../../../models/rational.dart';
+import '../../../../engine/engine.dart' show PlatformHelper;
 import '../../../../state/editor_controller.dart';
+import '../../../../state/project_tools.dart';
 import '../models/editor_models.dart';
 import '../widgets/editor_toolbar.dart';
 import '../widgets/inspector/inspector_panel.dart';
 import '../widgets/media_pool.dart';
+import '../widgets/missing_media_dialog.dart';
 import '../widgets/mixer_panel.dart';
 import '../widgets/monitor_panel.dart';
 import '../widgets/timeline/timeline_panel.dart';
@@ -115,18 +118,71 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   Future<void> _relinkOffline(EditorController c) async {
-    final missing = c.offlineAssets;
-    if (missing.isEmpty) return;
-    final files = await openFiles(acceptedTypeGroups: _mediaTypes);
-    if (files.isEmpty) return;
-    // IMP-16: match by name, then by size, before giving up.
-    for (final asset in missing) {
-      final match = files.firstWhere(
-        (f) => f.path.split(Platform.pathSeparator).last == asset.name,
-        orElse: () => files.first,
+    if (c.offlineAssets.isEmpty) return;
+    // IMP-15/16: the panel matches by content hash first, then by name, and
+    // never repoints a clip at a file the user did not confirm.
+    await showMissingMediaDialog(context, c);
+  }
+
+  /// PRJ-14: copy referenced media beside the project, with the size shown up
+  /// front so a 40 GB copy is never a surprise.
+  Future<void> _collectMedia(EditorController c) async {
+    final projectPath = c.path;
+    final plan = ProjectTools.planCollect(c.doc, projectPath);
+    if (!mounted) return;
+    if (plan.isEmpty) {
+      await confirmAction(
+        context,
+        title: 'Collect media',
+        message: plan.missing.isEmpty
+            ? 'Every asset already lives in this project folder.'
+            : '${plan.missing.length} asset(s) are offline and cannot be '
+                'collected. Relink them first.',
+        confirmLabel: 'OK',
       );
-      await c.relinkAsset(asset.id, match.path);
+      return;
     }
+    final go = await confirmAction(
+      context,
+      title: 'Collect media to project folder',
+      message: 'Copy ${plan.assets.length} file(s) — ${plan.sizeLabel} — into '
+          '${ProjectTools.mediaFolder(projectPath).path} and repoint the '
+          'project at the copies?',
+      confirmLabel: 'Collect',
+    );
+    if (!go) return;
+    final result = await ProjectTools.collect(c.doc, projectPath);
+    c.markDirty();
+    await c.saveNow();
+    if (!mounted) return;
+    await confirmAction(
+      context,
+      title: 'Collect media',
+      message: result.error != null
+          ? 'Copied ${result.copied} file(s), then stopped: ${result.error}'
+          : 'Copied ${result.copied} file(s). '
+              '${result.skipped} were already in the project folder.',
+      confirmLabel: 'OK',
+    );
+  }
+
+  /// A support bundle next to the project (M4 diagnostics).
+  Future<void> _writeDiagnostics(EditorController c) async {
+    final file = await ProjectTools.writeDiagnostics(
+      doc: c.doc,
+      projectPath: c.path,
+      engineLib: PlatformHelper.engineLibCandidates().firstWhere(
+        (candidate) => File(candidate).existsSync(),
+        orElse: () => 'not found',
+      ),
+    );
+    if (!mounted) return;
+    await confirmAction(
+      context,
+      title: 'Diagnostics saved',
+      message: file.path,
+      confirmLabel: 'OK',
+    );
   }
 
   // --- Keyboard (04-ui-ux §7) ----------------------------------------------
@@ -275,6 +331,8 @@ class _EditorScreenState extends State<EditorScreen> {
                       onRelink: () => _relinkOffline(c),
                       mixerOpen: _mixer,
                       onToggleMixer: () => setState(() => _mixer = !_mixer),
+                      onCollectMedia: () => _collectMedia(c),
+                      onDiagnostics: () => _writeDiagnostics(c),
                     ),
                     Expanded(
                       flex: 560,

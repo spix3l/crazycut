@@ -1,9 +1,12 @@
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../../core/design/tokens.dart';
 import '../../../../core/widgets/primitives.dart';
 import '../../../../data/autosave.dart';
+import '../../../../state/export_service.dart';
 
 /// Top chrome of the editor: navigation + history, the tool picker centred on
 /// the window, and the save-state / export cluster.
@@ -27,6 +30,8 @@ class EditorToolbar extends StatelessWidget {
     this.onRelink,
     this.mixerOpen = false,
     this.onToggleMixer,
+    this.onCollectMedia,
+    this.onDiagnostics,
   });
 
   static const _tools = [
@@ -54,6 +59,8 @@ class EditorToolbar extends StatelessWidget {
   final VoidCallback? onRelink;
   final bool mixerOpen;
   final VoidCallback? onToggleMixer;
+  final VoidCallback? onCollectMedia;
+  final VoidCallback? onDiagnostics;
 
   String get _saveLabel => switch (saveState) {
         SaveState.saved => 'Saved',
@@ -117,11 +124,33 @@ class EditorToolbar extends StatelessWidget {
                   const SizedBox(width: 14),
                   const CcDivider(),
                   const SizedBox(width: 14),
-                  CcTappable(
-                    onTap: onRename,
-                    child: Text(
-                      projectName,
-                      style: CcType.style(size: 12, weight: CcType.medium),
+                  Builder(
+                    builder: (context) => CcTappable(
+                      // The project name doubles as the project menu: rename,
+                      // collect media (PRJ-14) and diagnostics live here
+                      // because there is no menu bar in this shell.
+                      onTap: () => showCcMenuBelow(context, [
+                        CcMenuItem('Rename project…',
+                            icon: LucideIcons.pencil, onTap: onRename),
+                        CcMenuItem('Collect media to project folder…',
+                            icon: LucideIcons.folderInput,
+                            separatorBefore: true,
+                            onTap: onCollectMedia),
+                        CcMenuItem('Save diagnostics…',
+                            icon: LucideIcons.lifeBuoy, onTap: onDiagnostics),
+                      ]),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            projectName,
+                            style: CcType.style(size: 12, weight: CcType.medium),
+                          ),
+                          const SizedBox(width: 4),
+                          const CcIcon(LucideIcons.chevronDown,
+                              size: 12, color: CcColors.textTertiary),
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -206,13 +235,7 @@ class EditorToolbar extends StatelessWidget {
                 const SizedBox(width: 11),
                 const CcDivider(),
                 const SizedBox(width: 11),
-                CcButton(
-                  label: 'Export',
-                  icon: LucideIcons.upload,
-                  height: 32,
-                  radius: CcRadius.sm,
-                  onPressed: onExport,
-                ),
+                _ExportButton(onPressed: onExport),
               ],
             ),
           ),
@@ -220,4 +243,118 @@ class EditorToolbar extends StatelessWidget {
       ),
     );
   }
+}
+
+
+/// Export button with the queue's progress ring (EXP-9): while jobs run it
+/// shows how far along they are without opening the panel.
+class _ExportButton extends StatefulWidget {
+  const _ExportButton({this.onPressed});
+
+  final VoidCallback? onPressed;
+
+  @override
+  State<_ExportButton> createState() => _ExportButtonState();
+}
+
+class _ExportButtonState extends State<_ExportButton> {
+  final ExportService _service = ExportService.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _service.addListener(_onChanged);
+  }
+
+  @override
+  void dispose() {
+    _service.removeListener(_onChanged);
+    super.dispose();
+  }
+
+  void _onChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final active = _service.activeCount;
+    if (active == 0) {
+      return CcButton(
+        label: 'Export',
+        icon: LucideIcons.upload,
+        height: 32,
+        radius: CcRadius.sm,
+        onPressed: widget.onPressed,
+      );
+    }
+    final running = _service.jobs
+        .where((j) => j.state == ExportState.running)
+        .toList();
+    final progress = running.isEmpty
+        ? 0.0
+        : running.map((j) => j.progress).reduce((a, b) => a + b) / running.length;
+    return CcTooltip(
+      message: '$active export${active == 1 ? '' : 's'} in the queue',
+      child: CcTappable(
+        onTap: widget.onPressed,
+        child: Container(
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: CcColors.accent,
+            borderRadius: BorderRadius.circular(CcRadius.sm),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CustomPaint(
+                  painter: _RingPainter(progress: progress),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${(progress * 100).round()}%',
+                style: CcType.style(
+                  size: 13,
+                  weight: CcType.semibold,
+                  color: CcColors.onAccent,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RingPainter extends CustomPainter {
+  const _RingPainter({required this.progress});
+
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final track = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = CcColors.onAccent.withValues(alpha: 0.3);
+    final arc = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round
+      ..color = CcColors.onAccent;
+    canvas.drawArc(rect.deflate(1), 0, math.pi * 2, false, track);
+    canvas.drawArc(rect.deflate(1), -math.pi / 2,
+        math.pi * 2 * progress.clamp(0, 1), false, arc);
+  }
+
+  @override
+  bool shouldRepaint(_RingPainter oldDelegate) =>
+      oldDelegate.progress != progress;
 }

@@ -6,7 +6,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Release)
+  set(CMAKE_BUILD_TYPE RelWithDebInfo)
+endif()
+
+# The compositor and mixer are per-pixel/per-sample CPU loops. An unoptimized
+# build renders preview frames roughly ten times slower, which reads as "the
+# app is broken" rather than "the engine was built for debugging".
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  message(WARNING
+    "CMAKE_BUILD_TYPE=Debug: preview and export will be ~10x slower. "
+    "Use -DCMAKE_BUILD_TYPE=RelWithDebInfo unless you are stepping through "
+    "the engine in a debugger.")
 endif()
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)

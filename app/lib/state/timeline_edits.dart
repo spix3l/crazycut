@@ -1379,7 +1379,8 @@ mixin TimelineEdits on ChangeNotifier {
     }
     tx.clip(clip.id);
     final right = clip.cloneWithNewId(start: t, linkedGroup: clip.linkedGroup);
-    right.sourceIn = clip.sourceIn.plus(head);
+    // The head consumes head × speed of source, not head of source.
+    right.sourceIn = clip.sourceIn.plus(head.toSourceTime(clip.speedValue));
     right.duration = clip.duration.minus(head);
     clip.duration = head;
     doc.clips.add(right);
@@ -1522,8 +1523,10 @@ mixin TimelineEdits on ChangeNotifier {
                   ? null
                   : groups.putIfAbsent(source.linkedGroup!, generateId),
         );
-        doc.clips.add(clone);
+        // The id must be touched before the clip exists: a null "before"
+        // snapshot is what tells undo to delete it rather than restore it.
         tx.clip(clone.id);
+        doc.clips.add(clone);
         _pushAside(tx, clone);
         created.add(clone.id);
       }
@@ -1601,8 +1604,10 @@ mixin TimelineEdits on ChangeNotifier {
                   ? null
                   : groups.putIfAbsent(clip.linkedGroup!, generateId),
         );
-        doc.clips.add(clone);
+        // The id must be touched before the clip exists: a null "before"
+        // snapshot is what tells undo to delete it rather than restore it.
         tx.clip(clone.id);
+        doc.clips.add(clone);
         _pushAside(tx, clone);
         created.add(clone.id);
       }
@@ -2802,8 +2807,14 @@ mixin TimelineEdits on ChangeNotifier {
   }) {
     final asset = doc.assetById(assetId);
     if (asset == null) return const [];
+    var requested = trackById(trackId);
+    // AUD-7: audio-only media dropped on the video area lands on an audio
+    // track instead of refusing the drop.
+    if (asset.type == 'audio' && (requested?.isVideo ?? false)) {
+      requested = doc.audioTrack();
+    }
     final videoTarget =
-        trackById(trackId) ??
+        requested ??
         (asset.type == 'audio' ? doc.audioTrack() : doc.videoTrack());
     if (videoTarget == null || videoTarget.lock) return const [];
     final duration = asset.duration.isZero ? Rt.fromSeconds(5) : asset.duration;
@@ -2846,8 +2857,8 @@ mixin TimelineEdits on ChangeNotifier {
           case DropMode.append:
             break;
         }
+        tx.clip(clip.id);  // null "before" so undo deletes it
         doc.clips.add(clip);
-        tx.clip(clip.id);
         created.add(clip.id);
         return clip;
       }

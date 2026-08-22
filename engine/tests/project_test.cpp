@@ -87,3 +87,25 @@ TEST(Project, AllowsVideoOverlapOnlyWhenTransitionMatchesExactly) {
     EXPECT_NE(issue.code, "invalid_transition");
   }
 }
+
+// Regression: a split at the playhead leaves both halves on the microsecond
+// grid. Their times used to overflow a 32-bit denominator, so validation
+// decided the right-hand half ran past the end of its media and dropped it
+// from the render graph — the clip went black and silent.
+TEST(Project, KeepsClipsSplitOnTheMicrosecondGrid) {
+  auto project = minimalProject();
+  project["clips"][0]["duration"] = "2733333/1000000";
+  project["clips"].push_back({{"id", "c2"},
+                              {"trackId", "v1"},
+                              {"mediaId", "m1"},
+                              {"start", "2733333/1000000"},
+                              {"duration", "2266667/1000000"},
+                              {"sourceIn", "2733333/1000000"},
+                              {"speed", {{"num", 1}, {"den", 1}}},
+                              {"effects", nlohmann::json::array()}});
+  cc::ProjectSnapshot snapshot;
+  ASSERT_EQ(snapshot.load(project.dump(), true), cc::Error::None);
+  EXPECT_EQ(snapshot.clipCount(), 2u);
+  EXPECT_TRUE(snapshot.issues().empty());
+  EXPECT_EQ(snapshot.duration(), (cc::RationalTime{5, 1}));
+}

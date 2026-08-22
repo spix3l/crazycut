@@ -1,22 +1,28 @@
+import 'dart:io';
+
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../../core/design/tokens.dart';
 import '../../../../core/widgets/empty_state.dart';
 import '../../../../core/widgets/primitives.dart';
-import '../models/export_job.dart';
+import '../../../../state/export_service.dart';
 
-/// Right-hand slide-over listing queued, running and finished exports.
+/// Right-hand slide-over listing queued, running and finished exports
+/// (EXP-9/11). It is a live view of [ExportService]: the queue keeps running
+/// whether or not this panel is on screen.
 class ExportQueuePanel extends StatelessWidget {
-  const ExportQueuePanel({super.key, required this.jobs, this.onClose});
+  const ExportQueuePanel({super.key, required this.service, this.onClose});
 
   static const double width = 300;
 
-  final List<ExportJob> jobs;
+  final ExportService service;
   final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
+    final jobs = service.jobs.reversed.toList();
     return Container(
       width: width,
       decoration: const BoxDecoration(
@@ -35,6 +41,18 @@ class ExportQueuePanel extends StatelessWidget {
               children: [
                 Text('Export queue', style: CcType.panelTitle),
                 const Spacer(),
+                if (jobs.any((j) =>
+                    j.state == ExportState.completed ||
+                    j.state == ExportState.failed ||
+                    j.state == ExportState.cancelled))
+                  CcTooltip(
+                    message: 'Clear finished',
+                    child: CcTappable(
+                      onTap: service.clearFinished,
+                      child: const CcIcon(LucideIcons.eraser, size: 14),
+                    ),
+                  ),
+                const SizedBox(width: 12),
                 CcTappable(
                   onTap: onClose,
                   child: const CcIcon(LucideIcons.x, size: 16),
@@ -60,7 +78,8 @@ class ExportQueuePanel extends StatelessWidget {
                     padding: const EdgeInsets.all(16),
                     itemCount: jobs.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 12),
-                    itemBuilder: (context, i) => ExportJobCard(job: jobs[i]),
+                    itemBuilder: (context, i) =>
+                        ExportJobCard(job: jobs[i], service: service),
                   ),
           ),
         ],
@@ -69,21 +88,27 @@ class ExportQueuePanel extends StatelessWidget {
   }
 }
 
-/// Job row: name, state icon, progress bar and a status line.
+/// Job row: name, state, progress and the actions for that state (EXP-11).
 class ExportJobCard extends StatelessWidget {
-  const ExportJobCard({super.key, required this.job});
+  const ExportJobCard({super.key, required this.job, required this.service});
 
   final ExportJob job;
+  final ExportService service;
 
   @override
   Widget build(BuildContext context) {
     final (icon, iconColor) = switch (job.state) {
-      ExportJobState.encoding => (LucideIcons.loaderCircle, CcColors.accent),
-      ExportJobState.queued => (LucideIcons.clock3, CcColors.textTertiary),
-      ExportJobState.completed => (LucideIcons.circleCheck, CcColors.success),
+      ExportState.running => (LucideIcons.loaderCircle, CcColors.accent),
+      ExportState.queued => (LucideIcons.clock3, CcColors.textTertiary),
+      ExportState.completed => (LucideIcons.circleCheck, CcColors.success),
+      ExportState.failed => (LucideIcons.circleAlert, CcColors.error),
+      ExportState.cancelled => (LucideIcons.circleSlash, CcColors.textTertiary),
     };
-    final barColor =
-        job.state == ExportJobState.completed ? CcColors.success : CcColors.accent;
+    final barColor = switch (job.state) {
+      ExportState.completed => CcColors.success,
+      ExportState.failed => CcColors.error,
+      _ => CcColors.accent,
+    };
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -99,7 +124,7 @@ class ExportJobCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  job.filename,
+                  job.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: CcType.style(size: 12, weight: CcType.semibold),
@@ -116,7 +141,8 @@ class ExportJobCard extends StatelessWidget {
               height: 4,
               child: Stack(
                 children: [
-                  const Positioned.fill(child: ColoredBox(color: CcColors.elevated2)),
+                  const Positioned.fill(
+                      child: ColoredBox(color: CcColors.elevated2)),
                   FractionallySizedBox(
                     widthFactor: job.progress.clamp(0, 1),
                     child: ColoredBox(color: barColor),
@@ -126,9 +152,87 @@ class ExportJobCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(job.status, style: CcType.micro),
+          Text(job.statusLine, style: CcType.micro),
+          const SizedBox(height: 8),
+          _Actions(job: job, service: service),
         ],
       ),
     );
+  }
+}
+
+class _Actions extends StatelessWidget {
+  const _Actions({required this.job, required this.service});
+
+  final ExportJob job;
+  final ExportService service;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget action(String label, IconData icon, VoidCallback onTap) => CcTappable(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CcIcon(icon, size: 12, color: CcColors.textSecondary),
+                const SizedBox(width: 4),
+                Text(label,
+                    style: CcType.style(size: 11, color: CcColors.textSecondary)),
+              ],
+            ),
+          ),
+        );
+
+    return switch (job.state) {
+      ExportState.queued || ExportState.running => Row(
+          children: [
+            action('Cancel', LucideIcons.x, () => service.cancel(job.id)),
+          ],
+        ),
+      ExportState.completed => Row(
+          children: [
+            action('Reveal', LucideIcons.folderOpen, () => _reveal(job.outputPath)),
+            const SizedBox(width: 6),
+            action('Open', LucideIcons.play, () => _open(job.outputPath)),
+            const SizedBox(width: 6),
+            action('Copy path', LucideIcons.copy,
+                () => Clipboard.setData(ClipboardData(text: job.outputPath))),
+          ],
+        ),
+      ExportState.failed => Row(
+          children: [
+            action(
+              'Copy diagnostics',
+              LucideIcons.clipboardList,
+              () => Clipboard.setData(
+                ClipboardData(text: service.diagnosticsFor(job)),
+              ),
+            ),
+          ],
+        ),
+      ExportState.cancelled => const SizedBox.shrink(),
+    };
+  }
+
+  static void _reveal(String path) {
+    if (Platform.isMacOS) {
+      Process.run('open', ['-R', path]);
+    } else if (Platform.isWindows) {
+      Process.run('explorer', ['/select,', path]);
+    } else {
+      Process.run('xdg-open', [File(path).parent.path]);
+    }
+  }
+
+  static void _open(String path) {
+    if (Platform.isMacOS) {
+      Process.run('open', [path]);
+    } else if (Platform.isWindows) {
+      Process.run('cmd', ['/c', 'start', '', path]);
+    } else {
+      Process.run('xdg-open', [path]);
+    }
   }
 }

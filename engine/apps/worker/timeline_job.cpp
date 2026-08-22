@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -45,6 +46,7 @@ struct VideoSettings {
   bool enabled = true;
   int maxWidth = 0;
   int maxHeight = 0;
+  bool hardware = false;  // EXP-6, opt-in per job
 };
 
 struct AudioSettings {
@@ -212,6 +214,9 @@ int runTimelineJob(const json& spec) {
     }
   }
   const std::string output = spec.at("output").get<std::string>();
+  // EXP-13: encode into a sibling .part and rename on success, so a killed or
+  // failed job never leaves something that looks like a finished export.
+  const std::string partPath = output + ".part";
 
   VideoSettings vs;
   if (spec.contains("video")) {
@@ -222,6 +227,7 @@ int runTimelineJob(const json& spec) {
     if (v.contains("preset")) vs.preset = v["preset"].get<std::string>();
     if (v.contains("maxWidth")) vs.maxWidth = v["maxWidth"].get<int>();
     if (v.contains("maxHeight")) vs.maxHeight = v["maxHeight"].get<int>();
+    if (v.contains("hardware")) vs.hardware = v["hardware"].get<bool>();
   }
   std::optional<AudioSettings> as{AudioSettings{}};
   if (spec.contains("audio")) {
@@ -239,6 +245,9 @@ int runTimelineJob(const json& spec) {
     }
   }
   const bool faststart = spec.value("faststart", true);
+  // EXP-1: entire sequence, or the in/out range when the caller sets one.
+  const double rangeStartSec = std::max(0.0, spec.value("startSec", 0.0));
+  const double rangeEndSec = spec.value("endSec", 0.0);
 
   ProjectSnapshot snapshot;
   const Error loadErr =
@@ -248,13 +257,27 @@ int runTimelineJob(const json& spec) {
                              std::string(lastError()));
   }
 
-  // Sequence geometry.
-  int width = document["settings"].value("width", 1920);
-  int height = document["settings"].value("height", 1080);
+  // Sequence geometry. Presets may cap the output size (EXP-3); the frame is
+  // still composited at sequence resolution and scaled once on the way to the
+  // encoder, so a downscale never changes the composition.
+  const int seqWidth = document["settings"].value("width", 1920);
+  const int seqHeight = document["settings"].value("height", 1080);
+  int width = seqWidth;
+  int height = seqHeight;
+  if (vs.maxWidth > 0 || vs.maxHeight > 0) {
+    const double limitW = vs.maxWidth > 0 ? vs.maxWidth : width;
+    const double limitH = vs.maxHeight > 0 ? vs.maxHeight : height;
+    const double scale = std::min({1.0, limitW / width, limitH / height});
+    width = static_cast<int>(std::lround(width * scale));
+    height = static_cast<int>(std::lround(height * scale));
+  }
   fitEven(&width, &height);
+  int renderWidth = seqWidth;
+  int renderHeight = seqHeight;
+  fitEven(&renderWidth, &renderHeight);
   const auto fpsRt = parseJsonTime(document["settings"]["fps"]);
   if (!fpsRt || fpsRt->num <= 0) throw std::runtime_error("invalid fps");
-  AVRational fps{static_cast<int>(fpsRt->num), fpsRt->den};
+  AVRational fps{static_cast<int>(fpsRt->num), static_cast<int>(fpsRt->den)};
   const RationalTime seqDuration = snapshot.duration();
 
   emit(json{{"type", "started"},
@@ -266,6 +289,8 @@ int runTimelineJob(const json& spec) {
 
   // --- Output context -------------------------------------------------------
   AVFormatContext* outFmt = nullptr;
+  // The container is chosen from the real filename, but the muxer must know it
+  // is writing the .part file: faststart reopens `url` to move the moov atom.
   if (avformat_alloc_output_context2(&outFmt, nullptr, nullptr, output.c_str()) < 0) {
     throw std::runtime_error("cannot create output context");
   }
@@ -292,25 +317,70 @@ int runTimelineJob(const json& spec) {
     if (outFmt) avformat_free_context(outFmt);
   };
 
+  // Anything left behind by a failed run is removed by the caller of cleanup
+  // on the error path (see the catch below).
+
   try {
     // --- Video encoder ------------------------------------------------------
     if (vs.enabled) {
-      const std::string name = vs.codec == "h265" || vs.codec == "hevc" ? "libx265"
-                                                                        : "libx264";
-      const AVCodec* codec = avcodec_find_encoder_by_name(name.c_str());
-      if (!codec) throw std::runtime_error("encoder not found: " + name);
+      // EXP-5/6: software x264/x265/ProRes by default; hardware encoders are
+      // opt-in per job and fall back to software when unavailable rather than
+      // failing the export.
+      std::vector<std::string> candidates;
+      const bool hevc = vs.codec == "h265" || vs.codec == "hevc";
+      if (vs.codec == "prores") {
+        candidates = {"prores_ks", "prores"};
+      } else if (vs.hardware) {
+        candidates = hevc
+            ? std::vector<std::string>{"hevc_videotoolbox", "hevc_nvenc",
+                                       "hevc_qsv", "hevc_amf", "libx265"}
+            : std::vector<std::string>{"h264_videotoolbox", "h264_nvenc",
+                                       "h264_qsv", "h264_amf", "libx264"};
+      } else {
+        candidates = {hevc ? "libx265" : "libx264"};
+      }
+      const AVCodec* codec = nullptr;
+      std::string name;
+      for (const auto& candidate : candidates) {
+        codec = avcodec_find_encoder_by_name(candidate.c_str());
+        if (codec) {
+          name = candidate;
+          break;
+        }
+      }
+      if (!codec) {
+        throw std::runtime_error("encoder not found: " + candidates.front());
+      }
+      emit(json{{"type", "encoder"}, {"video", name}});
       vEnc = avcodec_alloc_context3(codec);
       vEnc->width = width;
       vEnc->height = height;
       vEnc->pix_fmt = AV_PIX_FMT_YUV420P;
+      vEnc->color_range = AVCOL_RANGE_MPEG;
       vEnc->time_base = av_inv_q(fps);
       vEnc->framerate = fps;
       vEnc->gop_size = std::max(12, static_cast<int>(av_q2d(fps) * 2.0));
       vEnc->max_b_frames = 2;
-      char crfStr[16];
-      snprintf(crfStr, sizeof(crfStr), "%d", vs.crf);
-      av_opt_set(vEnc->priv_data, "crf", crfStr, 0);
-      av_opt_set(vEnc->priv_data, "preset", vs.preset.c_str(), 0);
+      if (name == "libx264" || name == "libx265") {
+        char crfStr[16];
+        snprintf(crfStr, sizeof(crfStr), "%d", vs.crf);
+        av_opt_set(vEnc->priv_data, "crf", crfStr, 0);
+        av_opt_set(vEnc->priv_data, "preset", vs.preset.c_str(), 0);
+      } else if (name.rfind("prores", 0) == 0) {
+        vEnc->pix_fmt = AV_PIX_FMT_YUV422P10LE;
+        av_opt_set_int(vEnc->priv_data, "profile", 2, 0);  // 422 Standard
+      } else {
+        // Hardware encoders reorder frames on their own schedule, and the
+        // resulting DTS confuses the mp4 muxer here; delivery does not need
+        // B-frames badly enough to fight it.
+        vEnc->max_b_frames = 0;
+        av_opt_set_int(vEnc->priv_data, "allow_frame_reordering", 0, 0);
+        // They take a bitrate, not a CRF. Map the quality knob onto a
+        // bits-per-pixel budget so the slider still means something.
+        const double bpp = vs.crf <= 18 ? 0.20 : vs.crf <= 20 ? 0.14
+                          : vs.crf <= 23 ? 0.10 : 0.06;
+        vEnc->bit_rate = static_cast<int64_t>(width * height * av_q2d(fps) * bpp);
+      }
       if (outFmt->oformat->flags & AV_CODEC_FLAG_GLOBAL_HEADER)
         vEnc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
       if (avcodec_open2(vEnc, codec, nullptr) < 0)
@@ -327,9 +397,11 @@ int runTimelineJob(const json& spec) {
       if (av_frame_get_buffer(vFrame, 32) < 0)
         throw std::runtime_error("video frame buffer alloc failed");
 
-      toYuv = sws_getContext(width, height, AV_PIX_FMT_RGBA, width, height,
-                             AV_PIX_FMT_YUV420P, SWS_BILINEAR, nullptr, nullptr,
-                             nullptr);
+      // One scale, from composited sequence size to the delivered size.
+      toYuv = sws_getContext(renderWidth, renderHeight, AV_PIX_FMT_RGBA, width,
+                             height, static_cast<AVPixelFormat>(vEnc->pix_fmt),
+                             renderWidth == width ? SWS_BILINEAR : SWS_BICUBIC,
+                             nullptr, nullptr, nullptr);
       if (!toYuv) throw std::runtime_error("rgba→yuv scaler init failed");
     }
 
@@ -339,7 +411,10 @@ int runTimelineJob(const json& spec) {
     AudioBuffer mix;
     if (as.has_value()) {
       const Error mixErr =
-          mixTimeline(document, media, 0.0, seqDuration.toSeconds(),
+          mixTimeline(document, media, rangeStartSec,
+                      (rangeEndSec > rangeStartSec ? rangeEndSec
+                                                   : seqDuration.toSeconds()) -
+                          rangeStartSec,
                       static_cast<int>(kMixRate), masterFromDocument(document),
                       &mix);
       if (mixErr != Error::None) throw std::runtime_error("audio mix failed");
@@ -368,15 +443,19 @@ int runTimelineJob(const json& spec) {
 
     // --- Audio encoder ------------------------------------------------------
     if (as.has_value()) {
-      const AVCodec* codec = avcodec_find_encoder_by_name(as->codec.c_str());
-      if (!codec) throw std::runtime_error("audio encoder not found: " + as->codec);
+      // "pcm" in a preset means 24-bit PCM for the ProRes master (EXP-5).
+      const std::string audioCodec =
+          as->codec == "pcm" ? "pcm_s24le" : as->codec;
+      const AVCodec* codec = avcodec_find_encoder_by_name(audioCodec.c_str());
+      if (!codec) throw std::runtime_error("audio encoder not found: " + audioCodec);
       aEnc = avcodec_alloc_context3(codec);
       aEnc->sample_rate = static_cast<int>(kMixRate);
       AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
       av_channel_layout_copy(&aEnc->ch_layout, &stereo);
       aEnc->sample_fmt = codec->sample_fmts ? codec->sample_fmts[0]
                                             : AV_SAMPLE_FMT_FLTP;
-      aEnc->bit_rate = as->bitrate;
+      // PCM is uncompressed; a bitrate request would be meaningless.
+      if (audioCodec.rfind("pcm", 0) != 0) aEnc->bit_rate = as->bitrate;
       if (outFmt->oformat->flags & AV_CODEC_FLAG_GLOBAL_HEADER)
         aEnc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
       if (avcodec_open2(aEnc, codec, nullptr) < 0)
@@ -396,7 +475,9 @@ int runTimelineJob(const json& spec) {
     }
 
     if (!(outFmt->oformat->flags & AVFMT_NOFILE)) {
-      if (avio_open(&outFmt->pb, output.c_str(), AVIO_FLAG_WRITE) < 0)
+      av_freep(&outFmt->url);
+      outFmt->url = av_strdup(partPath.c_str());
+      if (avio_open(&outFmt->pb, partPath.c_str(), AVIO_FLAG_WRITE) < 0)
         throw std::runtime_error("cannot open output for writing");
     }
     AVDictionary* opts = nullptr;
@@ -413,8 +494,11 @@ int runTimelineJob(const json& spec) {
         throw std::runtime_error("mux write failed");
     };
 
-    const int64_t totalFrames =
-        static_cast<int64_t>(seqDuration.toSeconds() * av_q2d(fps) + 0.5);
+    const double exportStart = rangeStartSec;
+    const double exportEnd = rangeEndSec > exportStart ? rangeEndSec
+                                                       : seqDuration.toSeconds();
+    const int64_t totalFrames = static_cast<int64_t>(
+        std::max(0.0, exportEnd - exportStart) * av_q2d(fps) + 0.5);
     RgbaSurface canvas;
     int64_t encoded = 0;
 
@@ -463,10 +547,12 @@ int runTimelineJob(const json& spec) {
 
     auto encodeQueuedAudio = [&](bool drain) {
       AVPacket* pkt = av_packet_alloc();
-      while (drain || av_audio_fifo_size(fifo) >= aEnc->frame_size) {
+      // PCM encoders accept any frame length and report frame_size 0.
+      const int chunk = aEnc->frame_size > 0 ? aEnc->frame_size : 1024;
+      while (drain || av_audio_fifo_size(fifo) >= chunk) {
         const int read = av_audio_fifo_read(fifo,
                                             reinterpret_cast<void**>(aFrame->data),
-                                            aEnc->frame_size);
+                                            chunk);
         if (read <= 0) break;
         aFrame->nb_samples = read;
         aFrame->pts = samplesWritten;
@@ -479,7 +565,7 @@ int runTimelineJob(const json& spec) {
           writePacket(pkt, aEnc, aOut);
           av_packet_unref(pkt);
         }
-        if (av_audio_fifo_size(fifo) < aEnc->frame_size && !drain) break;
+        if (av_audio_fifo_size(fifo) < chunk && !drain) break;
       }
       av_packet_free(&pkt);
     };
@@ -492,9 +578,9 @@ int runTimelineJob(const json& spec) {
     // --- Frame loop ---------------------------------------------------------
     for (int64_t f = 0; f < totalFrames; ++f) {
       const RationalTime t = RationalTime::fromSeconds(
-          static_cast<double>(f) / av_q2d(fps));
-      const Error err = renderFrame(document, t.normalized(), width, height, media,
-                                    &canvas);
+          exportStart + static_cast<double>(f) / av_q2d(fps));
+      const Error err = renderFrame(document, t.normalized(), renderWidth,
+                                    renderHeight, media, &canvas);
       if (err != Error::None) throw std::runtime_error("renderFrame failed");
 
       if (vEnc) {
@@ -502,7 +588,7 @@ int runTimelineJob(const json& spec) {
           throw std::runtime_error("frame not writable");
         const uint8_t* srcData[4] = {canvas.rgba.data(), nullptr, nullptr, nullptr};
         const int srcStride[4] = {canvas.width * 4, 0, 0, 0};
-        sws_scale(toYuv, srcData, srcStride, 0, height, vFrame->data,
+        sws_scale(toYuv, srcData, srcStride, 0, renderHeight, vFrame->data,
                   vFrame->linesize);
         vFrame->pts = f;
         if (avcodec_send_frame(vEnc, vFrame) < 0)
@@ -550,6 +636,13 @@ int runTimelineJob(const json& spec) {
     }
 
     av_write_trailer(outFmt);
+    // Close the file before renaming so the trailer is on disk.
+    if (outFmt && !(outFmt->oformat->flags & AVFMT_NOFILE)) avio_closep(&outFmt->pb);
+    std::error_code renameError;
+    std::filesystem::rename(partPath, output, renameError);
+    if (renameError) {
+      throw std::runtime_error("cannot finalize output: " + renameError.message());
+    }
     lastJobBytesValue = 0;
     FILE* fh = fopen(output.c_str(), "rb");
     if (fh) {
@@ -564,6 +657,8 @@ int runTimelineJob(const json& spec) {
     return 0;
   } catch (...) {
     cleanup();
+    std::error_code ignored;
+    std::filesystem::remove(partPath, ignored);  // no partial survives a failure
     throw;
   }
 }

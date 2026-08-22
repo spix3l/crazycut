@@ -87,7 +87,7 @@ void main() {
   });
 
   testWidgets('CcMenu stays clear of viewport edges', (tester) async {
-    final trigger = GlobalKey();
+    const host = Key('menu-host');
     await tester.pumpWidget(
       WidgetsApp(
         color: CcColors.bg,
@@ -96,30 +96,21 @@ void main() {
               settings: settings,
               pageBuilder: (context, _, _) => builder(context),
             ),
-        home: Align(
-          alignment: Alignment.bottomLeft,
-          child: Builder(
-            builder: (context) => GestureDetector(
-              key: trigger,
-              onTap: () => showCcMenu(
-                context,
-                const Offset(0, 600),
-                const [
-                  CcMenuItem('Rename'),
-                  CcMenuItem('Cycle height'),
-                  CcMenuItem('Move up'),
-                  CcMenuItem('Move down'),
-                ],
-              ),
-              child: const SizedBox(width: 24, height: 24),
-            ),
-          ),
-        ),
+        home: const SizedBox(key: host),
       ),
     );
 
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(trigger));
+    showCcMenu(
+      tester.element(find.byKey(host)),
+      const Offset(0, 600),
+      const [
+        CcMenuItem('Rename'),
+        CcMenuItem('Cycle height'),
+        CcMenuItem('Move up'),
+        CcMenuItem('Move down'),
+      ],
+    );
     await tester.pump();
 
     final menuRect = tester.getRect(find.byType(CcMenu));

@@ -80,6 +80,19 @@ void main() {
       expect(right.sourceIn, s(4));
     });
 
+    test('a split on a speed-changed clip lands on the right source frame', () {
+      final e = harness();
+      final clip = addClip(e, id: 'a', start: 0, duration: 10, sourceIn: 2);
+      clip.speed = '2/1';  // 10s of timeline consumes 20s of source
+      e.playhead = s(4);
+
+      final created = e.splitAtPlayhead();
+
+      final right = e.clipById(created.first)!;
+      // 4s of timeline at 2× consumed 8s of source, not 4s.
+      expect(right.sourceIn, s(10));
+    });
+
     test('refuses a split that would leave less than one frame', () {
       final e = harness();
       addClip(e, id: 'a', start: 0, duration: 10);
@@ -616,4 +629,15 @@ void main() {
       expect(e.nextEdge(s(9), forward: false), s(8));
     });
   });
+  test('undo of duplicate removes the clone (not restores it)', () {
+    final e = harness();
+    addClip(e, id: 'c1', start: 0, duration: 5);
+    e.selection.add('c1');
+    e.duplicateSelection();
+    expect(e.doc.clips.length, 2);
+    e.undo();
+    expect(e.doc.clips.length, 1);
+    expect(e.clipById('c1'), isNotNull);
+  });
+
 }

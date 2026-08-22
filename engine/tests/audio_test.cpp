@@ -6,7 +6,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <chrono>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -14,6 +16,7 @@
 
 #include "audio/decode.h"
 #include "audio/mixer.h"
+#include "playback/sequence_player.h"
 
 namespace {
 
@@ -355,6 +358,30 @@ TEST_F(AudioMix, MissingAudioStreamMixesSilence) {
                             missing, 0, 2, 48000, master, &mix),
             cc::Error::None);
   EXPECT_LT(cc::peakDb(mix), -100.0);
+}
+
+TEST_F(AudioMix, SequencePlayerRunsAndAdvancesItsClock) {
+  // Monitoring needs an output device; a headless box legitimately has none.
+  if (cc::SequencePlayer::outputDevices().empty()) {
+    GTEST_SKIP() << "no audio output device";
+  }
+  cc::SequencePlayer player;
+  player.setDocument(audioDoc(json::array({audioClip("c", 0, 6)})), paths);
+  ASSERT_EQ(player.start(1.0), cc::Error::None);
+  EXPECT_TRUE(player.running());
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(400));
+  const double position = player.position();
+  player.stop();
+
+  // The clock is driven by samples the device consumed, so it must have moved
+  // forward from where playback started without racing ahead of real time.
+  EXPECT_GT(position, 1.0);
+  EXPECT_LT(position, 1.0 + 1.0);
+
+  float peakL = 0, peakR = 0;
+  player.levels(&peakL, &peakR);
+  EXPECT_GE(peakL, 0.f);
 }
 
 }  // namespace

@@ -191,7 +191,114 @@ class SequenceSettingsTab extends StatelessWidget {
               ],
             ),
           ),
+          const SizedBox(height: 20),
+          const CcSectionHeader('LOUDNESS'),
+          const SizedBox(height: 8),
+          _LoudnessSection(controller: controller),
+          const SizedBox(height: 20),
+          const CcSectionHeader('MONITORING'),
+          const SizedBox(height: 8),
+          _OutputDeviceRow(controller: controller),
         ],
+      ),
+    );
+  }
+}
+
+/// "Analyze sequence loudness" (AUD-12). The number comes from the same mix
+/// the export writes, so it is the number the delivered file will measure.
+class _LoudnessSection extends StatelessWidget {
+  const _LoudnessSection({required this.controller});
+
+  final EditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final report = controller.loudness;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (report != null) ...[
+          InfoRow(
+            'Integrated',
+            Text(
+              '${report.lufs.toStringAsFixed(1)} LUFS',
+              style: CcType.style(size: 12, weight: CcType.medium),
+            ),
+          ),
+          InfoRow(
+            'True peak',
+            Text(
+              '${report.truePeakDb.toStringAsFixed(1)} dBTP',
+              style: CcType.style(
+                size: 12,
+                weight: CcType.medium,
+                color: report.truePeakDb > -1.0
+                    ? CcColors.warning
+                    : CcColors.textPrimary,
+              ),
+            ),
+          ),
+          InfoRow(
+            'vs −14 LUFS',
+            Text(
+              '${report.lufs > -14 ? '+' : ''}'
+              '${(report.lufs + 14).toStringAsFixed(1)} LU',
+              style: CcType.style(size: 12, weight: CcType.medium),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+        CcButton(
+          label: controller.analyzingLoudness
+              ? 'Analyzing…'
+              : report == null
+                  ? 'Analyze loudness'
+                  : 'Re-analyze',
+          kind: CcButtonKind.secondary,
+          height: 30,
+          radius: CcRadius.sm,
+          onPressed: controller.analyzingLoudness
+              ? null
+              : () => controller.analyzeLoudness(),
+        ),
+      ],
+    );
+  }
+}
+
+/// Output device picker (AUD-14). Sample rate is locked at 48 kHz in v1.
+class _OutputDeviceRow extends StatelessWidget {
+  const _OutputDeviceRow({required this.controller});
+
+  final EditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final devices = controller.audioOutputDevices();
+    if (devices.isEmpty) {
+      return Text(
+        'No audio output device found.',
+        style: CcType.style(size: 11, color: CcColors.textTertiary),
+      );
+    }
+    final current = controller.outputDeviceName.isEmpty
+        ? devices.first
+        : controller.outputDeviceName;
+    return Builder(
+      builder: (context) => CcTappable(
+        onTap: () => showCcMenuBelow(
+          context,
+          [
+            for (final device in devices)
+              CcMenuItem(
+                device,
+                checked: device == current,
+                onTap: () => controller.setOutputDevice(device),
+              ),
+          ],
+        ),
+        child: CcDropdown(value: current, height: 28, fontSize: 11),
       ),
     );
   }

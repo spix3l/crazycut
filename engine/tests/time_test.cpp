@@ -57,3 +57,37 @@ TEST(RationalTime, ParseRejectsInvalid) {
   EXPECT_FALSE(cc::parseRationalTime("1/0").has_value());
   EXPECT_FALSE(cc::parseRationalTime("/2").has_value());
 }
+
+// Regression: splitting at the playhead leaves clips on the microsecond grid.
+// A 32-bit denominator overflowed on start+duration, so the renderer decided
+// no clip covered the frame and the second half of every split went black.
+TEST(RationalTime, MicrosecondGridAdditionIsExact) {
+  const auto start = *cc::parseRationalTime("2733333/1000000");
+  const auto duration = *cc::parseRationalTime("7266667/1000000");
+  const RationalTime end = start + duration;
+  EXPECT_EQ(end.num, 10);
+  EXPECT_EQ(end.den, 1);
+  const auto mid = *cc::parseRationalTime("5000000/1000000");
+  EXPECT_TRUE(mid >= start && mid < end);
+}
+
+TEST(RationalTime, SubtractionOnMicrosecondGridIsExact) {
+  const auto time = *cc::parseRationalTime("4500001/1000000");
+  const auto start = *cc::parseRationalTime("2733333/1000000");
+  EXPECT_NEAR((time - start).toSeconds(), 1.766668, 1e-12);
+}
+
+TEST(RationalTime, LargeDenominatorsSurviveParsing) {
+  const auto parsed = cc::parseRationalTime("3000000001/3000000000");
+  ASSERT_TRUE(parsed.has_value());
+  EXPECT_EQ(parsed->den, 3000000000);
+  EXPECT_TRUE(*parsed > (RationalTime{1, 1}));
+}
+
+TEST(RationalTime, MultiplicationAppliesSpeed) {
+  const auto duration = *cc::parseRationalTime("7266667/1000000");
+  const RationalTime doubled = duration * RationalTime{2, 1};
+  EXPECT_NEAR(doubled.toSeconds(), 14.533334, 1e-12);
+  const RationalTime half = duration * RationalTime{1, 2};
+  EXPECT_NEAR(half.toSeconds(), 3.6333335, 1e-12);
+}

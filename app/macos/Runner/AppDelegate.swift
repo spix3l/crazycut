@@ -242,6 +242,12 @@ class AppDelegate: FlutterAppDelegate {
   private var playbackTexture: NativePlaybackTexture?
   private var playbackChannel: FlutterMethodChannel?
 
+  /// Export jobs the Dart side reports as still running (EXP-12). Kept here so
+  /// the quit path can ask before throwing work away.
+  private var systemChannel: FlutterMethodChannel?
+  private var activeExports: [String] = []
+  private var sleepActivity: NSObjectProtocol?
+
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     return true
   }
@@ -253,6 +259,77 @@ class AppDelegate: FlutterAppDelegate {
   override func applicationDidFinishLaunching(_ notification: Notification) {
     super.applicationDidFinishLaunching(notification)
     setupPlaybackChannel()
+    setupSystemChannel()
+  }
+
+  /// EXP-12: quitting mid-export asks first, and cancelling cleans up the
+  /// partial files before the app goes away.
+  override func applicationShouldTerminate(
+    _ sender: NSApplication
+  ) -> NSApplication.TerminateReply {
+    if activeExports.isEmpty { return .terminateNow }
+
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = activeExports.count == 1
+      ? "An export is still running"
+      : "\(activeExports.count) exports are still running"
+    alert.informativeText =
+      activeExports.joined(separator: "\n") + "\n\nQuitting cancels them."
+    alert.addButton(withTitle: "Cancel exports and quit")
+    alert.addButton(withTitle: "Keep exporting")
+
+    if alert.runModal() == .alertFirstButtonReturn {
+      systemChannel?.invokeMethod("cancelExports", arguments: nil)
+      // Give the Dart side a moment to kill the workers and remove partials.
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        NSApp.reply(toApplicationShouldTerminate: true)
+      }
+      return .terminateLater
+    }
+    return .terminateCancel
+  }
+
+  private func setupSystemChannel() {
+    guard let controller = mainFlutterWindow?.contentViewController
+            as? FlutterViewController else { return }
+    let registrar = controller.registrar(forPlugin: "CrazyCutSystem")
+    let channel = FlutterMethodChannel(
+      name: "dev.crazycut/system",
+      binaryMessenger: registrar.messenger)
+    systemChannel = channel
+
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      switch call.method {
+      case "setActiveExports":
+        self.activeExports = (call.arguments as? [String]) ?? []
+        self.updateSleepAssertion()
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  /// Keeps the machine awake while an export runs; a laptop that sleeps
+  /// halfway through a render is a lost render.
+  private func updateSleepAssertion() {
+    if activeExports.isEmpty {
+      if let activity = sleepActivity {
+        ProcessInfo.processInfo.endActivity(activity)
+        sleepActivity = nil
+      }
+      return
+    }
+    if sleepActivity == nil {
+      sleepActivity = ProcessInfo.processInfo.beginActivity(
+        options: [.idleSystemSleepDisabled, .userInitiated],
+        reason: "Exporting video")
+    }
   }
 
   private func setupPlaybackChannel() {

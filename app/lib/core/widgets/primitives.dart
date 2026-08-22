@@ -760,7 +760,9 @@ void showCcMenu(BuildContext context, Offset globalPosition, List<CcMenuItem> it
   const menuWidth = 210.0;
   const edgeMargin = 20.0;
   final separatorHeight = items.where((item) => item.separatorBefore).length * 9.0;
-  final estimatedHeight = items.length * 28.0 + separatorHeight + 10;
+  // Ten pixels of explicit vertical padding plus the one-pixel border on each
+  // edge. Keeping this equal to CcMenu's real height prevents bottom clipping.
+  final estimatedHeight = items.length * 28.0 + separatorHeight + 12;
   final requested = overlayBox.globalToLocal(globalPosition);
   final dx = requested.dx.clamp(edgeMargin, overlayBox.size.width - menuWidth - edgeMargin);
   final dy = requested.dy.clamp(

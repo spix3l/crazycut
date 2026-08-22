@@ -160,7 +160,8 @@ class DocumentEdit implements Command {
         ..height = parsed.height
         ..fps = parsed.fps
         ..audioSampleRate = parsed.audioSampleRate
-        ..background = parsed.background;
+        ..background = parsed.background
+        ..master = parsed.master;
     }
   }
 }

@@ -458,7 +458,7 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  av_log_set_level(AV_LOG_ERROR);
+  av_log_set_level(getenv("CC_WORKER_VERBOSE") ? AV_LOG_DEBUG : AV_LOG_ERROR);
 
   try {
     const json spec = cc::parseJobFile(jobPath);

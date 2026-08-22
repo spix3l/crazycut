@@ -27,3 +27,5 @@ pubspec.lock
 # Fixtures generated locally (large media)
 fixtures/media/*.mp4
 fixtures/out/
+dist/
+engine/build-release/

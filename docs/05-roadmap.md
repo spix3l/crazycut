@@ -38,11 +38,21 @@ The timeline becomes real.
 - Fades/gain/mute/pan, detach/link, mixer panel, normalize, loudness analysis (AUD-1–13).
 - **Exit criteria:** AUD acceptance set passes; mixer metering at 60 fps without audio dropouts.
 
+> **Status (2026-08):** complete. One mixdown (`engine/audio/mixer.cpp`) serves monitoring, analysis and export, so preview loudness equals delivered loudness: per-clip gain/pan/mute, fades with linear/exponential/S-curve shapes, equal-power transition crossfades, track faders with mute/solo, master fader and the always-on safety limiter. Realtime monitoring runs through `SequencePlayer` (miniaudio, mix-ahead ring buffer) and its sample count is the master clock the playhead follows. Loudness is BS.1770-4 integrated LUFS with true-peak estimation, measured within 0.1 LU of ffmpeg's `ebur128` on the tone corpus. UI: dB faders and curve pickers in the inspector, draggable corner fade handles that draw the actual curve, detach/relink with an out-of-sync badge and click-to-sync, peak normalize, a mixer panel with peak-hold metering, and output-device selection. 11 golden-audio engine tests + 18 Dart audio tests + 4 FFI audio tests green.
+>
+> **Deliberate deviations:** AUD-4's "preserve pitch" time-stretch is varispeed only for now (documented in the audio spec as best-effort v1); per-track metering shows master levels with active/inactive strips rather than mixing every track separately, which would double the mix cost for a cosmetic gain.
+
 ### M4 — Ship path (~15%)
 - Export presets/queue/background jobs/hw encoders/loudnorm (EXP-*).
 - Missing-media relink flow (IMP-15–17); collect-files (PRJ-14).
 - Installers: notarized DMG, signed NSIS; update check; diagnostics bundle.
 - **Exit criteria:** EXP acceptance set passes; clean install→first-export on both OSes by a non-developer tester.
+
+> **Status (2026-08):** export and the media tools are complete; installers are not. The export dialog builds a real job from the document snapshot at submit time and hands it to a queue that runs the worker process while editing continues: the six presets, the Draft→Master quality slider, resolution capping without upscaling, hardware encoders (VideoToolbox/NVENC/QSV/AMF with software fallback), ProRes 422 + 24-bit PCM masters, in/out range export, and two-pass-style loudness normalization to −14 LUFS under a −1.5 dBTP ceiling. Every job writes into `<name>.part` and renames atomically, cleans its partials on failure or cancel, retries an encode failure once, and leaves a `.log.json` sidecar. The queue panel shows progress/fps/ETA with cancel, reveal, open and copy-path actions, the toolbar button carries a progress ring, and quitting mid-export asks first (and the machine is kept awake while jobs run). Missing media relinks by content hash first and filename second, one folder at a time, never pointing two clips at one file; collect-files copies media into `<project>/Media/` with the size shown up front; a diagnostics bundle lands beside the project. 21 Dart tests cover presets, the queue, a real end-to-end render, relink and collect.
+>
+> **Packaging:** `tools/package-macos.sh` builds a release engine + app, embeds `libcrazycut.dylib` and `crazycut_worker` inside the bundle (the app now looks beside its executable before the dev build tree) and produces `dist/CrazyCut.dmg`. Signing and notarization are wired but opt-in through `CC_SIGN_IDENTITY` / `CC_NOTARY_PROFILE`, so an unsigned DMG builds today and a notarized one builds the moment credentials exist.
+>
+> **Not built:** the signed Windows NSIS installer, the update check (there is no release feed to check against yet), and relocating the ffmpeg dylibs into the bundle — the packaged app still resolves them from their Homebrew install paths.
 
 ### M5 — Beta hardening (~10%)
 - Perf tuning against budgets; memory soak (8 h session); fuzz project loader.

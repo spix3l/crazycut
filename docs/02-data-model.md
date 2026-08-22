@@ -53,7 +53,12 @@ Top-level:
     "height": 1080,
     "fps": "60000/1001",
     "audioSampleRate": 48000,
-    "background": "#000000"
+    "background": "#000000",
+    "master": {                 // master bus — AUD-10/11
+      "gain": 1.0,              // linear output fader
+      "limiter": true,          // safety brickwall, on by default
+      "ceilingDb": -1.0         // limiter ceiling, dBFS
+    }
   },
   "media": [ /* MediaAsset */ ],
   "tracks": [ /* Track, ordered bottom→top for video; top→bottom listed audio-first? see below */ ],
@@ -90,6 +95,8 @@ Track ordering convention: array index 0 = **bottom-most video layer**; audio tr
 | `index` | int | compositing/mix order within kind |
 | `mute`, `solo`, `lock`, `hidden` | bool | `hidden` video-only |
 | `height` | int | timeline row height px |
+| `gain` | float | mixer fader, linear (default `1.0`) — AUD-10 |
+| `pan` | float | mixer balance, `-1..+1` (default `0.0`) — AUD-10 |
 
 ### Clip
 

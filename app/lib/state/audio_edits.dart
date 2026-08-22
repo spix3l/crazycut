@@ -132,12 +132,14 @@ mixin AudioEdits on TimelineEdits {
         start: clip.start,
         linkedGroup: group,
       );
+      // Snapshot the id *before* the clip exists: a null "before" is what
+      // tells undo to delete it again.
+      tx.clip(audio.id);
       // The video half keeps the picture, the audio half keeps the sound.
       audio.text = null;
       audio.effects.clear();
       audio.transform = null;
       doc.clips.add(audio);
-      tx.clip(audio.id);
 
       tx.clip(clip.id);
       clip.linkedGroup = group;

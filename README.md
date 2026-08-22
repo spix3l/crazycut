@@ -40,6 +40,9 @@ bash tools/generate-bindings.sh
 # Generate a local test clip (git-ignored)
 bash tools/make-fixture.sh
 
+# Package a distributable macOS app + DMG (unsigned unless CC_SIGN_IDENTITY is set)
+bash tools/package-macos.sh
+
 # Run the app (auto-discovers engine at ../engine/build)
 flutter run
 # or with explicit paths:

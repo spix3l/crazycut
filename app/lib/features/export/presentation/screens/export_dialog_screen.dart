@@ -1,20 +1,30 @@
+import 'dart:io';
+
 import 'package:auto_route/auto_route.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../../../app/session.dart';
 import '../../../../core/design/tokens.dart';
 import '../../../../core/widgets/cc_dialog.dart';
 import '../../../../core/widgets/primitives.dart';
-import '../models/export_job.dart';
+import '../../../../models/rational.dart';
+import '../../../../state/export_presets.dart';
+import '../../../../state/export_service.dart';
 import '../widgets/export_preset_tile.dart';
 import '../widgets/export_queue_panel.dart';
 
 /// Export modal with the queue slide-over docked to the right edge.
+///
+/// Submitting snapshots the document (EXP-2) and hands it to
+/// [ExportService]; the dialog can be closed and the editor keeps working
+/// while the job renders in the worker process (EXP-10).
 @RoutePage(name: 'ExportRoute')
 class ExportDialogScreen extends StatefulWidget {
   const ExportDialogScreen({super.key, @QueryParam('empty') this.empty = false});
 
-  /// Renders the queue in its empty state (fresh install / nothing exported).
+  /// The timeline is empty: exporting is disabled and the reason is shown.
   final bool empty;
 
   @override
@@ -22,23 +32,117 @@ class ExportDialogScreen extends StatefulWidget {
 }
 
 class _ExportDialogScreenState extends State<ExportDialogScreen> {
-  static const _presets = [
-    (icon: LucideIcons.monitorPlay, name: 'YouTube 1080p', sub: 'H.264 · AAC'),
-    (icon: LucideIcons.monitor, name: 'YouTube 4K', sub: 'H.264/HEVC · AAC'),
-    (icon: LucideIcons.smartphone, name: 'Shorts/TikTok/Reels', sub: '1080×1920 · AAC'),
-    (icon: LucideIcons.camera, name: 'Instagram Feed', sub: '1080×1350 · AAC'),
-    (icon: LucideIcons.clapperboard, name: 'Master (ProRes)', sub: 'MOV · PCM 24-bit'),
-    (icon: LucideIcons.slidersHorizontal, name: 'Custom', sub: 'Set your own'),
+  static const _icons = [
+    LucideIcons.monitorPlay,
+    LucideIcons.monitor,
+    LucideIcons.smartphone,
+    LucideIcons.camera,
+    LucideIcons.clapperboard,
+    LucideIcons.slidersHorizontal,
   ];
 
-  int _preset = 0;
-  bool _loudness = true;
+  final ExportService _service = ExportService.instance;
+
+  int _presetIndex = 0;
+  late ExportQuality _quality;
+  late bool _loudness;
   bool _hardware = false;
+  bool _rangeOnly = false;
+  String? _outputPath;
+
+  ExportPreset get _preset => ExportPreset.all[_presetIndex];
+
+  @override
+  void initState() {
+    super.initState();
+    _quality = _preset.quality;
+    _loudness = _preset.loudnessDefault;
+    _service.addListener(_onServiceChanged);
+  }
+
+  @override
+  void dispose() {
+    _service.removeListener(_onServiceChanged);
+    super.dispose();
+  }
+
+  void _onServiceChanged() {
+    if (mounted) setState(() {});
+  }
 
   void _close() => context.router.maybePop();
 
+  void _selectPreset(int index) {
+    setState(() {
+      _presetIndex = index;
+      _quality = _preset.quality;
+      _loudness = _preset.loudnessDefault;
+      _outputPath = null;  // recompute the default name for the new preset
+    });
+  }
+
+  String _defaultPath() {
+    final session = AppSession.instance;
+    final name = session.project?.name ?? 'Sequence';
+    final projectPath = session.path;
+    final directory = projectPath != null
+        ? File(projectPath).parent.path
+        : (Platform.environment['HOME'] ?? '.');
+    return '$directory${Platform.pathSeparator}'
+        '${_preset.defaultFilename(name)}';
+  }
+
+  String get _path => _outputPath ?? _defaultPath();
+
+  Future<void> _browse() async {
+    final location = await getSaveLocation(
+      suggestedName: _path.split(Platform.pathSeparator).last,
+      acceptedTypeGroups: [
+        XTypeGroup(label: _preset.container.toUpperCase(),
+            extensions: [_preset.container]),
+      ],
+    );
+    if (location == null) return;
+    setState(() => _outputPath = location.path);
+  }
+
+  void _submit() {
+    final session = AppSession.instance;
+    if (!session.hasProject) return;
+    final controller = session.editor;
+    final hasRange =
+        controller.inPoint != null || controller.outPoint != null;
+
+    _service.submit(
+      doc: controller.doc,
+      preset: _preset,
+      // EXP integrity: never silently overwrite an existing file.
+      outputPath: ExportService.uniquePath(_path),
+      quality: _quality,
+      hardware: _hardware,
+      loudness: _loudness,
+      rangeStart: _rangeOnly && hasRange ? controller.rangeStart : null,
+      rangeEnd: _rangeOnly && hasRange ? controller.rangeEnd : Rt.zero(),
+    );
+    _close();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final session = AppSession.instance;
+    final settings = session.project?.settings;
+    final controller = session.hasProject ? session.editor : null;
+    final hasRange =
+        controller != null && (controller.inPoint != null || controller.outPoint != null);
+    final offline = controller?.offlineAssets ?? const [];
+    final (outWidth, outHeight) =
+        settings == null ? (0, 0) : _preset.outputSize(settings);
+    final duration = _rangeOnly && hasRange
+        ? controller.rangeEnd.seconds - controller.rangeStart.seconds
+        : (controller?.duration.seconds ?? 0);
+
+    final blocked = widget.empty || duration <= 0;
+
     return Stack(
       children: [
         CcModalBarrier(
@@ -65,13 +169,13 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
                               child: Builder(
                                 builder: (context) {
                                   final index = row * 3 + col;
-                                  final preset = _presets[index];
+                                  final preset = ExportPreset.all[index];
                                   return ExportPresetTile(
-                                    icon: preset.icon,
+                                    icon: _icons[index],
                                     name: preset.name,
-                                    subtitle: preset.sub,
-                                    selected: _preset == index,
-                                    onTap: () => setState(() => _preset = index),
+                                    subtitle: preset.subtitle,
+                                    selected: _presetIndex == index,
+                                    onTap: () => _selectPreset(index),
                                   );
                                 },
                               ),
@@ -86,11 +190,14 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
               CcField(
                 label: 'Filename & location',
                 child: CcTextField(
-                  value: 'Beauty Routine Ep. 12 [YouTube 1080p].mp4',
-                  trailing: CcLink('Browse', onTap: () {}),
+                  value: _path,
+                  trailing: CcLink('Browse', onTap: _browse),
                 ),
               ),
-              const _QualitySlider(),
+              _QualitySlider(
+                quality: _quality,
+                onChanged: (q) => setState(() => _quality = q),
+              ),
               Row(
                 children: [
                   _Option(
@@ -106,6 +213,20 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
                   ),
                 ],
               ),
+              if (hasRange)
+                _Option(
+                  label: 'In/out range only '
+                      '(${Rt.toTimecode(controller.rangeStart, controller.fps)} → '
+                      '${Rt.toTimecode(controller.rangeEnd, controller.fps)})',
+                  checked: _rangeOnly,
+                  onTap: () => setState(() => _rangeOnly = !_rangeOnly),
+                ),
+              if (offline.isNotEmpty)
+                _Warning(
+                  message: '${offline.length} offline '
+                      '${offline.length == 1 ? 'clip renders' : 'clips render'} '
+                      'as slates. Relink them first for a clean export.',
+                ),
               Container(
                 height: 33,
                 padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -115,10 +236,17 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
                 ),
                 child: Row(
                   children: [
-                    Text('1920×1080 · 30fps · 12:34 duration', style: CcType.tiny),
+                    Text(
+                      settings == null
+                          ? 'No sequence'
+                          : '$outWidth×$outHeight · '
+                              '${_fpsLabel(settings.fpsValue)} · '
+                              '${_durationLabel(duration)}',
+                      style: CcType.tiny,
+                    ),
                     const Spacer(),
                     Text(
-                      'Estimated size: ~340 MB',
+                      'Estimated size: ${_estimate(outWidth, outHeight, duration)}',
                       style: CcType.style(size: 11, weight: CcType.medium),
                     ),
                   ],
@@ -136,30 +264,63 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
                 label: 'Add to queue',
                 icon: LucideIcons.upload,
                 padding: const EdgeInsets.symmetric(horizontal: 18),
-                onPressed: () {},
+                onPressed: blocked ? null : _submit,
               ),
             ],
           ),
         ),
         Align(
           alignment: Alignment.centerRight,
-          child: ExportQueuePanel(
-            jobs: widget.empty ? const [] : sampleJobs,
-            onClose: _close,
-          ),
+          child: ExportQueuePanel(service: _service, onClose: _close),
         ),
       ],
     );
   }
+
+  static String _fpsLabel(double fps) =>
+      '${fps == fps.roundToDouble() ? fps.round() : fps.toStringAsFixed(2)}fps';
+
+  static String _durationLabel(double seconds) {
+    final m = seconds ~/ 60;
+    final s = (seconds % 60).floor();
+    return '$m:${s.toString().padLeft(2, '0')} duration';
+  }
+
+  /// Rough bits-per-pixel estimate, labelled as an estimate (EXP-8). A sample
+  /// encode would be more accurate but costs seconds before the dialog is
+  /// usable.
+  String _estimate(int width, int height, double seconds) {
+    if (width <= 0 || seconds <= 0) return '—';
+    final bpp = switch (_preset.videoCodec) {
+      'prores' => 1.6,
+      _ => switch (_quality) {
+          ExportQuality.draft => 0.04,
+          ExportQuality.web => 0.07,
+          ExportQuality.high => 0.11,
+          ExportQuality.master => 0.18,
+        },
+    };
+    final fps = AppSession.instance.project?.settings.fpsValue ?? 30;
+    final videoBits = width * height * fps * bpp;
+    final audioBits = _preset.audioCodec == 'pcm' ? 48000 * 24 * 2 : 320000;
+    final bytes = ((videoBits + audioBits) / 8) * seconds;
+    if (bytes >= 1024 * 1024 * 1024) {
+      return '~${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+    }
+    return '~${(bytes / (1024 * 1024)).round()} MB';
+  }
 }
 
 class _QualitySlider extends StatelessWidget {
-  const _QualitySlider();
+  const _QualitySlider({required this.quality, required this.onChanged});
 
-  static const _ticks = ['Draft', 'Web', 'High', 'Master'];
+  final ExportQuality quality;
+  final ValueChanged<ExportQuality> onChanged;
 
   @override
   Widget build(BuildContext context) {
+    const values = ExportQuality.values;
+    final index = values.indexOf(quality);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -167,21 +328,28 @@ class _QualitySlider extends StatelessWidget {
           children: [
             Text('Quality', style: CcType.label),
             const Spacer(),
-            Text('High', style: CcType.style(size: 12, weight: CcType.semibold)),
+            Text(quality.label,
+                style: CcType.style(size: 12, weight: CcType.semibold)),
           ],
         ),
         const SizedBox(height: 10),
-        const CcSlider(value: 0.745, handleSize: 12),
+        CcSlider(
+          value: index / (values.length - 1),
+          handleSize: 12,
+          onChanged: (v) => onChanged(
+            values[(v * (values.length - 1)).round().clamp(0, values.length - 1)],
+          ),
+        ),
         const SizedBox(height: 8),
         Row(
           children: [
-            for (var i = 0; i < _ticks.length; i++) ...[
+            for (var i = 0; i < values.length; i++) ...[
               if (i > 0) const Spacer(),
               Text(
-                _ticks[i],
+                values[i].label,
                 style: CcType.style(
                   size: 10,
-                  color: _ticks[i] == 'High' ? CcColors.textPrimary : CcColors.textTertiary,
+                  color: i == index ? CcColors.textPrimary : CcColors.textTertiary,
                 ),
               ),
             ],
@@ -209,6 +377,35 @@ class _Option extends StatelessWidget {
           CcCheckbox(checked: checked, onTap: onTap),
           const SizedBox(width: 8),
           Text(label, style: CcType.small),
+        ],
+      ),
+    );
+  }
+}
+
+class _Warning extends StatelessWidget {
+  const _Warning({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: CcColors.elevated,
+        borderRadius: CcRadius.brSm,
+      ),
+      child: Row(
+        children: [
+          const CcIcon(LucideIcons.triangleAlert, size: 13, color: CcColors.warning),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: CcType.style(size: 11, color: CcColors.textSecondary),
+            ),
+          ),
         ],
       ),
     );
