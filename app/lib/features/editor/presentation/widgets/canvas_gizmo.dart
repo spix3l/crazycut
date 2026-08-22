@@ -1,13 +1,12 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' hide Clip;
 
 import '../../../../core/design/tokens.dart';
-import '../../../../data/param_value.dart';
 import '../../../../data/project.dart';
-import '../../../../models/rational.dart';
 import '../../../../state/canvas_geometry.dart';
 import '../../../../state/editor_controller.dart';
 
@@ -56,16 +55,6 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
 
   Clip? get _clip => c.gizmoClipUnderPlayhead();
 
-  /// Clip-local time the drag writes at — the same value the inspector's
-  /// transform rows pass to [EditorController.setTransformParam].
-  Rt _localTime(Clip clip) =>
-      c.playhead.minus(clip.start).clampTo(Rt.zero(), clip.duration);
-
-  double _evalNum(ParamValue param, Clip clip, double fallback) {
-    final v = param.evaluate(_localTime(clip));
-    return v is num ? v.toDouble() : fallback;
-  }
-
   /// Sequence px per widget px. The monitor's box is the whole sequence canvas
   /// (the isolate always renders at sequence aspect), so one factor covers both
   /// axes. `previewFrameSize` is deliberately not used — it is throttled during
@@ -73,47 +62,21 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
   double _seqPerPx(Size box) =>
       box.width <= 0 ? 1 : c.doc.settings.width / box.width;
 
-  /// The clip's unrotated rect in sequence pixels at the current playhead.
-  Rect? _rectSeq(Clip clip) {
-    final size = c.gizmoSourceSize(clip);
-    if (size == null) return null;
-    final t = clip.transformOrDefault;
-    final anchor = t.anchor.evaluate(_localTime(clip));
-    double axis(String key) =>
-        anchor is Map && anchor[key] is num ? (anchor[key] as num).toDouble() : 0;
-    return layerRectInSequence(
-      seqW: c.doc.settings.width,
-      seqH: c.doc.settings.height,
-      srcW: size.$1,
-      srcH: size.$2,
-      framing: t.framing,
-      x: _evalNum(t.x, clip, 0),
-      y: _evalNum(t.y, clip, 0),
-      scalePercent: _evalNum(t.scale, clip, 100),
-      anchorX: axis('x'),
-      anchorY: axis('y'),
-    );
-  }
+  /// The clip's unrotated rect in sequence pixels at the current playhead, and
+  /// the rect it would occupy at `scale` 100 — both shared with the align ops.
+  Rect? _rectSeq(Clip clip) => c.clipRectInSequence(clip);
 
-  /// The rect a `scale` of 100 would produce, used to invert a drag back into
-  /// a scale percentage.
-  Rect? _unitRect(Clip clip) {
-    final size = c.gizmoSourceSize(clip);
-    if (size == null) return null;
-    return layerRectInSequence(
-      seqW: c.doc.settings.width,
-      seqH: c.doc.settings.height,
-      srcW: size.$1,
-      srcH: size.$2,
-      framing: clip.transformOrDefault.framing,
-      x: 0,
-      y: 0,
-      scalePercent: 100,
-    );
-  }
+  Rect? _unitRect(Clip clip) => c.clipUnitRectInSequence(clip);
 
-  double _rotation(Clip clip) =>
-      _evalNum(clip.transformOrDefault.rotation, clip, 0);
+  double _rotation(Clip clip) => c.clipRotation(clip);
+
+  /// The other selected images, outlined without handles so a multi-selection
+  /// built by modifier-clicking is visible before an align action runs.
+  List<(Rect, double)> _companionBoxes(Clip target) => [
+    for (final other in c.alignableClips())
+      if (other.id != target.id)
+        if (_rectSeq(other) case final rect?) (rect, _rotation(other)),
+  ];
 
   /// Handle centres in widget space, in [gizmoAnchors] order, rotated about the
   /// rect centre exactly as the compositor rotates the image.
@@ -184,6 +147,29 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
   bool get _altHeld => HardwareKeyboard.instance.isAltPressed;
   bool get _shiftHeld => HardwareKeyboard.instance.isShiftPressed;
 
+  /// Same modifiers the timeline uses to extend a selection. Shift also snaps
+  /// rotation, but that only applies once a rotate drag is under way, so the
+  /// two never contend for the same gesture.
+  bool get _additiveHeld =>
+      HardwareKeyboard.instance.isShiftPressed ||
+      HardwareKeyboard.instance.isMetaPressed;
+
+  /// Whether the pointer that just went down at [local] should start a gizmo
+  /// drag. A modifier-click on an image extends the canvas selection here
+  /// rather than in [_onPanStart], because a click that never moves far enough
+  /// to beat the pan slop would otherwise do nothing at all.
+  bool _onPointerDown(Offset local, Size box) {
+    final hit = _hitTest(local, box);
+    if (hit.part == GizmoPart.none) return false;
+    final clip = hit.clip;
+    if (hit.part == GizmoPart.move && _additiveHeld && clip != null) {
+      c.selectClip(clip.id, additive: true, withLinked: false);
+      setState(() {});
+      return false;
+    }
+    return true;
+  }
+
   void _onPanStart(Offset local, Size box) {
     final hit = _hitTest(local, box);
     final clip = hit.clip;
@@ -205,7 +191,7 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
       restingX: resting['x']!,
       restingY: resting['y']!,
       restingScale: resting['scale']!,
-      drawnScale: _evalNum(clip.transformOrDefault.scale, clip, 100),
+      drawnScale: c.evalTransformNum(clip.transformOrDefault.scale, clip, 100),
       rotation: _rotation(clip),
       symmetric: _altHeld,
     );
@@ -218,9 +204,7 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
       _ => 'Rotate image',
     });
     if (!c.selection.contains(clip.id)) {
-      c.selection
-        ..clear()
-        ..add(clip.id);
+      c.selectClip(clip.id, withLinked: false);
     }
     setState(() {});
   }
@@ -232,7 +216,7 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
     final clip = c.doc.clipById(id);
     if (clip == null) return;
 
-    final at = _localTime(clip);
+    final at = c.clipLocalTime(clip);
     final next = drag.resolve(local * _seqPerPx(box), snap: _shiftHeld);
     // Rotation is not part of the generated animation, so it keyframes the way
     // the inspector's rotation slider does.
@@ -305,8 +289,7 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
                   GestureRecognizerFactoryWithHandlers<_GizmoPanRecognizer>(
                     () => _GizmoPanRecognizer(),
                     (r) {
-                      r.claims = (position) =>
-                          _hitTest(position, box).part != GizmoPart.none;
+                      r.wantsDrag = (position) => _onPointerDown(position, box);
                       r.onStart = (d) => _onPanStart(d.localPosition, box);
                       r.onUpdate = (d) => _onPanUpdate(d.localPosition, box);
                       r.onEnd = (_) => _onPanEnd();
@@ -319,6 +302,7 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
               painter: _GizmoPainter(
                 rect: rect,
                 rotation: _rotation(clip),
+                companions: _companionBoxes(clip),
                 seqPerPx: _seqPerPx(box),
                 hoverHandle:
                     _hover.part == GizmoPart.resize ? _hover.handle : -1,
@@ -334,11 +318,14 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
 /// Pan recognizer that only competes for pointers landing on the gizmo, so the
 /// monitor keeps every gesture it had before the gizmo was layered on top.
 class _GizmoPanRecognizer extends PanGestureRecognizer {
-  bool Function(Offset localPosition)? claims;
+  /// Consulted at pointer-down: true to compete for the pointer, false to let
+  /// it fall through to the monitor. Side effects are allowed — a
+  /// modifier-click selects from here, because it never becomes a drag.
+  bool Function(Offset localPosition)? wantsDrag;
 
   @override
   void addAllowedPointer(PointerDownEvent event) {
-    if (claims?.call(event.localPosition) != true) {
+    if (wantsDrag?.call(event.localPosition) != true) {
       resolve(GestureDisposition.rejected);
       return;
     }
@@ -350,6 +337,7 @@ class _GizmoPainter extends CustomPainter {
   const _GizmoPainter({
     required this.rect,
     required this.rotation,
+    required this.companions,
     required this.seqPerPx,
     required this.hoverHandle,
   });
@@ -357,8 +345,19 @@ class _GizmoPainter extends CustomPainter {
   /// Unrotated rect, in sequence pixels.
   final Rect rect;
   final double rotation;
+
+  /// Other selected images as `(unrotated rect, rotation)`, drawn as bare
+  /// outlines — only the handled clip gets handles.
+  final List<(Rect, double)> companions;
   final double seqPerPx;
   final int hoverHandle;
+
+  Rect _toWidget(Rect r) => Rect.fromLTRB(
+    r.left / seqPerPx,
+    r.top / seqPerPx,
+    r.right / seqPerPx,
+    r.bottom / seqPerPx,
+  );
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -369,12 +368,21 @@ class _GizmoPainter extends CustomPainter {
     final hoverFill = Paint()..color = CcColors.accent;
     final chromeFill = Paint()..color = CcColors.bg;
 
-    final box = Rect.fromLTRB(
-      rect.left / seqPerPx,
-      rect.top / seqPerPx,
-      rect.right / seqPerPx,
-      rect.bottom / seqPerPx,
-    );
+    final companionOutline = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = CcColors.accent.withValues(alpha: 0.45);
+    for (final (companionRect, companionRotation) in companions) {
+      final companionBox = _toWidget(companionRect);
+      canvas.save();
+      canvas.translate(companionBox.center.dx, companionBox.center.dy);
+      canvas.rotate(companionRotation * math.pi / 180);
+      canvas.translate(-companionBox.center.dx, -companionBox.center.dy);
+      canvas.drawRect(companionBox, companionOutline);
+      canvas.restore();
+    }
+
+    final box = _toWidget(rect);
 
     canvas.save();
     canvas.translate(box.center.dx, box.center.dy);
@@ -406,6 +414,7 @@ class _GizmoPainter extends CustomPainter {
   bool shouldRepaint(_GizmoPainter old) =>
       old.rect != rect ||
       old.rotation != rotation ||
+      !listEquals(old.companions, companions) ||
       old.seqPerPx != seqPerPx ||
       old.hoverHandle != hoverHandle;
 }

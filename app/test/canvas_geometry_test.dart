@@ -311,4 +311,121 @@ void main() {
       expect(d.resolve(pointer).rotation, closeTo(-160, 1e-6));
     });
   });
+
+  // --- Align & distribute (FX-15) -----------------------------------------
+
+  group('rotatedBounds', () {
+    test('leaves an unrotated rect alone', () {
+      const rect = Rect.fromLTWH(10, 20, 100, 50);
+      expect(rotatedBounds(rect, 0), rect);
+      expect(rotatedBounds(rect, 360), rect);
+    });
+
+    test('90° swaps the extents about the same centre', () {
+      const rect = Rect.fromLTWH(0, 0, 100, 50);
+      final out = rotatedBounds(rect, 90);
+      expect(out.width, closeTo(50, 1e-9));
+      expect(out.height, closeTo(100, 1e-9));
+      expect(out.center.dx, closeTo(rect.center.dx, 1e-9));
+      expect(out.center.dy, closeTo(rect.center.dy, 1e-9));
+    });
+
+    test('45° grows a square by √2', () {
+      const rect = Rect.fromLTWH(0, 0, 100, 100);
+      final out = rotatedBounds(rect, 45);
+      expect(out.width, closeTo(100 * 1.41421356, 1e-4));
+      expect(out.height, closeTo(100 * 1.41421356, 1e-4));
+    });
+  });
+
+  group('alignDeltas', () {
+    // Two boxes that share no edge, so every edge produces a distinct answer.
+    final boxes = [
+      const Rect.fromLTWH(0, 0, 100, 40),
+      const Rect.fromLTWH(200, 100, 60, 80),
+    ];
+
+    test('lines items up on the union of the selection', () {
+      // Union is (0,0)-(260,180).
+      expect(alignDeltas(boxes, AlignEdge.left), [
+        Offset.zero,
+        const Offset(-200, 0),
+      ]);
+      expect(alignDeltas(boxes, AlignEdge.right), [
+        const Offset(160, 0),
+        Offset.zero,
+      ]);
+      expect(alignDeltas(boxes, AlignEdge.top), [
+        Offset.zero,
+        const Offset(0, -100),
+      ]);
+      expect(alignDeltas(boxes, AlignEdge.bottom), [
+        const Offset(0, 140),
+        Offset.zero,
+      ]);
+      expect(alignDeltas(boxes, AlignEdge.centerX), [
+        const Offset(80, 0),
+        const Offset(-100, 0),
+      ]);
+      expect(alignDeltas(boxes, AlignEdge.centerY), [
+        const Offset(0, 70),
+        const Offset(0, -50),
+      ]);
+    });
+
+    test('lines items up on an explicit frame', () {
+      const frame = Rect.fromLTWH(0, 0, 1000, 500);
+      expect(
+        alignDeltas(boxes, AlignEdge.right, frame: frame),
+        [const Offset(900, 0), const Offset(740, 0)],
+      );
+      expect(
+        alignDeltas(boxes, AlignEdge.centerY, frame: frame),
+        [const Offset(0, 230), const Offset(0, 110)],
+      );
+    });
+
+    test('an empty selection has nothing to align', () {
+      expect(alignDeltas(const [], AlignEdge.left), isEmpty);
+    });
+  });
+
+  group('distributeDeltas', () {
+    test('equalises the gaps and pins the outermost items', () {
+      final boxes = [
+        const Rect.fromLTWH(0, 0, 100, 10),
+        const Rect.fromLTWH(120, 0, 100, 10),
+        const Rect.fromLTWH(700, 0, 100, 10),
+      ];
+      final deltas = distributeDeltas(boxes, AlignAxis.horizontal);
+      // Span 0..800, 300px of content, so two gaps of 250.
+      expect(deltas[0], Offset.zero, reason: 'the first item is the anchor');
+      expect(deltas[2], Offset.zero, reason: 'the last item is the anchor');
+      expect(deltas[1].dx, closeTo(230, 1e-9)); // 350 - 120
+      expect(deltas.every((d) => d.dy == 0), isTrue);
+    });
+
+    test('works off centres, not input order', () {
+      final boxes = [
+        const Rect.fromLTWH(0, 700, 10, 100),
+        const Rect.fromLTWH(0, 0, 10, 100),
+        const Rect.fromLTWH(0, 120, 10, 100),
+      ];
+      final deltas = distributeDeltas(boxes, AlignAxis.vertical);
+      expect(deltas[0], Offset.zero);
+      expect(deltas[1], Offset.zero);
+      expect(deltas[2].dy, closeTo(230, 1e-9));
+    });
+
+    test('fewer than three items has nothing to spread', () {
+      final boxes = [
+        const Rect.fromLTWH(0, 0, 10, 10),
+        const Rect.fromLTWH(500, 0, 10, 10),
+      ];
+      expect(
+        distributeDeltas(boxes, AlignAxis.horizontal),
+        [Offset.zero, Offset.zero],
+      );
+    });
+  });
 }

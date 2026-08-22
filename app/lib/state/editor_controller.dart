@@ -1,16 +1,19 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show Offset, Rect;
 
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 
 import 'package:crazycut_app/data/autosave.dart';
 import 'package:crazycut_app/data/media_cache.dart';
+import 'package:crazycut_app/data/param_value.dart';
 import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/data/repository.dart';
 import 'package:crazycut_app/engine/engine.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/audio_edits.dart';
+import 'package:crazycut_app/state/canvas_geometry.dart';
 import 'package:crazycut_app/state/preview_renderer.dart';
 import 'package:crazycut_app/state/proxy_service.dart';
 import 'package:crazycut_app/state/svg_rasterizer.dart';
@@ -56,7 +59,8 @@ const kSupportedExtensions = {
 /// frame, autosave and proxies.
 class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   EditorController(this.doc, {required String path, ProxyService? proxies})
-      : proxies = proxies ?? ProxyService() {
+      : proxies = proxies ?? ProxyService(),
+        _ownsProxies = proxies == null {
     autosave = ProjectAutosave(
       doc,
       path: path,
@@ -82,6 +86,11 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
 
   late final ProjectAutosave autosave;
   final ProxyService proxies;
+
+  /// A controller-created proxy queue follows the controller lifetime. The
+  /// app session injects its shared queue so jobs can survive project changes;
+  /// that queue must only be detached here, never disposed here.
+  final bool _ownsProxies;
 
   @override
   Rt playhead = Rt.zero();
@@ -214,7 +223,7 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     unawaited(_renderer?.dispose());
     _renderer = null;
     proxies.removeListener(notifyListeners);
-    proxies.dispose();
+    if (_ownsProxies) proxies.dispose();
     autosave.dispose();
     super.dispose();
   }
@@ -804,6 +813,148 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     final w = asset.width ?? 0;
     final h = asset.height ?? 0;
     return w > 0 && h > 0 ? (w, h) : null;
+  }
+
+  // --- Canvas geometry (shared by the gizmo and the align ops) --------------
+
+  /// Clip-local time canvas edits read and write at — the same value the
+  /// inspector's transform rows pass to [setTransformParam].
+  Rt clipLocalTime(Clip clip) =>
+      playhead.minus(clip.start).clampTo(Rt.zero(), clip.duration);
+
+  /// Evaluates an animatable transform param at the clip-local playhead.
+  double evalTransformNum(ParamValue param, Clip clip, double fallback) {
+    final v = param.evaluate(clipLocalTime(clip));
+    return v is num ? v.toDouble() : fallback;
+  }
+
+  /// The clip's unrotated rect in sequence pixels at the current playhead, or
+  /// null when the source was never probed.
+  Rect? clipRectInSequence(Clip clip) {
+    final size = gizmoSourceSize(clip);
+    if (size == null) return null;
+    final t = clip.transformOrDefault;
+    final anchor = t.anchor.evaluate(clipLocalTime(clip));
+    double axis(String key) =>
+        anchor is Map && anchor[key] is num ? (anchor[key] as num).toDouble() : 0;
+    return layerRectInSequence(
+      seqW: doc.settings.width,
+      seqH: doc.settings.height,
+      srcW: size.$1,
+      srcH: size.$2,
+      framing: t.framing,
+      x: evalTransformNum(t.x, clip, 0),
+      y: evalTransformNum(t.y, clip, 0),
+      scalePercent: evalTransformNum(t.scale, clip, 100),
+      anchorX: axis('x'),
+      anchorY: axis('y'),
+    );
+  }
+
+  /// The rect the clip would occupy at `scale` 100 — the yardstick a gizmo drag
+  /// is converted back into a scale percentage with.
+  Rect? clipUnitRectInSequence(Clip clip) {
+    final size = gizmoSourceSize(clip);
+    if (size == null) return null;
+    return layerRectInSequence(
+      seqW: doc.settings.width,
+      seqH: doc.settings.height,
+      srcW: size.$1,
+      srcH: size.$2,
+      framing: clip.transformOrDefault.framing,
+      x: 0,
+      y: 0,
+      scalePercent: 100,
+    );
+  }
+
+  double clipRotation(Clip clip) =>
+      evalTransformNum(clip.transformOrDefault.rotation, clip, 0);
+
+  /// The footprint the clip actually claims on the canvas: its rect after
+  /// rotation, as an axis-aligned box. This is what align/distribute line up.
+  Rect? clipBoundsInSequence(Clip clip) {
+    final rect = clipRectInSequence(clip);
+    return rect == null ? null : rotatedBounds(rect, clipRotation(clip));
+  }
+
+  // --- Align & distribute (FX-15) -------------------------------------------
+
+  /// Selected clips the layout ops can move: gizmo-eligible (visual, probed, on
+  /// an unlocked visible video track, spanning the playhead), front-most first.
+  List<Clip> alignableClips() =>
+      gizmoClipsUnderPlayhead().where((c) => selection.contains(c.id)).toList();
+
+  /// The frame a single-clip align lines up against: the whole sequence canvas.
+  Rect get sequenceRect => Rect.fromLTWH(
+        0,
+        0,
+        doc.settings.width.toDouble(),
+        doc.settings.height.toDouble(),
+      );
+
+  /// Lines the selected images up on [edge]. With one clip selected the
+  /// reference is the sequence canvas; with several it is their combined
+  /// bounding box, the way every design tool behaves.
+  void alignClips(AlignEdge edge) {
+    final (clips, bounds) = _layoutTargets();
+    if (clips.isEmpty) return;
+    _applyLayoutDeltas(
+      clips,
+      alignDeltas(bounds, edge, frame: clips.length == 1 ? sequenceRect : null),
+      'Align clips',
+    );
+  }
+
+  /// Spreads the selected images so the gaps between them along [axis] are
+  /// equal. The outermost two stay put, so it needs three to do anything.
+  void distributeClips(AlignAxis axis) {
+    final (clips, bounds) = _layoutTargets();
+    if (clips.length < 3) return;
+    _applyLayoutDeltas(clips, distributeDeltas(bounds, axis), 'Distribute clips');
+  }
+
+  /// The clips a layout op moves paired with their canvas footprints, dropping
+  /// any whose bounds cannot be measured.
+  (List<Clip>, List<Rect>) _layoutTargets() {
+    final clips = <Clip>[];
+    final bounds = <Rect>[];
+    for (final clip in alignableClips()) {
+      final b = clipBoundsInSequence(clip);
+      if (b == null) continue;
+      clips.add(clip);
+      bounds.add(b);
+    }
+    return (clips, bounds);
+  }
+
+  /// Translates each clip by its delta, as one undo step. Writes rebase like a
+  /// gizmo drag so a clip carrying a generated image animation moves its
+  /// resting pose instead of writing a key the next rebuild would discard.
+  void _applyLayoutDeltas(
+    List<Clip> clips,
+    List<Offset> deltas,
+    String label,
+  ) {
+    if (deltas.length != clips.length) return;
+    if (deltas.every((d) => d.dx.abs() < 0.5 && d.dy.abs() < 0.5)) return;
+    beginGesture(label);
+    for (var i = 0; i < clips.length; i += 1) {
+      final delta = deltas[i];
+      if (delta == Offset.zero) continue;
+      final clip = clips[i];
+      final resting = imageAnimResting(clip);
+      final at = clipLocalTime(clip);
+      if (delta.dx != 0) {
+        setTransformParam(clip.id, 'x', resting['x']! + delta.dx,
+            at: at, rebase: true);
+      }
+      if (delta.dy != 0) {
+        setTransformParam(clip.id, 'y', resting['y']! + delta.dy,
+            at: at, rebase: true);
+      }
+    }
+    endGesture();
   }
 
   /// Boots the render isolate and paints the first frame.

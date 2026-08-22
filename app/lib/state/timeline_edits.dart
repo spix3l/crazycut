@@ -1876,10 +1876,11 @@ mixin TimelineEdits on ChangeNotifier {
     'Pan down': 'panDown',
   };
 
-  /// Entry/exit animations for image clips (label -> id). Both directions
+  /// Entry/leave animations for visual media clips (label -> id). Both
+  /// directions
   /// share one id namespace: an id means the same *look*, played forwards on
-  /// appear and backwards on disappear.
-  static const Map<String, String> kImageEntryPresets = {
+  /// entry and backwards on leave.
+  static const Map<String, String> kClipEdgePresets = {
     'Fade': 'fade',
     'Pop': 'pop',
     'Slide left': 'slideLeft',
@@ -1892,6 +1893,9 @@ mixin TimelineEdits on ChangeNotifier {
     'Wipe up': 'wipeUp',
     'Wipe down': 'wipeDown',
   };
+
+  /// Compatibility name for older callers and persisted image-animation tests.
+  static const Map<String, String> kImageEntryPresets = kClipEdgePresets;
 
   static const double kImageEntryDefaultSeconds = 0.4;
 
@@ -1986,6 +1990,10 @@ mixin TimelineEdits on ChangeNotifier {
 
     _run('Apply text animation', (tx) {
       tx.clip(clipId);
+      // Text presets and the systematic edge animation both author transform
+      // channels. Switching workflows is explicit: the newly chosen one owns
+      // those channels and the old provenance is removed first.
+      _clearGeneratedClipAnimation(clip);
       final previous = clip.text?.animation ?? '';
       final tr = clip.transform?.copy() ?? ClipTransform();
       _clearTextPresetChannels(tr, previous);
@@ -2112,10 +2120,11 @@ mixin TimelineEdits on ChangeNotifier {
     }
   }
 
-  // --- Image animation (TXT-9 motion + entry/exit) ----------------------------
+  // --- Clip animation (TXT-9 motion + entry/leave) ----------------------------
   //
-  // The whole animation for an image clip is *generated* from a small spec kept
-  // on the clip, rather than merged into whatever keyframes happen to be there:
+  // The animation is generated from a small spec kept on the clip, rather than
+  // merged into whatever keyframes happen to be there. Entry/leave applies to
+  // visual media; continuous motion remains image-only:
   //
   //   extra['imageAnim'] = {
   //     'motion': 'zoomIn',                     // full-clip Ken Burns, or null
@@ -2132,7 +2141,7 @@ mixin TimelineEdits on ChangeNotifier {
 
   static const String _animKey = 'imageAnim';
 
-  /// The transform parameters a generated image animation may write.
+  /// The transform parameters a generated clip animation may write.
   static const List<String> _animParams = ['x', 'y', 'scale', 'opacity'];
 
   /// The live animation spec for [clip], or null when it has none.
@@ -2140,6 +2149,8 @@ mixin TimelineEdits on ChangeNotifier {
     final raw = clip.extra[_animKey];
     return raw is Map<String, dynamic> ? raw : null;
   }
+
+  Map<String, dynamic>? clipAnimationSpec(Clip clip) => imageAnimSpec(clip);
 
   /// Preset id currently applied on a side ('motion', 'in' or 'out').
   String? imageAnimPreset(Clip clip, String side) {
@@ -2150,12 +2161,18 @@ mixin TimelineEdits on ChangeNotifier {
     return entry is Map ? entry['type'] as String? : null;
   }
 
+  String? clipAnimationPreset(Clip clip, String side) =>
+      imageAnimPreset(clip, side);
+
   double imageAnimSeconds(Clip clip, String side) {
     final entry = imageAnimSpec(clip)?[side];
     return entry is Map
         ? ((entry['seconds'] as num?)?.toDouble() ?? kImageEntryDefaultSeconds)
         : kImageEntryDefaultSeconds;
   }
+
+  double clipAnimationSeconds(Clip clip, String side) =>
+      imageAnimSeconds(clip, side);
 
   /// The pose a generated animation plays around, or the clip's plain
   /// transform values when it has no generated animation. Direct manipulation
@@ -2164,7 +2181,14 @@ mixin TimelineEdits on ChangeNotifier {
   Map<String, double> imageAnimResting(Clip clip) =>
       _restingValues(clip, imageAnimSpec(clip));
 
+  Map<String, double> clipAnimationResting(Clip clip) => imageAnimResting(clip);
+
   bool _isImageClip(Clip clip) => doc.assetById(clip.mediaId)?.type == 'image';
+
+  bool _isVisualMediaClip(Clip clip) {
+    final type = doc.assetById(clip.mediaId)?.type;
+    return clip.text != null || type == 'image' || type == 'video';
+  }
 
   /// TXT-9: full-clip Ken Burns move. Pass null to drop the motion and keep
   /// whatever entry/exit animation is set.
@@ -2175,22 +2199,28 @@ mixin TimelineEdits on ChangeNotifier {
       tx.clip(clipId);
       final spec = _ensureAnimSpec(clip);
       spec['motion'] = kImagePresets.containsValue(preset) ? preset : null;
-      _writeImageAnimation(clip);
+      _writeClipAnimation(clip);
     });
   }
 
-  /// Sets the appear and/or disappear animation. Passing `''` for a side
-  /// clears it; omitting a side leaves it alone.
-  void setImageEntryExit(
+  /// Sets the entry and/or leave animation on an image or video clip. Passing
+  /// `''` for a side clears it; omitting a side leaves it alone.
+  void setClipEntryExit(
     String clipId, {
     String? appear,
     String? disappear,
     double? seconds,
   }) {
     final clip = _editableClip(clipId);
-    if (clip == null || !_isImageClip(clip)) return;
-    _run('Image animation', (tx) {
+    if (clip == null || !_isVisualMediaClip(clip)) return;
+    _run('Clip animation', (tx) {
       tx.clip(clipId);
+      final textPreset = clip.text?.animation ?? '';
+      if (textPreset.isNotEmpty) {
+        final transform = clip.transform ??= ClipTransform();
+        _clearTextPresetChannels(transform, textPreset);
+        clip.text!.animation = '';
+      }
       final spec = _ensureAnimSpec(clip);
       void side(String key, String? value) {
         if (value == null) {
@@ -2199,7 +2229,7 @@ mixin TimelineEdits on ChangeNotifier {
           }
           return;
         }
-        if (value.isEmpty || !kImageEntryPresets.containsValue(value)) {
+        if (value.isEmpty || !kClipEdgePresets.containsValue(value)) {
           spec[key] = null;
           return;
         }
@@ -2216,14 +2246,27 @@ mixin TimelineEdits on ChangeNotifier {
 
       side('in', appear);
       side('out', disappear);
-      _writeImageAnimation(clip);
+      _writeClipAnimation(clip);
     });
   }
 
+  /// Compatibility entry point retained for project extensions and tests.
+  void setImageEntryExit(
+    String clipId, {
+    String? appear,
+    String? disappear,
+    double? seconds,
+  }) => setClipEntryExit(
+    clipId,
+    appear: appear,
+    disappear: disappear,
+    seconds: seconds,
+  );
+
   /// Drops every generated animation and leaves the clip at its resting pose.
-  void clearImageAnimation(String clipId) {
+  void clearClipAnimation(String clipId) {
     final clip = _editableClip(clipId);
-    if (clip == null || !_isImageClip(clip)) return;
+    if (clip == null || !_isVisualMediaClip(clip)) return;
     final spec = imageAnimSpec(clip);
     final transform = clip.transform;
     if (transform == null) return;
@@ -2245,20 +2288,55 @@ mixin TimelineEdits on ChangeNotifier {
                 .whereType<String>()
                 .toList();
     if (generated.isEmpty && spec == null) return;
-    final base = _restingValues(clip, spec);
-    _run('Clear image animation', (tx) {
+    _run('Clear clip animation', (tx) {
       tx.clip(clipId);
-      _removeManagedEffects(clip, spec);
-      clip.extra.remove(_animKey);
+      if (spec != null) {
+        _clearGeneratedClipAnimation(clip);
+        return;
+      }
       for (final id in generated) {
         final param = params[id];
         if (param == null) continue;
+        final resting = param.evaluate(clip.duration);
         param.keyframes.clear();
         // Projects predating the spec have no resting pose recorded, so they
         // keep the old contract: settle on the value the motion ended at.
-        param.static = spec == null ? param.evaluate(clip.duration) : base[id];
+        param.static = resting;
       }
     });
+  }
+
+  /// Compatibility entry point retained for project extensions and tests.
+  void clearImageAnimation(String clipId) => clearClipAnimation(clipId);
+
+  /// Removes the generated spec, keys and owned effects without opening a
+  /// transaction. Callers use this while switching animation workflows inside
+  /// an existing undoable edit.
+  void _clearGeneratedClipAnimation(Clip clip) {
+    final spec = imageAnimSpec(clip);
+    if (spec == null) return;
+    final transform = clip.transform;
+    if (transform == null) {
+      clip.extra.remove(_animKey);
+      return;
+    }
+    final base = _restingValues(clip, spec);
+    final params = <String, ParamValue>{
+      'x': transform.x,
+      'y': transform.y,
+      'scale': transform.scale,
+      'opacity': transform.opacity,
+    };
+    final generated = ((spec['params'] as List?) ?? const [])
+        .whereType<String>();
+    _removeManagedEffects(clip, spec);
+    clip.extra.remove(_animKey);
+    for (final id in generated) {
+      final param = params[id];
+      if (param == null) continue;
+      param.keyframes.clear();
+      param.static = base[id];
+    }
   }
 
   Map<String, dynamic> _ensureAnimSpec(Clip clip) {
@@ -2316,7 +2394,7 @@ mixin TimelineEdits on ChangeNotifier {
     if (!_animParams.contains(paramId)) return;
     final base = _restingValues(clip, spec)..[paramId] = value;
     spec['base'] = base;
-    _writeImageAnimation(clip);
+    _writeClipAnimation(clip);
   }
 
   void _removeManagedEffects(Clip clip, Map<String, dynamic>? spec) {
@@ -2328,7 +2406,7 @@ mixin TimelineEdits on ChangeNotifier {
 
   /// Regenerates every generated keyframe and managed effect on [clip] from
   /// its spec. Must run inside an open transaction.
-  void _writeImageAnimation(Clip clip) {
+  void _writeClipAnimation(Clip clip) {
     final spec = imageAnimSpec(clip);
     if (spec == null) return;
     _removeManagedEffects(clip, spec);

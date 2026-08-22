@@ -51,6 +51,11 @@ Per-clip effect stacks covering the creator basics: color correction, blur famil
   - Position x/y are **document** pixels. The compositor scales them into whatever canvas it is rendering (`RenderContext.positionScaleX/Y`), so a preview rendered small and the delivered frame put a clip in the same place.
   - Resampling: a layer drawn at 1:1 (text rasterized for the frame, footage at sequence size) is copied pixel for pixel; anything scaled or rotated is bilinear-filtered in premultiplied alpha. Nearest-neighbour was visibly blocky on scaled logos and text, and interpolating straight alpha put a dark fringe on every transparent edge.
   - Editable on the monitor as well as in the inspector — see TXT-6. `app/lib/state/canvas_geometry.dart` mirrors `rasterizeLayer()` so the handles land on the pixels; `app/test/canvas_gizmo_parity_test.dart` renders through the engine at several canvas sizes and asserts the two still agree.
+- **FX-15** Align & distribute for the selected visual clips, in the inspector's Transform tab: 6 align actions (left/centre/right, top/middle/bottom) and 2 distribute actions (horizontal/vertical).
+  - Reference frame: with several clips selected they line up against the **union of their own footprints**; with exactly one selected, against the **sequence canvas**.
+  - A clip's footprint is the axis-aligned bounding box of its rotated layer rect (`rotatedBounds` in `canvas_geometry.dart`), evaluated at the playhead — position/scale/rotation are animatable, so alignment is a snapshot of the pose on screen.
+  - Distribute equalises the *gaps*; the outermost two clips stay put, so it needs three or more.
+  - Writes go through the same rebasing `setTransformParam` path the on-canvas gizmo uses, and the whole batch is one undo step. Text clips are excluded — they have no size in the document model.
 - **FX-10** Crop effect: left/right/top/bottom % or px, feather edge option, rounded corners (radius px) — rounded corners double as image styling favorite.
 - **FX-11** Drop shadow effect for images/text-on-image use: offset, blur, color, opacity.
 

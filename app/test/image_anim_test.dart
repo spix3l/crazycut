@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:crazycut_app/data/param_value.dart';
 import 'package:crazycut_app/data/project.dart';
+import 'package:crazycut_app/data/text_content.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/timeline_edits.dart';
 
@@ -25,14 +26,14 @@ class Edits extends ChangeNotifier with TimelineEdits {
 
 Rt s(double seconds) => Rt.fromSeconds(seconds);
 
-(Edits, Clip) harness({double duration = 6}) {
+(Edits, Clip) harness({double duration = 6, String type = 'image'}) {
   final doc = ProjectDoc.empty('Test', width: 1920, height: 1080, fps: 30);
   doc.media.add(
     MediaAsset(
       id: 'img',
       name: 'photo.png',
       path: '/tmp/photo.png',
-      type: 'image',
+      type: type,
       duration: s(duration),
       hasAudio: false,
       width: 1000,
@@ -60,12 +61,58 @@ double evalAt(ParamValue pv, double seconds) {
   return v is num ? v.toDouble() : double.nan;
 }
 
-Map<String, dynamic>? fxOf(Clip clip, String type) => clip.effects
-    .whereType<Map<String, dynamic>>()
-    .where((e) => e['type'] == type)
-    .firstOrNull;
+Map<String, dynamic>? fxOf(Clip clip, String type) =>
+    clip.effects
+        .whereType<Map<String, dynamic>>()
+        .where((e) => e['type'] == type)
+        .firstOrNull;
 
 void main() {
+  group('visual clip coverage', () {
+    test('video clips have the same explicit entry and leave animation', () {
+      final (e, clip) = harness(type: 'video');
+
+      e.setClipEntryExit(clip.id, appear: 'slideLeft', disappear: 'fade');
+
+      expect(e.clipAnimationPreset(clip, 'in'), 'slideLeft');
+      expect(e.clipAnimationPreset(clip, 'out'), 'fade');
+      expect(evalAt(clip.transform!.x, 0), greaterThan(0));
+      expect(evalAt(clip.transform!.opacity, 6), 0);
+
+      e.clearClipAnimation(clip.id);
+      expect(e.clipAnimationSpec(clip), isNull);
+      expect(clip.transform!.x.animated, isFalse);
+      expect(clip.transform!.opacity.animated, isFalse);
+    });
+
+    test('audio-only clips do not receive visual edge animation', () {
+      final (e, clip) = harness(type: 'audio');
+
+      e.setClipEntryExit(clip.id, appear: 'fade');
+
+      expect(clip.transform, isNull);
+      expect(e.clipAnimationSpec(clip), isNull);
+    });
+
+    test('text clips switch cleanly between presets and edge animation', () {
+      final (e, clip) = harness();
+      clip.text = TextContent(content: 'Lower third');
+      e.applyTextPreset(clip.id, 'pop');
+
+      e.setClipEntryExit(clip.id, appear: 'fade', disappear: 'slideLeft');
+
+      expect(clip.text!.animation, isEmpty);
+      expect(e.clipAnimationPreset(clip, 'in'), 'fade');
+      expect(e.clipAnimationPreset(clip, 'out'), 'slideLeft');
+
+      e.applyTextPreset(clip.id, 'slideUp');
+
+      expect(e.clipAnimationSpec(clip), isNull);
+      expect(clip.text!.animation, 'slideUp');
+      expect(evalAt(clip.transform!.y, 0), -120);
+    });
+  });
+
   group('appear / disappear', () {
     test('fade in ramps opacity from zero to the resting value', () {
       final (e, clip) = harness();

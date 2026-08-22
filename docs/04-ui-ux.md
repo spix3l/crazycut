@@ -39,6 +39,7 @@ Grid/list toggle, search, sort, zoom slider. Persistent "Import" drop zone card 
 - Zoom control: Fit / 25 / 50 / 100%; playback quality dropdown (Auto/Full/Half/Proxy) reflecting engine tiers.
 - Transport: |« prev edit, play/pause (space), next edit », loop in-out toggle, timecode (current / total), master meter.
 - On-canvas manipulation for selected visual clips (move/scale/rotate/text-edit per TXT-6).
+- Shift/⌘-click an image on the canvas to add it to the selection; every selected image is outlined, handles stay on the one being manipulated. Multi-selections feed the inspector's align/distribute actions (FX-15).
 
 ### 3.3 Inspector
 Contextual tabs by selection:

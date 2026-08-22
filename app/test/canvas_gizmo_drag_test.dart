@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' hide Clip;
 import 'package:flutter_test/flutter_test.dart';
 
@@ -329,6 +330,83 @@ void main() {
       other.transformOrDefault.x.static,
       otherX,
       reason: 'the image that was not clicked must not move',
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    c.dispose();
+  });
+
+  testWidgets('shift-clicking an image adds it to the canvas selection', (
+    tester,
+  ) async {
+    final doc = buildDoc();
+    final c = EditorController(doc, path: '${tmp.path}/p4.crazycut');
+    final upper = c.addTrack('video');
+    doc.clips.add(
+      Clip(
+        id: 'c2',
+        trackId: upper.id,
+        mediaId: 'i',
+        label: 'logo 2',
+        start: Rt.zero(),
+        duration: Rt.fromSeconds(5),
+        sourceIn: Rt.zero(),
+        transform: ClipTransform(
+          x: ParamValue.staticNum(400),
+          y: ParamValue.staticNum(0),
+          scale: ParamValue.staticNum(40),
+        ),
+      ),
+    );
+    c.playhead = Rt.fromSeconds(2);
+    c.selection.add('c');
+
+    const boxW = 1114.0, boxH = 626.0;
+    tester.view.physicalSize = const ui.Size(boxW, boxH);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Center(
+          child: SizedBox(
+            width: boxW,
+            height: boxH,
+            child: CanvasGizmo(controller: c),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final secondX = doc.clipById('c2')!.transformOrDefault.x.static;
+    final rect = layerRectInSequence(
+      seqW: seqW,
+      seqH: seqH,
+      srcW: srcW,
+      srcH: srcH,
+      framing: 'fit',
+      x: 400,
+      y: 0,
+      scalePercent: 40,
+    );
+    final seqPerPx = seqW / boxW;
+    final origin = tester.getTopLeft(find.byType(CanvasGizmo));
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shift);
+    // A bare click, not a drag: the pan slop would swallow it, which is why the
+    // selection happens at pointer-down.
+    await tester.tapAt(
+      origin + ui.Offset(rect.center.dx / seqPerPx, rect.center.dy / seqPerPx),
+    );
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shift);
+    await tester.pump();
+
+    expect(c.selection, {'c', 'c2'});
+    expect(
+      doc.clipById('c2')!.transformOrDefault.x.static,
+      secondX,
+      reason: 'extending the selection must not move anything',
     );
 
     await tester.pumpWidget(const SizedBox.shrink());
