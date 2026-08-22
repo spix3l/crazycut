@@ -328,43 +328,42 @@ class _CcMultilineTextFieldState extends State<CcMultilineTextField> {
   @override
   Widget build(BuildContext context) {
     final style = CcType.style(size: 12, color: CcColors.textPrimary);
-    return Container(
-      constraints: const BoxConstraints(minHeight: 36),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: CcColors.elevated,
-        borderRadius: CcRadius.brMd,
-        border: Border.all(color: CcColors.borderStrong),
-      ),
-      child: ValueListenableBuilder<TextEditingValue>(
-        valueListenable: widget.controller,
-        builder: (context, value, _) => Stack(
-          children: [
-            if (value.text.isEmpty && widget.placeholder != null)
-              IgnorePointer(
-                child: Text(
-                  widget.placeholder!,
-                  style: CcType.style(size: 12, color: CcColors.textTertiary),
+    return AnimatedBuilder(
+      animation: _focus,
+      builder: (context, _) => Container(
+        constraints: const BoxConstraints(minHeight: 36),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: CcDeco.input(focused: _focus.hasFocus),
+        child: ValueListenableBuilder<TextEditingValue>(
+          valueListenable: widget.controller,
+          builder: (context, value, _) => Stack(
+            children: [
+              if (value.text.isEmpty && widget.placeholder != null)
+                IgnorePointer(
+                  child: Text(
+                    widget.placeholder!,
+                    style: CcType.style(size: 12, color: CcColors.textTertiary),
+                  ),
                 ),
+              EditableText(
+                controller: widget.controller,
+                focusNode: _focus,
+                autofocus: widget.autofocus,
+                style: style,
+                cursorColor: CcColors.accent,
+                backgroundCursorColor: CcColors.elevated2,
+                selectionColor: CcColors.accent.withValues(alpha: 0.35),
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
+                minLines: widget.minLines,
+                maxLines: widget.maxLines,
+                onTapOutside: (_) => _focus.unfocus(
+                  disposition: UnfocusDisposition.previouslyFocusedChild,
+                ),
+                onChanged: widget.onChanged,
               ),
-            EditableText(
-              controller: widget.controller,
-              focusNode: _focus,
-              autofocus: widget.autofocus,
-              style: style,
-              cursorColor: CcColors.accent,
-              backgroundCursorColor: CcColors.elevated2,
-              selectionColor: CcColors.accent.withValues(alpha: 0.35),
-              keyboardType: TextInputType.multiline,
-              textInputAction: TextInputAction.newline,
-              minLines: widget.minLines,
-              maxLines: widget.maxLines,
-              onTapOutside: (_) => _focus.unfocus(
-                disposition: UnfocusDisposition.previouslyFocusedChild,
-              ),
-              onChanged: widget.onChanged,
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -488,6 +487,8 @@ class CcSlider extends StatelessWidget {
     this.handleSize = 10,
     this.fillColor = CcColors.accent,
     this.onChanged,
+    this.onChangeStart,
+    this.onChangeEnd,
   });
 
   /// 0..1
@@ -498,6 +499,8 @@ class CcSlider extends StatelessWidget {
 
   /// Null keeps the slider decorative (the design has a few of those).
   final ValueChanged<double>? onChanged;
+  final VoidCallback? onChangeStart;
+  final VoidCallback? onChangeEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -506,11 +509,18 @@ class CcSlider extends StatelessWidget {
         final width = constraints.maxWidth;
         final filled = (width * value.clamp(0, 1));
         void emit(Offset local) => onChanged?.call((local.dx / width).clamp(0.0, 1.0));
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTapDown: onChanged == null ? null : (d) => emit(d.localPosition),
-          onHorizontalDragUpdate: onChanged == null ? null : (d) => emit(d.localPosition),
-          child: SizedBox(
+        return Listener(
+          onPointerDown:
+              onChanged == null ? null : (_) => onChangeStart?.call(),
+          onPointerUp: onChanged == null ? null : (_) => onChangeEnd?.call(),
+          onPointerCancel:
+              onChanged == null ? null : (_) => onChangeEnd?.call(),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: onChanged == null ? null : (d) => emit(d.localPosition),
+            onHorizontalDragUpdate:
+                onChanged == null ? null : (d) => emit(d.localPosition),
+            child: SizedBox(
             height: handleSize,
             child: Stack(
               clipBehavior: Clip.none,
@@ -543,6 +553,7 @@ class CcSlider extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
             ),
           ),
         );

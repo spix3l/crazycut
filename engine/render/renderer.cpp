@@ -115,6 +115,18 @@ Error renderFrame(const json& document, const RationalTime& time, int width,
   RenderContext ctx;
   ctx.sequenceWidth = width;
   ctx.sequenceHeight = height;
+  {
+    // Document size, so clip positions can be mapped from the document pixels
+    // they are authored in into whatever canvas this call is rendering.
+    const json* settings = document.contains("settings") &&
+                                   document["settings"].is_object()
+                               ? &document["settings"]
+                               : nullptr;
+    const int docW = settings ? settings->value("width", width) : width;
+    const int docH = settings ? settings->value("height", height) : height;
+    if (docW > 0) ctx.positionScaleX = static_cast<double>(width) / docW;
+    if (docH > 0) ctx.positionScaleY = static_cast<double>(height) / docH;
+  }
 
   // Background from settings (#RRGGBB).
   out->width = width;
@@ -260,8 +272,11 @@ Error renderFrame(const json& document, const RationalTime& time, int width,
       CompositedLayer layer;
       Error err = loadSide(side, &local, surf, &layer);
       if (err != Error::None) return err;
-      std::string framing = "fit";
-      if (side.contains("transform") && side["transform"].is_object()) {
+      const bool isText = side.value("mediaId", "").empty() &&
+                          side.contains("text") && side["text"].is_object();
+      std::string framing = isText ? "native" : "fit";
+      if (!isText && side.contains("transform") &&
+          side["transform"].is_object()) {
         framing = side["transform"].value("framing", "fit");
       }
       if (layer.opacity <= 0.0) return Error::None;

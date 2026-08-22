@@ -43,7 +43,12 @@ void main() {
     return path;
   }
 
-  /// Bounding box of the non-black pixels the engine actually drew.
+  /// Bounding box of the non-black pixels the engine actually drew, reported
+  /// in *document* pixels so it can be compared with the gizmo's rect.
+  ///
+  /// [renderWidth] is the canvas the frame is rasterised into, which for a
+  /// preview is routinely smaller than the document — the monitor renders at
+  /// widget resolution and caps at 960 during playback.
   ui.Rect? drawnRect({
     required String path,
     required int srcW,
@@ -52,6 +57,7 @@ void main() {
     required double x,
     required double y,
     required double scale,
+    int renderWidth = seqW,
   }) {
     final doc = ProjectDoc.empty('P', width: seqW, height: seqH, fps: 30);
     doc.media.add(
@@ -83,18 +89,19 @@ void main() {
         ),
       ),
     );
+    final renderHeight = (renderWidth * seqH / seqW).round();
     final engine = CrazyCutEngine.instance;
     engine.setProjectSnapshot(doc.encode(touchModified: false));
     final frame = engine.renderFrameRgba(
       time: Rt.fromSeconds(1),
-      width: seqW,
-      height: seqH,
+      width: renderWidth,
+      height: renderHeight,
       mediaPaths: {'i': path},
     );
-    var left = seqW, top = seqH, right = -1, bottom = -1;
-    for (var py = 0; py < seqH; py += 1) {
-      for (var px = 0; px < seqW; px += 1) {
-        if (frame.rgba[(py * seqW + px) * 4] <= 40) continue;
+    var left = renderWidth, top = renderHeight, right = -1, bottom = -1;
+    for (var py = 0; py < renderHeight; py += 1) {
+      for (var px = 0; px < renderWidth; px += 1) {
+        if (frame.rgba[(py * renderWidth + px) * 4] <= 40) continue;
         if (px < left) left = px;
         if (px > right) right = px;
         if (py < top) top = py;
@@ -103,11 +110,13 @@ void main() {
     }
     if (right < 0) return null;
     // Pixel indices are inclusive; the predicted rect's edges are exclusive.
+    final kx = seqW / renderWidth;
+    final ky = seqH / renderHeight;
     return ui.Rect.fromLTRB(
-      left.toDouble(),
-      top.toDouble(),
-      right + 1.0,
-      bottom + 1.0,
+      left * kx,
+      top * ky,
+      (right + 1) * kx,
+      (bottom + 1) * ky,
     );
   }
 
@@ -118,6 +127,7 @@ void main() {
     double x = 0,
     double y = 0,
     double scale = 100,
+    int renderWidth = seqW,
   }) async {
     final path = await source(srcW, srcH);
     final drawn = drawnRect(
@@ -128,6 +138,7 @@ void main() {
       x: x,
       y: y,
       scale: scale,
+      renderWidth: renderWidth,
     );
     final predicted = layerRectInSequence(
       seqW: seqW,
@@ -140,17 +151,19 @@ void main() {
       scalePercent: scale,
     );
     expect(drawn, isNotNull, reason: 'the engine drew nothing');
-    final reason = '${srcW}x$srcH $framing x=$x y=$y scale=$scale';
-    // One pixel of slack: the compositor rounds its destination rect to whole
-    // pixels, and off-canvas edges are clipped by the canvas.
-    expect(drawn!.left, closeTo(predicted.left.clamp(0, seqW), 1), reason: reason);
-    expect(drawn.top, closeTo(predicted.top.clamp(0, seqH), 1), reason: reason);
-    expect(drawn.right, closeTo(predicted.right.clamp(0, seqW), 1), reason: reason);
-    expect(
-      drawn.bottom,
-      closeTo(predicted.bottom.clamp(0, seqH), 1),
-      reason: reason,
-    );
+    final reason =
+        '${srcW}x$srcH $framing x=$x y=$y scale=$scale render=$renderWidth';
+    // Slack of one document pixel per render pixel: the compositor rounds its
+    // destination rect to whole pixels, and off-canvas edges are clipped.
+    final slack = seqW / renderWidth;
+    expect(drawn!.left, closeTo(predicted.left.clamp(0, seqW), slack),
+        reason: reason);
+    expect(drawn.top, closeTo(predicted.top.clamp(0, seqH), slack),
+        reason: reason);
+    expect(drawn.right, closeTo(predicted.right.clamp(0, seqW), slack),
+        reason: reason);
+    expect(drawn.bottom, closeTo(predicted.bottom.clamp(0, seqH), slack),
+        reason: reason);
   }
 
   test('a fitted image lands where the gizmo predicts', () async {
@@ -172,6 +185,33 @@ void main() {
   test('fill and stretch framing agree too', () async {
     await expectParity(srcW: 400, srcH: 400, framing: 'fill', scale: 50);
     await expectParity(srcW: 800, srcH: 600, framing: 'stretch', scale: 70);
+  });
+
+  // The monitor renders at widget resolution, capped at 960 wide during
+  // playback, so the preview canvas is routinely a fraction of the document.
+  // Transform x/y are authored in document pixels, and until the compositor
+  // brought them into render space a half-size preview put the image twice as
+  // far from centre as its handles — the drawn image slid out of its own box
+  // as soon as it was moved off centre.
+  test('a smaller preview canvas puts the image in the same place', () async {
+    for (final renderWidth in [seqW, seqW ~/ 2, 200]) {
+      await expectParity(
+        srcW: 400,
+        srcH: 400,
+        x: 120,
+        y: -60,
+        scale: 50,
+        renderWidth: renderWidth,
+      );
+      await expectParity(
+        srcW: 800,
+        srcH: 600,
+        x: -90,
+        y: 40,
+        scale: 70,
+        renderWidth: renderWidth,
+      );
+    }
   });
 
   test('a drag resolved by GizmoDrag pins the handle it was told to', () async {

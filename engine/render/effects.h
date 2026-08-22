@@ -56,8 +56,17 @@ struct RgbaSurface {
 };
 
 struct RenderContext {
+  // The canvas being rendered *into*, which is not always the document's own
+  // size: previews render small for speed and an export can downscale.
   int sequenceWidth = 1920;
   int sequenceHeight = 1080;
+
+  // Render px per document px. Transform x/y are authored in document pixels
+  // (02-data-model.md §5), so they have to be brought into render space or a
+  // half-size preview puts a clip twice as far from centre as the delivered
+  // frame does. 1.0 when rendering at the document's own size.
+  double positionScaleX = 1.0;
+  double positionScaleY = 1.0;
 
   // Height used to normalise "px@1080" units (FX-7).
   double unitScale() const {

@@ -73,8 +73,8 @@ void applyTransformJson(const json& transform, const RationalTime& local,
     evaluateParameter(*ait, local, &anchor);
   }
 
-  layer->x = evalNum("x", 0.0);
-  layer->y = evalNum("y", 0.0);
+  layer->x = evalNum("x", 0.0) * ctx.positionScaleX;
+  layer->y = evalNum("y", 0.0) * ctx.positionScaleY;
   layer->scale = evalNum("scale", 100.0) / 100.0;
   layer->rotationDeg = evalNum("rotation", 0.0);
   layer->opacity = clampd(evalNum("opacity", 100.0), 0.0, 100.0) / 100.0;
@@ -84,7 +84,6 @@ void applyTransformJson(const json& transform, const RationalTime& local,
   }
   layer->flipH = transform.value("flipH", false);
   layer->flipV = transform.value("flipV", false);
-  (void)ctx;
 }
 
 Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
@@ -110,7 +109,12 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
   const double sx = static_cast<double>(W) / src.width;
   const double sy = static_cast<double>(H) / src.height;
   double kx, ky;
-  if (framing == "stretch") {
+  if (framing == "native") {
+    // Text is already rasterized for this output size. Treating its tight
+    // glyph bounds like image media and fitting them to the canvas made every
+    // caption balloon to nearly full-frame size, regardless of fontSize.
+    kx = ky = layer.scale;
+  } else if (framing == "stretch") {
     kx = sx * layer.scale;
     ky = sy * layer.scale;
   } else {

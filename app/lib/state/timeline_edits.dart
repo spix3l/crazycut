@@ -392,9 +392,11 @@ mixin TimelineEdits on ChangeNotifier {
 
   /// True when a transition deliberately overlaps [a] and [b], so neither may
   /// be slid out from under the span. sanitizeTransitions re-seats those.
-  bool _partnered(Clip a, Clip b) => doc.transitions.any((t) =>
-      (t.aClipId == a.id && t.bClipId == b.id) ||
-      (t.bClipId == a.id && t.aClipId == b.id));
+  bool _partnered(Clip a, Clip b) => doc.transitions.any(
+    (t) =>
+        (t.aClipId == a.id && t.bClipId == b.id) ||
+        (t.bClipId == a.id && t.aClipId == b.id),
+  );
 
   /// The earliest start [anchor] may take on [trackId] without landing on top
   /// of a clip that begins before [desiredStart].
@@ -625,8 +627,12 @@ mixin TimelineEdits on ChangeNotifier {
       final clip = doc.clipById(entry.key);
       if (clip == null) continue;
       final desired = entry.value.start.plus(shift);
-      final floor = _floorFor(clip, targets[entry.key]!, desired,
-          moving: moving);
+      final floor = _floorFor(
+        clip,
+        targets[entry.key]!,
+        desired,
+        moving: moving,
+      );
       final needed = floor.minus(entry.value.start);
       if (needed > shift) shift = needed;
     }
@@ -1127,9 +1133,10 @@ mixin TimelineEdits on ChangeNotifier {
     // Growing consumes fresh handles from BOTH sides (each pays its own
     // share), so the feasible total is duration + aRoom + bRoom; shrinking
     // always returns handles, feasible down to one frame (TRA-6).
-    final feasibleMax = growing
-        ? tr.duration.plus(aLeft).plus(bLeft)
-        : target.clampTo(minDur, tr.duration);
+    final feasibleMax =
+        growing
+            ? tr.duration.plus(aLeft).plus(bLeft)
+            : target.clampTo(minDur, tr.duration);
     if (target > feasibleMax) target = feasibleMax;
 
     var (newA, newB) = _redistribute(target, tr);
@@ -1137,8 +1144,6 @@ mixin TimelineEdits on ChangeNotifier {
     // (for a butt joint at c), and B's far edge c+origDur never moves. A side
     // may not extend past the partner's far edge, so clamp each side by the
     // partner's reach before accepting the split.
-
-
 
     // A's growth may not pass B's far edge: aA ≤ B's original duration.
     final origDurB = b.duration.minus(tr.bExtend);
@@ -1244,8 +1249,6 @@ mixin TimelineEdits on ChangeNotifier {
       _applyExtends(tx, tr, a, b, newA, newB);
     });
   }
-
-
 
   Rt dMax() => Rt.fromMicros(1 << 40); // "infinite" within int64 safety
 
@@ -1950,8 +1953,9 @@ mixin TimelineEdits on ChangeNotifier {
   }
 
   /// Bakes an animation preset into the clip's TRANSFORM as editable
-  /// keyframes (TXT-5); times scale by 1/[speed]. Never destroys values the
-  /// user already animated — preset keys overwrite only their own params.
+  /// keyframes (TXT-5); times scale by 1/[speed]. Switching presets first
+  /// removes the channels owned by the previous preset, so stale scale or
+  /// position keys cannot leak into the newly selected animation.
   void applyTextPreset(String clipId, String preset, {double speed = 1.0}) {
     final clip = doc.clipById(clipId);
     if (clip == null || _locked(clip.trackId)) return;
@@ -1981,11 +1985,13 @@ mixin TimelineEdits on ChangeNotifier {
 
     _run('Apply text animation', (tx) {
       tx.clip(clipId);
+      final previous = clip.text?.animation ?? '';
+      final tr = clip.transform?.copy() ?? ClipTransform();
+      _clearTextPresetChannels(tr, previous);
       // Keep the selected preset visible in the inspector. This is
       // provenance only; baked keyframes remain the playback source of truth.
       clip.text ??= TextContent();
       clip.text!.animation = preset;
-      final tr = clip.transform?.copy() ?? ClipTransform();
       switch (preset) {
         case 'fade':
           keys(
@@ -2055,13 +2061,54 @@ mixin TimelineEdits on ChangeNotifier {
             ]);
           tr.opacity.sortKeys();
         case 'typewriter':
-          // Typewriter is evaluated from this provenance flag by the text
-          // rasterizer rather than transform keyframes.
+        // Typewriter is evaluated from this provenance flag by the text
+        // rasterizer rather than transform keyframes.
         default:
           return;
       }
       clip.transform = tr;
     });
+  }
+
+  /// Removes the active text animation and returns its generated transform
+  /// channels to their neutral values. This is intentionally a visible choice
+  /// in the inspector instead of making the selected preset impossible to
+  /// undo without opening the keyframe editor.
+  void clearTextPreset(String clipId) {
+    final clip = doc.clipById(clipId);
+    if (clip == null || clip.text == null || _locked(clip.trackId)) return;
+    _run('Remove text animation', (tx) {
+      tx.clip(clipId);
+      final tr = clip.transform?.copy() ?? ClipTransform();
+      _clearTextPresetChannels(tr, clip.text!.animation);
+      clip.text!.animation = '';
+      clip.transform = tr;
+    });
+  }
+
+  void _clearTextPresetChannels(ClipTransform tr, String preset) {
+    void neutral(ParamValue value, double resting) {
+      value.keyframes.clear();
+      value.static = resting;
+    }
+
+    switch (preset) {
+      case 'fade' || 'blink':
+        neutral(tr.opacity, 100);
+      case 'pop':
+        neutral(tr.scale, 100);
+        neutral(tr.opacity, 100);
+      case 'slideLeft' || 'slideRight':
+        neutral(tr.x, 0);
+        neutral(tr.opacity, 100);
+      case 'slideUp' || 'slideDown' || 'rise':
+        neutral(tr.y, 0);
+        neutral(tr.opacity, 100);
+      case 'typewriter' || '':
+        return;
+      default:
+        return;
+    }
   }
 
   // --- Image animation (TXT-9 motion + entry/exit) ----------------------------
@@ -2105,8 +2152,7 @@ mixin TimelineEdits on ChangeNotifier {
   double imageAnimSeconds(Clip clip, String side) {
     final entry = imageAnimSpec(clip)?[side];
     return entry is Map
-        ? ((entry['seconds'] as num?)?.toDouble() ??
-              kImageEntryDefaultSeconds)
+        ? ((entry['seconds'] as num?)?.toDouble() ?? kImageEntryDefaultSeconds)
         : kImageEntryDefaultSeconds;
   }
 
@@ -2117,8 +2163,7 @@ mixin TimelineEdits on ChangeNotifier {
   Map<String, double> imageAnimResting(Clip clip) =>
       _restingValues(clip, imageAnimSpec(clip));
 
-  bool _isImageClip(Clip clip) =>
-      doc.assetById(clip.mediaId)?.type == 'image';
+  bool _isImageClip(Clip clip) => doc.assetById(clip.mediaId)?.type == 'image';
 
   /// TXT-9: full-clip Ken Burns move. Pass null to drop the motion and keep
   /// whatever entry/exit animation is set.
@@ -2189,12 +2234,15 @@ mixin TimelineEdits on ChangeNotifier {
     };
     // Only ever undo what a preset generated, so hand-authored keys on an
     // untouched parameter (a manual opacity ramp, say) survive the clear.
-    final generated = spec == null
-        ? [
-            for (final e in params.entries)
-              if (e.key != 'opacity' && e.value.animated) e.key,
-          ]
-        : ((spec['params'] as List?) ?? const []).whereType<String>().toList();
+    final generated =
+        spec == null
+            ? [
+              for (final e in params.entries)
+                if (e.key != 'opacity' && e.value.animated) e.key,
+            ]
+            : ((spec['params'] as List?) ?? const [])
+                .whereType<String>()
+                .toList();
     if (generated.isEmpty && spec == null) return;
     final base = _restingValues(clip, spec);
     _run('Clear image animation', (tx) {
@@ -2299,12 +2347,14 @@ mixin TimelineEdits on ChangeNotifier {
     final outType = imageAnimPreset(clip, 'out');
     // Neither side may eat more than its half of the clip, or a short clip
     // would animate in while it is still animating out.
-    final inSec = inType == null
-        ? 0.0
-        : imageAnimSeconds(clip, 'in').clamp(0.05, durSec / 2);
-    final outSec = outType == null
-        ? 0.0
-        : imageAnimSeconds(clip, 'out').clamp(0.05, durSec / 2);
+    final inSec =
+        inType == null
+            ? 0.0
+            : imageAnimSeconds(clip, 'in').clamp(0.05, durSec / 2);
+    final outSec =
+        outType == null
+            ? 0.0
+            : imageAnimSeconds(clip, 'out').clamp(0.05, durSec / 2);
 
     // 1. The resting curve: the Ken Burns move if there is one, else flat.
     final curves = <String, List<Map<String, dynamic>>>{
@@ -2317,7 +2367,9 @@ mixin TimelineEdits on ChangeNotifier {
       if (keys.isEmpty) return base[key]!;
       final probe = ParamValue(
         static: base[key],
-        keyframes: [for (final k in keys) {...k}],
+        keyframes: [
+          for (final k in keys) {...k},
+        ],
       );
       final v = probe.evaluate(at(seconds));
       return v is num ? v.toDouble() : base[key]!;
@@ -2382,10 +2434,11 @@ mixin TimelineEdits on ChangeNotifier {
         'enabled': true,
         'params': {
           for (final entry in byParam.entries)
-            entry.key: ParamValue(
-              static: entry.value.first['v'],
-              keyframes: entry.value,
-            ).toJson(),
+            entry.key:
+                ParamValue(
+                  static: entry.value.first['v'],
+                  keyframes: entry.value,
+                ).toJson(),
         },
       };
       clip.effects.add(instance);
@@ -2480,9 +2533,7 @@ mixin TimelineEdits on ChangeNotifier {
           'interp': seconds < (entering ? endSec : clipSec) ? interp : 'linear',
         });
       }
-      keys.sort(
-        (a, b) => ParamValue.timeOf(a).compareTo(ParamValue.timeOf(b)),
-      );
+      keys.sort((a, b) => ParamValue.timeOf(a).compareTo(ParamValue.timeOf(b)));
     }
 
     /// Fades opacity to zero at the outer edge. Every look uses it: an image
@@ -2510,9 +2561,7 @@ mixin TimelineEdits on ChangeNotifier {
           'interp': 'linear',
         },
       ]);
-      keys.sort(
-        (a, b) => ParamValue.timeOf(a).compareTo(ParamValue.timeOf(b)),
-      );
+      keys.sort((a, b) => ParamValue.timeOf(a).compareTo(ParamValue.timeOf(b)));
     }
 
     switch (type) {
@@ -3104,7 +3153,6 @@ mixin TimelineEdits on ChangeNotifier {
     params[paramId] = pv.toJson();
   }
 
-
   /// KEY-3: the first-ever key seeds from the current static value; a second
   /// toggle at the same time removes the key again (◆ behaviour).
   void toggleKeyframe(
@@ -3166,29 +3214,29 @@ mixin TimelineEdits on ChangeNotifier {
     _run('Set keyframe value', (tx) {
       tx.clip(clipId);
       mutateParam(clip, effectInstanceId, paramId, (pv) {
-      final time = t.clampTo(Rt.zero(), clip.duration);
-      if (!pv.animated) {
-        pv.keyframes.add({
-          't': Rt.zero().toString(),
-          'v': pv.static,
-          'interp': 'linear',
-        });
-      }
-      final hit = pv.keyframes.indexWhere(
-        (k) =>
-            (ParamValue.timeOf(k) - time).micros.abs() <=
-            frameDuration.micros ~/ 2,
-      );
-      if (hit >= 0) {
-        pv.keyframes[hit]['v'] = value;
-      } else {
-        pv.keyframes.add({
-          't': time.toString(),
-          'v': value,
-          'interp': 'linear',
-        });
-      }
-      pv.sortKeys();
+        final time = t.clampTo(Rt.zero(), clip.duration);
+        if (!pv.animated) {
+          pv.keyframes.add({
+            't': Rt.zero().toString(),
+            'v': pv.static,
+            'interp': 'linear',
+          });
+        }
+        final hit = pv.keyframes.indexWhere(
+          (k) =>
+              (ParamValue.timeOf(k) - time).micros.abs() <=
+              frameDuration.micros ~/ 2,
+        );
+        if (hit >= 0) {
+          pv.keyframes[hit]['v'] = value;
+        } else {
+          pv.keyframes.add({
+            't': time.toString(),
+            'v': value,
+            'interp': 'linear',
+          });
+        }
+        pv.sortKeys();
       });
     });
   }
@@ -3246,17 +3294,17 @@ mixin TimelineEdits on ChangeNotifier {
     _run('Move keyframe', (tx) {
       tx.clip(clipId);
       mutateParam(clip, effectInstanceId, paramId, (pv) {
-      final from = oldT.clampTo(Rt.zero(), clip.duration);
-      final hit = pv.keyframes.indexWhere(
-        (k) =>
-            (ParamValue.timeOf(k) - from).micros.abs() <=
-            frameDuration.micros ~/ 2,
-      );
-      if (hit < 0) return;
-      final moved = {...pv.keyframes[hit], 't': applied.toString()};
-      pv.keyframes[hit] = moved;
-      pv.sortKeys();
-      result = applied;
+        final from = oldT.clampTo(Rt.zero(), clip.duration);
+        final hit = pv.keyframes.indexWhere(
+          (k) =>
+              (ParamValue.timeOf(k) - from).micros.abs() <=
+              frameDuration.micros ~/ 2,
+        );
+        if (hit < 0) return;
+        final moved = {...pv.keyframes[hit], 't': applied.toString()};
+        pv.keyframes[hit] = moved;
+        pv.sortKeys();
+        result = applied;
       });
     });
     return result;
@@ -3332,8 +3380,10 @@ mixin TimelineEdits on ChangeNotifier {
         param.static = keyValue;
         return;
       }
-      final time = (at ?? playhead.minus(clip.start))
-          .clampTo(Rt.zero(), clip.duration);
+      final time = (at ?? playhead.minus(clip.start)).clampTo(
+        Rt.zero(),
+        clip.duration,
+      );
       final hit = param.keyframes.indexWhere(
         (key) =>
             (ParamValue.timeOf(key) - time).micros.abs() <=
@@ -3519,7 +3569,7 @@ mixin TimelineEdits on ChangeNotifier {
           case DropMode.append:
             break;
         }
-        tx.clip(clip.id);  // null "before" so undo deletes it
+        tx.clip(clip.id); // null "before" so undo deletes it
         doc.clips.add(clip);
         created.add(clip.id);
         return clip;

@@ -28,14 +28,16 @@ Rt s(double seconds) => Rt.fromSeconds(seconds);
 
 Edits harness({double assetSeconds = 20, double fps = 30}) {
   final doc = ProjectDoc.empty('Test', width: 1920, height: 1080, fps: fps);
-  doc.media.add(MediaAsset(
-    id: 'asset-1',
-    name: 'clip.mov',
-    path: '/tmp/clip.mov',
-    type: 'video',
-    duration: s(assetSeconds),
-    hasAudio: true,
-  ));
+  doc.media.add(
+    MediaAsset(
+      id: 'asset-1',
+      name: 'clip.mov',
+      path: '/tmp/clip.mov',
+      type: 'video',
+      duration: s(assetSeconds),
+      hasAudio: true,
+    ),
+  );
   return Edits(doc);
 }
 
@@ -63,62 +65,78 @@ Clip addClip(
 
 /// Byte-identical clip JSON comparison for undo assertions.
 Map<String, Map<String, dynamic>> clipJson(ProjectDoc doc) => {
-      for (final c in doc.clips) c.id: c.toJson(),
-    };
+  for (final c in doc.clips) c.id: c.toJson(),
+};
 
 void main() {
   group('transitions: creation (TRA-2/3)', () {
-    test('butt-joined clips with ample handles overlap and undo in one step',
-        () {
-      final e = harness(assetSeconds: 60);
-      addClip(e, id: 'a', start: 0, duration: 5, sourceIn: 0);
-      addClip(e, id: 'b', start: 5, duration: 5, sourceIn: 5);
+    test(
+      'butt-joined clips with ample handles overlap and undo in one step',
+      () {
+        final e = harness(assetSeconds: 60);
+        addClip(e, id: 'a', start: 0, duration: 5, sourceIn: 0);
+        addClip(e, id: 'b', start: 5, duration: 5, sourceIn: 5);
 
-      final before = clipJson(e.doc);
-      final id = e.addTransition('a', 'b');
+        final before = clipJson(e.doc);
+        final id = e.addTransition('a', 'b');
 
-      expect(id, isNotNull);
-      expect(e.lastTransitionError, isNull);
-      final tr = e.doc.transitionById(id!)!;
-      // Default 0.5 s centered: a quarter second each side.
-      expect(tr.duration, s(0.5));
-      expect(tr.aExtend, s(0.25));
-      expect(tr.bExtend, s(0.25));
-      final a = e.clipById('a')!;
-      final b = e.clipById('b')!;
-      expect(a.duration, s(5.25));
-      expect(b.start, s(4.75));
-      expect(b.sourceIn, s(4.75));
-      expect(b.duration, s(5.25));
-      // Invariant: computed overlap == stored duration (§5).
-      final overlapStart = b.start;
-      final overlapEnd = a.end < b.end ? a.end : b.end;
-      expect(overlapEnd.minus(overlapStart), tr.duration);
+        expect(id, isNotNull);
+        expect(e.lastTransitionError, isNull);
+        final tr = e.doc.transitionById(id!)!;
+        // Default 0.5 s centered: a quarter second each side.
+        expect(tr.duration, s(0.5));
+        expect(tr.aExtend, s(0.25));
+        expect(tr.bExtend, s(0.25));
+        final a = e.clipById('a')!;
+        final b = e.clipById('b')!;
+        expect(a.duration, s(5.25));
+        expect(b.start, s(4.75));
+        expect(b.sourceIn, s(4.75));
+        expect(b.duration, s(5.25));
+        // Invariant: computed overlap == stored duration (§5).
+        final overlapStart = b.start;
+        final overlapEnd = a.end < b.end ? a.end : b.end;
+        expect(overlapEnd.minus(overlapStart), tr.duration);
 
-      expect(e.history.depth, 1);
-      e.undo();
-      expect(clipJson(e.doc), before); // byte-identical restore
-      expect(e.doc.transitions, isEmpty);
-      e.redo();
-      expect(e.doc.transitionById(id), isNotNull);
-    });
+        expect(e.history.depth, 1);
+        e.undo();
+        expect(clipJson(e.doc), before); // byte-identical restore
+        expect(e.doc.transitions, isEmpty);
+        e.redo();
+        expect(e.doc.transitionById(id), isNotNull);
+      },
+    );
 
     test('zero-handle cut refuses with toast text and no document change', () {
       final e = harness(assetSeconds: 10);
       // Two assets, each consumed exactly by its clip (sourceIn+span ==
       // asset duration): no tail handle on A, no head handle on B.
-      e.doc.media.add(MediaAsset(
-        id: 'asset-2',
-        name: 'clip2.mov',
-        path: '/tmp/clip2.mov',
-        type: 'video',
-        duration: s(10),
-        hasAudio: true,
-      ));
-      addClip(e, id: 'a', start: 0, duration: 10, sourceIn: 0,
-          mediaId: 'asset-1');
-      addClip(e, id: 'b', start: 10, duration: 10, sourceIn: 0,
-          mediaId: 'asset-2');
+      e.doc.media.add(
+        MediaAsset(
+          id: 'asset-2',
+          name: 'clip2.mov',
+          path: '/tmp/clip2.mov',
+          type: 'video',
+          duration: s(10),
+          hasAudio: true,
+        ),
+      );
+      addClip(
+        e,
+        id: 'a',
+        start: 0,
+        duration: 10,
+        sourceIn: 0,
+        mediaId: 'asset-1',
+      );
+      addClip(
+        e,
+        id: 'b',
+        start: 10,
+        duration: 10,
+        sourceIn: 0,
+        mediaId: 'asset-2',
+      );
 
       final before = clipJson(e.doc);
       final id = e.addTransition('a', 'b');
@@ -137,8 +155,10 @@ void main() {
       addClip(e, id: 'b', start: 5, duration: 5);
 
       expect(e.addTransition('a', 'b'), isNull);
-      expect(e.lastTransitionError,
-          'No extra media at this cut — trim the clips to make room');
+      expect(
+        e.lastTransitionError,
+        'No extra media at this cut — trim the clips to make room',
+      );
     });
 
     test('non-neighbours on the same track refuse; other tracks refuse', () {
@@ -148,13 +168,24 @@ void main() {
       addClip(e, id: 'c', start: 13, duration: 5);
 
       expect(e.addTransition('a', 'c'), isNull);
-      expect(e.lastTransitionError, 'Clips must be neighbours on the same track');
+      expect(
+        e.lastTransitionError,
+        'Clips must be neighbours on the same track',
+      );
 
       // Different tracks refuse too.
-      addClip(e, id: 'x', start: 0, duration: 5,
-          trackId: e.doc.audioTrack()!.id);
+      addClip(
+        e,
+        id: 'x',
+        start: 0,
+        duration: 5,
+        trackId: e.doc.audioTrack()!.id,
+      );
       expect(e.addTransition('a', 'x'), isNull);
-      expect(e.lastTransitionError, 'Clips must be neighbours on the same track');
+      expect(
+        e.lastTransitionError,
+        'Clips must be neighbours on the same track',
+      );
     });
 
     test('asymmetric handles fall back to the side that can pay', () {
@@ -179,35 +210,37 @@ void main() {
       expect(e.doc.transitions, isEmpty);
     });
 
-    test('speed-scaled handles: B consumed at half speed pays twice as far',
-        () {
-      final e = harness(assetSeconds: 60);
-      addClip(e, id: 'a', start: 0, duration: 5, sourceIn: 5);
-      final b = Clip(
-        id: 'b',
-        trackId: e.doc.videoTrack()!.id,
-        mediaId: 'asset-1',
-        label: 'b',
-        start: s(5),
-        duration: s(5),
-        sourceIn: s(10),
-        speed: '1/2', // half speed: sequence seconds = 2 × source seconds
-      );
-      e.doc.clips.add(b);
+    test(
+      'speed-scaled handles: B consumed at half speed pays twice as far',
+      () {
+        final e = harness(assetSeconds: 60);
+        addClip(e, id: 'a', start: 0, duration: 5, sourceIn: 5);
+        final b = Clip(
+          id: 'b',
+          trackId: e.doc.videoTrack()!.id,
+          mediaId: 'asset-1',
+          label: 'b',
+          start: s(5),
+          duration: s(5),
+          sourceIn: s(10),
+          speed: '1/2', // half speed: sequence seconds = 2 × source seconds
+        );
+        e.doc.clips.add(b);
 
-      final id = e.addTransition('a', 'b')!;
-      final tr = e.doc.transitionById(id)!;
-      // bExtend of 0.25 sequence-s consumes 0.125 source-s.
-      expect(tr.bExtend, s(0.25));
-      expect(b.sourceIn, s(9.875));
-      expect(b.start, s(4.75));
+        final id = e.addTransition('a', 'b')!;
+        final tr = e.doc.transitionById(id)!;
+        // bExtend of 0.25 sequence-s consumes 0.125 source-s.
+        expect(tr.bExtend, s(0.25));
+        expect(b.sourceIn, s(9.875));
+        expect(b.start, s(4.75));
 
-      // Removal restores exactly (TRA-10 bookkeeping).
-      e.removeTransition(id);
-      expect(b.sourceIn, s(10));
-      expect(b.start, s(5));
-      expect(b.duration, s(5));
-    });
+        // Removal restores exactly (TRA-10 bookkeeping).
+        e.removeTransition(id);
+        expect(b.sourceIn, s(10));
+        expect(b.start, s(5));
+        expect(b.duration, s(5));
+      },
+    );
   });
 
   group('transitions: retiming and type (TRA-5/6)', () {
@@ -357,8 +390,7 @@ void main() {
       expect(e.clipById('b')!.start, s(6.75));
     });
 
-    test('trim into the consumed range shrinks then deletes the transition',
-        () {
+    test('trim into the consumed range shrinks then deletes the transition', () {
       final e = harness(assetSeconds: 60);
       addClip(e, id: 'a', start: 0, duration: 5, sourceIn: 0);
       addClip(e, id: 'b', start: 5, duration: 5, sourceIn: 5);
@@ -384,7 +416,12 @@ void main() {
       e.trimEnd('d', before.minus(s(0.1)), snap: false);
       // Overlap = 0.4 s ≥ 1 frame → transition shrinks instead of dying.
       final tr2 = e.doc.transitionById(id2);
-      expect(tr2, isNotNull, reason: 'before=$before after=${e.clipById('d')!.end} estart=${e.clipById('e')!.start}');
+      expect(
+        tr2,
+        isNotNull,
+        reason:
+            'before=$before after=${e.clipById('d')!.end} estart=${e.clipById('e')!.start}',
+      );
       expect(tr2!.duration, s(0.4));
       expect(tr2.aExtend.plus(tr2.bExtend), s(0.4));
     });
@@ -432,8 +469,10 @@ void main() {
         final a = e.clipById('a')!;
         final b = e.clipById('b')!;
         final overlapEnd = a.end < b.end ? a.end : b.end;
-        expect(overlapEnd.minus(b.start > a.start ? b.start : a.start),
-            tr.duration);
+        expect(
+          overlapEnd.minus(b.start > a.start ? b.start : a.start),
+          tr.duration,
+        );
       }
     });
   });
@@ -455,34 +494,36 @@ void main() {
       expect(e.selection, {clip.id});
     });
 
-    test('pop preset bakes expected scale+opacity keyframes; one-step undo',
-        () {
-      final e = harness();
-      final id = e.addTextClip().single;
-      final durMicros = e.clipById(id)!.duration.micros;
+    test(
+      'pop preset bakes expected scale+opacity keyframes; one-step undo',
+      () {
+        final e = harness();
+        final id = e.addTextClip().single;
+        final durMicros = e.clipById(id)!.duration.micros;
 
-      e.applyTextPreset(id, 'pop');
-      final clip = e.clipById(id)!;
-      final scaleKeys = clip.transform!.scale.keyframes;
-      expect(scaleKeys, hasLength(3));
-      expect(scaleKeys[0]['v'], 0.0);
-      expect(scaleKeys[1]['v'], 112.0);
-      expect(scaleKeys[1]['interp'], 'linear'); // overshoot leg eases via [0]
-      expect(scaleKeys[0]['interp'], 'easeOut');
-      expect(scaleKeys[2]['v'], 100.0);
-      expect(Rt.parse(scaleKeys[2]['t'] as String), s(0.6));
-      final opacityKeys = clip.transform!.opacity.keyframes;
-      expect(opacityKeys, hasLength(2));
-      expect(opacityKeys[0]['v'], 0.0);
-      expect(opacityKeys[1]['v'], 100.0);
-      expect(clip.text!.animation, 'pop');
+        e.applyTextPreset(id, 'pop');
+        final clip = e.clipById(id)!;
+        final scaleKeys = clip.transform!.scale.keyframes;
+        expect(scaleKeys, hasLength(3));
+        expect(scaleKeys[0]['v'], 0.0);
+        expect(scaleKeys[1]['v'], 112.0);
+        expect(scaleKeys[1]['interp'], 'linear'); // overshoot leg eases via [0]
+        expect(scaleKeys[0]['interp'], 'easeOut');
+        expect(scaleKeys[2]['v'], 100.0);
+        expect(Rt.parse(scaleKeys[2]['t'] as String), s(0.6));
+        final opacityKeys = clip.transform!.opacity.keyframes;
+        expect(opacityKeys, hasLength(2));
+        expect(opacityKeys[0]['v'], 0.0);
+        expect(opacityKeys[1]['v'], 100.0);
+        expect(clip.text!.animation, 'pop');
 
-      e.undo();
-      final undone = e.clipById(id)!;
-      expect(undone.transform!.scale.keyframes, isEmpty);
-      expect(undone.transform!.opacity.keyframes, isEmpty);
-      expect(durMicros, greaterThan(0));
-    });
+        e.undo();
+        final undone = e.clipById(id)!;
+        expect(undone.transform!.scale.keyframes, isEmpty);
+        expect(undone.transform!.opacity.keyframes, isEmpty);
+        expect(durMicros, greaterThan(0));
+      },
+    );
 
     test('fade preset adds an out-fade only past 1.5s', () {
       final e = harness();
@@ -505,6 +546,29 @@ void main() {
       e.applyTextPreset(id, 'typewriter');
       expect(e.clipById(id)!.text!.animation, 'typewriter');
       expect(e.clipById(id)!.transform!.scale.keyframes, isEmpty);
+    });
+
+    test('switching and clearing presets removes stale generated channels', () {
+      final e = harness();
+      final id = e.addTextClip().single;
+
+      e.applyTextPreset(id, 'pop');
+      expect(e.clipById(id)!.transform!.scale.keyframes, isNotEmpty);
+
+      e.applyTextPreset(id, 'slideLeft');
+      var clip = e.clipById(id)!;
+      expect(clip.text!.animation, 'slideLeft');
+      expect(clip.transform!.scale.keyframes, isEmpty);
+      expect(clip.transform!.scale.static, 100);
+      expect(clip.transform!.x.keyframes, isNotEmpty);
+
+      e.clearTextPreset(id);
+      clip = e.clipById(id)!;
+      expect(clip.text!.animation, isEmpty);
+      expect(clip.transform!.x.keyframes, isEmpty);
+      expect(clip.transform!.x.static, 0);
+      expect(clip.transform!.opacity.keyframes, isEmpty);
+      expect(clip.transform!.opacity.static, 100);
     });
 
     test('blink uses hold interps and cycles to the clip duration', () {
@@ -531,14 +595,16 @@ void main() {
   group('image animation (TXT-8/9)', () {
     Edits imageHarness() {
       final e = harness();
-      e.doc.media.add(MediaAsset(
-        id: 'image-1',
-        name: 'poster.webp',
-        path: '/tmp/poster.webp',
-        type: 'image',
-        duration: Rt.zero(),
-        hasAudio: false,
-      ));
+      e.doc.media.add(
+        MediaAsset(
+          id: 'image-1',
+          name: 'poster.webp',
+          path: '/tmp/poster.webp',
+          type: 'image',
+          duration: Rt.zero(),
+          hasAudio: false,
+        ),
+      );
       return e;
     }
 
@@ -562,22 +628,25 @@ void main() {
       expect(e.clipById(id)!.transform!.scale.keyframes, hasLength(2));
     });
 
-    test('pan presets use sequence-relative offsets and preserve other axes', () {
-      final e = imageHarness();
-      final id = e.placeAsset('image-1').single;
-      e.setTransformParam(id, 'rotation', 12);
-      e.setTransformParam(id, 'y', 24);
+    test(
+      'pan presets use sequence-relative offsets and preserve other axes',
+      () {
+        final e = imageHarness();
+        final id = e.placeAsset('image-1').single;
+        e.setTransformParam(id, 'rotation', 12);
+        e.setTransformParam(id, 'y', 24);
 
-      e.applyImagePreset(id, 'panLeft');
+        e.applyImagePreset(id, 'panLeft');
 
-      final transform = e.clipById(id)!.transform!;
-      expect(transform.x.keyframes.first['v'], 96.0);
-      expect(transform.x.keyframes.last['v'], -96.0);
-      expect(transform.scale.keyframes.map((k) => k['v']), [115.0, 115.0]);
-      expect(transform.y.static, 24.0);
-      expect(transform.y.keyframes, isEmpty);
-      expect(transform.rotation.static, 12.0);
-    });
+        final transform = e.clipById(id)!.transform!;
+        expect(transform.x.keyframes.first['v'], 96.0);
+        expect(transform.x.keyframes.last['v'], -96.0);
+        expect(transform.scale.keyframes.map((k) => k['v']), [115.0, 115.0]);
+        expect(transform.y.static, 24.0);
+        expect(transform.y.keyframes, isEmpty);
+        expect(transform.rotation.static, 12.0);
+      },
+    );
 
     test('animated slider edit writes a key at the clip-local playhead', () {
       final e = imageHarness();
@@ -671,8 +740,9 @@ void main() {
 
       e.setEffectEnabled('a', blurId, false);
       expect(
-          (e.clipById('a')!.effects.first as Map<String, dynamic>)['enabled'],
-          isFalse);
+        (e.clipById('a')!.effects.first as Map<String, dynamic>)['enabled'],
+        isFalse,
+      );
       expect(e.selectionOverloaded, isFalse);
     });
 
@@ -697,8 +767,15 @@ void main() {
       addClip(e, id: 'a', start: 0, duration: 5);
       e.selectClip('a');
       const all = [
-        'exposure', 'contrast', 'saturation', 'temperature', 'tint', 'fade',
-        'vignette', 'gaussianBlur', 'pixelate',
+        'exposure',
+        'contrast',
+        'saturation',
+        'temperature',
+        'tint',
+        'fade',
+        'vignette',
+        'gaussianBlur',
+        'pixelate',
       ];
       for (final typeId in all) {
         e.addEffect('a', typeId);
@@ -740,25 +817,27 @@ void main() {
   });
 
   group('keyframes (KEY-2/3/7)', () {
-    test('first toggle converts static into seeded first key with same value',
-        () {
-      final e = harness(assetSeconds: 30);
-      addClip(e, id: 'a', start: 0, duration: 5);
-      final fxId = e.addEffect('a', 'gaussianBlur');
+    test(
+      'first toggle converts static into seeded first key with same value',
+      () {
+        final e = harness(assetSeconds: 30);
+        addClip(e, id: 'a', start: 0, duration: 5);
+        final fxId = e.addEffect('a', 'gaussianBlur');
 
-      e.toggleKeyframe('a', fxId, 'radius', s(2));
-      final pv = _params(e, 'a', fxId);
-      final keys = pv['keyframes'] as List<dynamic>;
-      // KEY-3: static becomes the first key, never lost.
-      expect(keys, hasLength(2));
-      expect((keys[0] as Map<String, dynamic>)['t'], Rt.zero().toString());
-      expect((keys[0] as Map<String, dynamic>)['v'], 8.0);
-      expect((keys[1] as Map<String, dynamic>)['v'], 8.0);
-      expect((keys[1] as Map<String, dynamic>)['t'], s(2).toString());
+        e.toggleKeyframe('a', fxId, 'radius', s(2));
+        final pv = _params(e, 'a', fxId);
+        final keys = pv['keyframes'] as List<dynamic>;
+        // KEY-3: static becomes the first key, never lost.
+        expect(keys, hasLength(2));
+        expect((keys[0] as Map<String, dynamic>)['t'], Rt.zero().toString());
+        expect((keys[0] as Map<String, dynamic>)['v'], 8.0);
+        expect((keys[1] as Map<String, dynamic>)['v'], 8.0);
+        expect((keys[1] as Map<String, dynamic>)['t'], s(2).toString());
 
-      e.undo();
-      expect(_params(e, 'a', fxId)['keyframes'], isEmpty);
-    });
+        e.undo();
+        expect(_params(e, 'a', fxId)['keyframes'], isEmpty);
+      },
+    );
 
     test('toggle at existing time removes the key', () {
       final e = harness(assetSeconds: 30);
@@ -790,28 +869,29 @@ void main() {
       expect(_params(e, 'a', fxId)['keyframes'], hasLength(2));
     });
 
-    test('__transform pseudo-instance animates transform.scale; move clamps',
-        () {
-      final e = harness(assetSeconds: 30);
-      addClip(e, id: 'a', start: 0, duration: 5);
+    test(
+      '__transform pseudo-instance animates transform.scale; move clamps',
+      () {
+        final e = harness(assetSeconds: 30);
+        addClip(e, id: 'a', start: 0, duration: 5);
 
-      e.toggleKeyframe('a', '__transform', 'scale', s(0));
-      e.setKeyframeValue('a', '__transform', 'scale', s(0), 100.0);
-      e.setKeyframeValue('a', '__transform', 'scale', s(5), 200.0);
-      final scale = e.clipById('a')!.transform!.scale;
-      expect(scale.animated, isTrue);
+        e.toggleKeyframe('a', '__transform', 'scale', s(0));
+        e.setKeyframeValue('a', '__transform', 'scale', s(0), 100.0);
+        e.setKeyframeValue('a', '__transform', 'scale', s(5), 200.0);
+        final scale = e.clipById('a')!.transform!.scale;
+        expect(scale.animated, isTrue);
 
-      // Evaluate mid-way like the engine would.
-      final mid = scale.evaluate(s(2.5)) as num;
-      expect(mid.toDouble(), closeTo(150.0, 0.01));
+        // Evaluate mid-way like the engine would.
+        final mid = scale.evaluate(s(2.5)) as num;
+        expect(mid.toDouble(), closeTo(150.0, 0.01));
 
-      // Move clamps into [0, duration]: negative target lands on zero.
-      final moved = e.moveKeyframe('a', '__transform', 'scale', s(0), s(-3));
-      expect(moved, Rt.zero());
-      // oldT beyond duration clamps onto the last key (t=dur) and moves it.
-      expect(
-          e.moveKeyframe('a', '__transform', 'scale', s(99), s(4)), s(4));
-    });
+        // Move clamps into [0, duration]: negative target lands on zero.
+        final moved = e.moveKeyframe('a', '__transform', 'scale', s(0), s(-3));
+        expect(moved, Rt.zero());
+        // oldT beyond duration clamps onto the last key (t=dur) and moves it.
+        expect(e.moveKeyframe('a', '__transform', 'scale', s(99), s(4)), s(4));
+      },
+    );
 
     test('removeKeyframe drops just that key', () {
       final e = harness(assetSeconds: 30);
@@ -821,8 +901,9 @@ void main() {
       e.setKeyframeValue('a', fxId, 'amount', s(2), 1.5);
 
       e.removeKeyframe('a', fxId, 'amount', s(2));
-      final keys = _params(e, 'a', fxId, paramId: 'amount')['keyframes']
-          as List<dynamic>;
+      final keys =
+          _params(e, 'a', fxId, paramId: 'amount')['keyframes']
+              as List<dynamic>;
       expect(keys, hasLength(1));
     });
   });
@@ -842,14 +923,20 @@ void main() {
 }
 
 Map<String, dynamic> _rawParams(Edits e, String clipId, String fxId) =>
-    ((e.clipById(clipId)!.effects
+    ((e
+            .clipById(clipId)!
+            .effects
             .whereType<Map<String, dynamic>>()
             .firstWhere((fx) => fx['id'] == fxId))['params'])
         as Map<String, dynamic>;
 
 /// Param-shaped view: absent `keyframes` (static-only storage) reads as [].
-Map<String, dynamic> _params(Edits e, String clipId, String fxId,
-    {String paramId = 'radius'}) {
+Map<String, dynamic> _params(
+  Edits e,
+  String clipId,
+  String fxId, {
+  String paramId = 'radius',
+}) {
   final raw = _rawParams(e, clipId, fxId)[paramId] as Map<String, dynamic>;
   return {
     'static': raw['static'],

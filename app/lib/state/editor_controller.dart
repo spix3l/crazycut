@@ -19,7 +19,11 @@ import 'package:crazycut_app/state/timeline_edits.dart';
 enum ImportStatus { probing, ready, failed, offline }
 
 class PoolItem {
-  PoolItem({required this.asset, this.status = ImportStatus.probing, this.thumb});
+  PoolItem({
+    required this.asset,
+    this.status = ImportStatus.probing,
+    this.thumb,
+  });
   final MediaAsset asset;
   ImportStatus status;
   Uint8List? thumb;
@@ -27,9 +31,22 @@ class PoolItem {
 
 /// Files we accept (IMP: supported formats).
 const kSupportedExtensions = {
-  'mp4', 'mov', 'mkv', 'webm', 'm4v',
-  'mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg',
-  'png', 'jpg', 'jpeg', 'webp', 'gif',
+  'mp4',
+  'mov',
+  'mkv',
+  'webm',
+  'm4v',
+  'mp3',
+  'm4a',
+  'aac',
+  'wav',
+  'flac',
+  'ogg',
+  'png',
+  'jpg',
+  'jpeg',
+  'webp',
+  'gif',
 };
 
 /// Everything the editor screen reads and writes for one open project:
@@ -37,8 +54,12 @@ const kSupportedExtensions = {
 /// frame, autosave and proxies.
 class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   EditorController(this.doc, {required String path, ProxyService? proxies})
-      : proxies = proxies ?? ProxyService() {
-    autosave = ProjectAutosave(doc, path: path, onStateChanged: (_) => notifyListeners());
+    : proxies = proxies ?? ProxyService() {
+    autosave = ProjectAutosave(
+      doc,
+      path: path,
+      onStateChanged: (_) => notifyListeners(),
+    );
     this.proxies.addListener(notifyListeners);
     for (final asset in doc.media) {
       final exists = asset.path.isNotEmpty && File(asset.path).existsSync();
@@ -114,7 +135,8 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
 
   /// Synchronous view of the last-fetched (or fallback) catalog for widgets
   /// that only need labels/ranges.
-  List<Map<String, dynamic>> get catalogCache => _catalogCache ?? TimelineEdits.kFallbackEffectCatalog;
+  List<Map<String, dynamic>> get catalogCache =>
+      _catalogCache ?? TimelineEdits.kFallbackEffectCatalog;
 
   /// Names skipped on the last import (IMP-4).
   List<String> lastSkipped = const [];
@@ -143,7 +165,10 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     // would be upscaling every source past what the project will ever output.
     final ceiling = doc.settings.width.clamp(minPreviewWidth, maxPreviewWidth);
     final capped = pixels.clamp(minPreviewWidth, ceiling);
-    final quantised = ((capped / 160).ceil() * 160).clamp(minPreviewWidth, ceiling);
+    final quantised = ((capped / 160).ceil() * 160).clamp(
+      minPreviewWidth,
+      ceiling,
+    );
     if (quantised == _previewWidth) return;
     _previewWidth = quantised;
     _previewRevision++;
@@ -224,7 +249,10 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   bool _supported(String path) =>
       kSupportedExtensions.contains(path.split('.').last.toLowerCase());
 
-  Future<void> importFiles(List<String> paths, {bool addToTimeline = true}) async {
+  Future<void> importFiles(
+    List<String> paths, {
+    bool addToTimeline = true,
+  }) async {
     for (final path in paths) {
       final name = path.split(Platform.pathSeparator).last;
       final asset = MediaAsset(
@@ -240,11 +268,16 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
       try {
         final probe = CrazyCutEngine.instance.probeFile(path);
         final hash = CrazyCutEngine.instance.hashFile(path);
-        final duplicate = doc.media.firstWhereOrNull((item) => item.hash == hash);
+        final duplicate = doc.media.firstWhereOrNull(
+          (item) => item.hash == hash,
+        );
         if (duplicate != null) {
           // IMP-3: re-importing the same content selects the existing asset.
           pool.remove(asset.id);
-          pool[duplicate.id] = PoolItem(asset: duplicate, status: ImportStatus.ready);
+          pool[duplicate.id] = PoolItem(
+            asset: duplicate,
+            status: ImportStatus.ready,
+          );
           notifyListeners();
           continue;
         }
@@ -280,7 +313,9 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     if (asset == null) return;
     final used = doc.usageCount(assetId);
     if (used > 0 && !force) return;
-    deleteClips(doc.clips.where((c) => c.mediaId == assetId).map((c) => c.id).toList());
+    deleteClips(
+      doc.clips.where((c) => c.mediaId == assetId).map((c) => c.id).toList(),
+    );
     doc.media.remove(asset);
     pool.remove(assetId);
     markDirty();
@@ -293,7 +328,8 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     if (asset == null) return;
     asset.path = newPath;
     asset.offline = !File(newPath).existsSync();
-    pool[assetId]?.status = asset.offline ? ImportStatus.offline : ImportStatus.ready;
+    pool[assetId]?.status =
+        asset.offline ? ImportStatus.offline : ImportStatus.ready;
     if (!asset.offline) {
       proxies.request(asset);
       unawaited(_loadThumbnailInto(pool[assetId]!));
@@ -302,7 +338,8 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     notifyListeners();
   }
 
-  List<MediaAsset> get offlineAssets => doc.media.where((a) => a.offline).toList();
+  List<MediaAsset> get offlineAssets =>
+      doc.media.where((a) => a.offline).toList();
 
   /// IMP-12 "Reveal in folder" — Finder/Explorer, never a modal.
   Future<void> revealAsset(String assetId) async {
@@ -328,7 +365,9 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   }
 
   Future<void> _loadThumbnailInto(PoolItem item) async {
-    if (item.thumb != null || item.asset.type == 'audio' || item.asset.offline) return;
+    if (item.thumb != null || item.asset.type == 'audio' || item.asset.offline) {
+      return;
+    }
     final bytes = await MediaCache.instance.thumb(
       item.asset,
       item.asset.duration.seconds > 2 ? 1.0 : 0.0,
@@ -342,13 +381,23 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
 
   /// Filmstrip tile for a clip at [sourceSeconds] (TIM-14). Returns null while
   /// the decode is in flight and repaints when it arrives.
-  Uint8List? filmstripTile(MediaAsset asset, double sourceSeconds, {int width = 160}) {
+  Uint8List? filmstripTile(
+    MediaAsset asset,
+    double sourceSeconds, {
+    int width = 160,
+  }) {
     if (asset.offline) return null;
     final quantised = (sourceSeconds * 2).floor() / 2;
     final cached = MediaCache.instance.thumbNow(asset, quantised, width: width);
     if (cached != null) return cached;
-    unawaited(MediaCache.instance
-        .thumb(asset, quantised, width: width, onReady: notifyListeners));
+    unawaited(
+      MediaCache.instance.thumb(
+        asset,
+        quantised,
+        width: width,
+        onReady: notifyListeners,
+      ),
+    );
     return null;
   }
 
@@ -402,7 +451,7 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     final paths = <String, String>{};
     for (final asset in doc.media) {
       if (asset.offline) continue;
-      paths[asset.id] = asset.path;  // originals: proxies drop audio quality
+      paths[asset.id] = asset.path; // originals: proxies drop audio quality
     }
     audio.setDocument(doc.encode(touchModified: false), paths);
     _audioDocDirty = false;
@@ -543,8 +592,9 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     // live (arch §6); it cannot drift against what the user hears. The wall
     // clock covers silent projects and machines with no output device.
     final audio = _audio;
-    var next = _playAnchor
-        .plus(Rt.fromMicros((_playClock.elapsedMicroseconds * _shuttleRate).round()));
+    var next = _playAnchor.plus(
+      Rt.fromMicros((_playClock.elapsedMicroseconds * _shuttleRate).round()),
+    );
     if (audio != null && audio.running && _shuttleRate > 0) {
       final fromAudio = Rt.fromSeconds(audio.position);
       // Ignore an audio clock that has run away (device glitch, resync).
@@ -618,11 +668,10 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   Clip? textClipUnderPlayhead() {
     final tracks = doc.videoTracks.where((t) => !t.hidden).toList().reversed;
     for (final track in tracks) {
-      final hit = doc.clipsOn(track.id).firstWhereOrNull(
-            (c) =>
-                c.text != null &&
-                playhead >= c.start &&
-                playhead < c.end,
+      final hit = doc
+          .clipsOn(track.id)
+          .firstWhereOrNull(
+            (c) => c.text != null && playhead >= c.start && playhead < c.end,
           );
       if (hit != null) return hit;
     }
@@ -633,9 +682,9 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   Clip? clipUnderPlayhead() {
     final tracks = doc.videoTracks.where((t) => !t.hidden).toList().reversed;
     for (final track in tracks) {
-      final hit = doc.clipsOn(track.id).firstWhereOrNull(
-            (c) => playhead >= c.start && playhead < c.end,
-          );
+      final hit = doc
+          .clipsOn(track.id)
+          .firstWhereOrNull((c) => playhead >= c.start && playhead < c.end);
       if (hit != null) return hit;
     }
     return null;
@@ -661,6 +710,10 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
       final clip = doc.clipById(id);
       if (clip != null && eligible(clip)) return clip;
     }
+    // A selected text/audio/off-playhead clip is still an intentional target.
+    // Do not draw handles for an unrelated image underneath it; that made the
+    // text editor look as if it were manipulating the wrong object.
+    if (selection.isNotEmpty) return null;
     final tracks = doc.videoTracks.where((t) => !t.hidden).toList().reversed;
     for (final track in tracks) {
       final hit = doc.clipsOn(track.id).firstWhereOrNull(eligible);
@@ -736,7 +789,8 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
       for (final clip in doc.clips) {
         final track = doc.trackById(clip.trackId);
         if (track == null || !track.isVideo || track.hidden) continue;
-        if (requested >= clip.start && requested < clip.end &&
+        if (requested >= clip.start &&
+            requested < clip.end &&
             clip.mediaId.isNotEmpty) {
           activeMedia.add(clip.mediaId);
         }
@@ -750,6 +804,12 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
         }
         mediaPaths[asset.id] = ProxyService.decodePath(asset);
       }
+      final width =
+          playing && _previewWidth > maxPlaybackPreviewWidth
+              ? maxPlaybackPreviewWidth
+              : _previewWidth;
+      var height = (width * doc.settings.height / doc.settings.width).round();
+      if (height.isOdd) height += 1;
       final textures = <String, Uint8List>{};
       final textureSizes = <String, (int, int)>{};
       for (final clip in doc.clips) {
@@ -759,19 +819,15 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
         if (!(requested >= clip.start && requested < clip.end)) continue;
         final raster = await TextRasterizer.instance.render(
           clip.text!,
-          canvasWidth: 1024,
-          sequenceHeight: doc.settings.height,
+          canvasWidth: width,
+          sequenceHeight: height,
+          localSeconds: (requested - clip.start).seconds,
         );
         if (raster == null) continue;
         textures['text:${clip.id}'] = raster.bytes;
         textureSizes['text:${clip.id}'] = (raster.width, raster.height);
       }
 
-      final width = playing && _previewWidth > maxPlaybackPreviewWidth
-          ? maxPlaybackPreviewWidth
-          : _previewWidth;
-      var height = (width * doc.settings.height / doc.settings.width).round();
-      if (height.isOdd) height += 1;
       final renderWatch = Stopwatch()..start();
       final frame = await renderer.render(
         time: requested,
@@ -783,9 +839,10 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
       );
       renderWatch.stop();
       if (playbackRequest) {
-        _previewRenderMicros = (_previewRenderMicros * 0.75 +
-                renderWatch.elapsedMicroseconds * 0.25)
-            .round();
+        _previewRenderMicros =
+            (_previewRenderMicros * 0.75 +
+                    renderWatch.elapsedMicroseconds * 0.25)
+                .round();
       }
       if (_disposed) return;
       final current = isPreviewFrameCurrent(

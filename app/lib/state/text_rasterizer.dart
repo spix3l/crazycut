@@ -27,12 +27,29 @@ class TextRasterizer {
     TextContent text, {
     required int canvasWidth,
     required int sequenceHeight,
+    double? localSeconds,
   }) async {
-    final content = text.content;
+    final content = _visibleContent(text, localSeconds);
     if (content.isEmpty) return null;
+    final fontWeight = _weight(text.fontWeight);
+
+    // google_fonts installs a family asynchronously the first time it is used.
+    // TextPainter does not wait for that side effect, and caching its fallback
+    // raster made a font selection look permanently broken. Trigger and await
+    // the load before either cache lookup or layout.
+    if (text.fontFamily != 'default') {
+      _googleFont(text.fontFamily, fontWeight);
+      try {
+        await GoogleFonts.pendingFonts();
+      } on Object {
+        // System/custom families and offline use still get Flutter's normal
+        // font fallback instead of making the whole preview frame fail.
+      }
+    }
 
     final key = jsonEncode({
       'text': text.toJson(),
+      'visible': content,
       'w': canvasWidth,
       'h': sequenceHeight,
     });
@@ -45,11 +62,42 @@ class TextRasterizer {
     }
 
     final scale = sequenceHeight <= 0 ? 1.0 : sequenceHeight / 1080.0;
-    const supersample = 2.0;
-    final fontSize =
-        (text.fontSize * scale * supersample).clamp(8.0, 512.0).toDouble();
-    final fontWeight = _weight(text.fontWeight);
+    final fontSize = (text.fontSize * scale).clamp(4.0, 512.0).toDouble();
     final lineHeight = text.lineHeight <= 0 ? 1.2 : text.lineHeight;
+    final backgroundPad = text.backgroundPadding * scale;
+    final strokePad = text.strokeWidth * scale;
+    final shadowBlur = text.shadowBlur * scale;
+    final shadowX = text.shadowOffsetX * scale;
+    final shadowY = text.shadowOffsetY * scale;
+    final pad =
+        math
+            .max(
+              2.0,
+              math.max(
+                backgroundPad,
+                math.max(
+                  strokePad * 1.5,
+                  text.shadowOpacity > 0
+                      ? shadowBlur + math.max(shadowX.abs(), shadowY.abs())
+                      : 0,
+                ),
+              ),
+            )
+            .ceil() +
+        2;
+    final layoutWidth = math.max(4.0, canvasWidth.toDouble() - pad * 2);
+    final shadows =
+        text.shadowOpacity > 0
+            ? <Shadow>[
+              Shadow(
+                color: _color(
+                  text.shadowColor,
+                ).withValues(alpha: text.shadowOpacity.clamp(0.0, 1.0)),
+                blurRadius: shadowBlur,
+                offset: Offset(shadowX, shadowY),
+              ),
+            ]
+            : null;
 
     final tp = TextPainter(
       text: TextSpan(
@@ -60,19 +108,14 @@ class TextRasterizer {
           fontSize: fontSize,
           fontWeight: fontWeight,
           height: lineHeight,
-          letterSpacing: text.letterSpacing * scale * supersample,
+          letterSpacing: text.letterSpacing * scale,
+          shadows: shadows,
         ),
       ),
       textAlign: _align(text.align),
       textDirection: TextDirection.ltr,
-    )..layout(maxWidth: canvasWidth.toDouble());
+    )..layout(maxWidth: layoutWidth);
 
-    final backgroundPad = text.backgroundPadding * scale * supersample;
-    final strokePad = text.strokeWidth * scale * supersample;
-    final pad = math.max(
-      fontSize * 0.25,
-      math.max(backgroundPad, strokePad),
-    ).ceil();
     final width = (tp.width.ceil() + pad * 2).clamp(4, canvasWidth);
     final height = (tp.height.ceil() + pad * 2).clamp(4, 4096);
 
@@ -82,7 +125,7 @@ class TextRasterizer {
     // Background box (TXT-3).
     final bgColor = _color(text.backgroundColor);
     if (bgColor.a > 0) {
-      final r = text.backgroundRadius * scale * supersample;
+      final r = text.backgroundRadius * scale;
       final rect = Rect.fromLTWH(
         pad - backgroundPad,
         pad - backgroundPad,
@@ -91,61 +134,24 @@ class TextRasterizer {
       );
       final paint = Paint()..color = bgColor;
       if (r > 0) {
-        canvas.drawRRect(RRect.fromRectAndRadius(rect, Radius.circular(r)), paint);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(rect, Radius.circular(r)),
+          paint,
+        );
       } else {
         canvas.drawRect(rect, paint);
-      }
-    }
-
-    // Drop shadow: a second offset, blurred paint behind the fill.
-    if (text.shadowOpacity > 0) {
-      final sc = _color(text.shadowColor);
-      final shadowTp = TextPainter(
-        text: TextSpan(
-          text: content,
-          style: _fontStyle(
-            text,
-            color: sc.withValues(alpha: text.shadowOpacity),
-            fontSize: fontSize,
-            fontWeight: fontWeight,
-            height: lineHeight,
-            letterSpacing: text.letterSpacing * scale * supersample,
-          ),
-        ),
-        textAlign: _align(text.align),
-        textDirection: TextDirection.ltr,
-      )..layout(maxWidth: canvasWidth.toDouble());
-      if (text.shadowBlur > 0) {
-        canvas.saveLayer(
-          Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
-          Paint(),
-        );
-      }
-      shadowTp.paint(
-        canvas,
-        Offset(pad + text.shadowOffsetX * scale * supersample,
-            pad + text.shadowOffsetY * scale * supersample),
-      );
-      if (text.shadowBlur > 0) {
-        // Blur approximated by painting the shadow twice with slight offsets
-        // (real blur arrives with the GPU path in M3).
-        shadowTp.paint(
-          canvas,
-          Offset(pad + (text.shadowOffsetX + 1.5) * scale * supersample,
-              pad + (text.shadowOffsetY + 1.5) * scale * supersample),
-        );
-        canvas.restore();
       }
     }
 
     // Stroke sits behind the fill so the inspector's outline controls affect
     // the actual preview instead of only being persisted in the project file.
     if (text.strokeWidth > 0) {
-      final stroke = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = text.strokeWidth * scale * supersample
-        ..strokeJoin = StrokeJoin.round
-        ..color = _color(text.strokeColor);
+      final stroke =
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = text.strokeWidth * scale
+            ..strokeJoin = StrokeJoin.round
+            ..color = _color(text.strokeColor);
       final strokeTp = TextPainter(
         text: TextSpan(
           text: content,
@@ -154,7 +160,7 @@ class TextRasterizer {
             fontSize: fontSize,
             fontWeight: fontWeight,
             height: lineHeight,
-            letterSpacing: text.letterSpacing * scale * supersample,
+            letterSpacing: text.letterSpacing * scale,
             foreground: stroke,
           ),
         ),
@@ -169,8 +175,9 @@ class TextRasterizer {
     final picture = recorder.endRecording();
 
     final image = picture.toImageSync(width, height);
-    final byteData =
-        await image.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
+    final byteData = await image.toByteData(
+      format: ui.ImageByteFormat.rawStraightRgba,
+    );
     image.dispose();
     picture.dispose();
     if (byteData == null) return null;
@@ -195,10 +202,12 @@ class TextRasterizer {
     required double height,
     required double letterSpacing,
     Paint? foreground,
+    List<Shadow>? shadows,
   }) {
-    final base = text.fontFamily == 'default'
-        ? const TextStyle()
-        : _googleFont(text.fontFamily);
+    final base =
+        text.fontFamily == 'default'
+            ? const TextStyle()
+            : _googleFont(text.fontFamily, fontWeight);
     return base.copyWith(
       color: color,
       fontSize: fontSize,
@@ -206,12 +215,24 @@ class TextRasterizer {
       height: height,
       letterSpacing: letterSpacing,
       foreground: foreground,
+      shadows: shadows,
     );
   }
 
-  TextStyle _googleFont(String family) {
+  String _visibleContent(TextContent text, double? localSeconds) {
+    if (text.animation != 'typewriter' || localSeconds == null) {
+      return text.content;
+    }
+    const charactersPerSecond = 24.0;
+    final count =
+        (localSeconds.clamp(0.0, double.infinity) * charactersPerSecond)
+            .floor();
+    return String.fromCharCodes(text.content.runes.take(count));
+  }
+
+  TextStyle _googleFont(String family, FontWeight weight) {
     try {
-      return GoogleFonts.getFont(family);
+      return GoogleFonts.getFont(family, fontWeight: weight);
     } on Exception {
       // Preserve compatibility with projects that contain a custom/system
       // family not present in the Google Fonts catalog.
@@ -220,19 +241,19 @@ class TextRasterizer {
   }
 
   FontWeight _weight(String w) => switch (w) {
-        'w400' => FontWeight.w400,
-        'w500' => FontWeight.w500,
-        'w600' => FontWeight.w600,
-        'w700' => FontWeight.w700,
-        'w800' => FontWeight.w800,
-        _ => FontWeight.w600,
-      };
+    'w400' => FontWeight.w400,
+    'w500' => FontWeight.w500,
+    'w600' => FontWeight.w600,
+    'w700' => FontWeight.w700,
+    'w800' => FontWeight.w800,
+    _ => FontWeight.w600,
+  };
 
   TextAlign _align(String a) => switch (a) {
-        'left' => TextAlign.left,
-        'right' => TextAlign.right,
-        _ => TextAlign.center,
-      };
+    'left' => TextAlign.left,
+    'right' => TextAlign.right,
+    _ => TextAlign.center,
+  };
 
   Color _color(String hex) {
     var s = hex.replaceFirst('#', '');

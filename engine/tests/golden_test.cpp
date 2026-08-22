@@ -369,6 +369,36 @@ TEST(GoldenFrames, TextTextureCompositesOverVideo) {
   EXPECT_GT(meanAbsDiff(withText, without), 1.0);
 }
 
+TEST(GoldenFrames, TextTextureKeepsItsRasterizedSize) {
+  json text = {{"id", "ct"},       {"trackId", "v1"},
+               {"mediaId", ""},    {"label", "Text"},
+               {"start", "0/1"},   {"duration", "5/1"},
+               {"text", {{"content", "HELLO"}}}};
+  text["transform"] = {{"scale", {{"static", 100.0}}},
+                       {"opacity", {{"static", 100.0}}}};
+  const json doc = baseDoc(json::array({text}));
+
+  cc::RgbaSurface out;
+  ASSERT_EQ(
+      cc::renderFrame(
+          doc, cc::RationalTime{}, 320, 180,
+          [&](const std::string& key) -> std::optional<cc::ClipSource> {
+            if (key != "text:ct") return std::nullopt;
+            cc::ClipSource source;
+            source.texture = gradientFrame(80, 20, 220);
+            return source;
+          },
+          &out),
+      cc::Error::None);
+
+  size_t lit = 0;
+  for (size_t i = 0; i < out.rgba.size(); i += 4) {
+    if (out.rgba[i + 2] > 0) ++lit;
+  }
+  EXPECT_EQ(lit, 80u * 20u)
+      << "text bounds must not be image-fitted to the full canvas";
+}
+
 TEST(GoldenFrames, PreviewMatchesExportSamplingBitForBit) {
   // The core WYSIWYG guarantee: rendering the same document at the same time
   // through the same entry point twice yields identical bytes.
