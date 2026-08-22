@@ -127,9 +127,17 @@ class CcButton extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (icon != null) ...[CcIcon(icon!, size: 14, color: fg), const SizedBox(width: 6)],
-            Text(
-              label,
-              style: CcType.style(size: 13, weight: CcType.semibold, color: fg),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: CcType.style(
+                  size: 13,
+                  weight: CcType.semibold,
+                  color: fg,
+                ),
+              ),
             ),
           ],
         ),
@@ -648,25 +656,38 @@ class CcTabBar extends StatelessWidget {
       child: Row(
         children: [
           for (var i = 0; i < tabs.length; i++)
-            CcTappable(
-              onTap: onChanged == null ? null : () => onChanged!(i),
-              child: Container(
-                padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: i == selectedIndex ? CcColors.accent : const Color(0x00000000),
-                      width: 2,
+            Expanded(
+              child: CcTappable(
+                onTap: onChanged == null ? null : () => onChanged!(i),
+                child: Container(
+                  padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(
+                        color:
+                            i == selectedIndex
+                                ? CcColors.accent
+                                : const Color(0x00000000),
+                        width: 2,
+                      ),
                     ),
                   ),
-                ),
-                child: Text(
-                  tabs[i],
-                  style: CcType.style(
-                    size: fontSize,
-                    weight: i == selectedIndex ? CcType.semibold : CcType.medium,
-                    color: i == selectedIndex ? CcColors.textPrimary : CcColors.textTertiary,
+                  child: Text(
+                    tabs[i],
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: CcType.style(
+                      size: fontSize,
+                      weight:
+                          i == selectedIndex
+                              ? CcType.semibold
+                              : CcType.medium,
+                      color:
+                          i == selectedIndex
+                              ? CcColors.textPrimary
+                              : CcColors.textTertiary,
+                    ),
                   ),
                 ),
               ),

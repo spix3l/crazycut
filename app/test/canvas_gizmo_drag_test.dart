@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:crazycut_app/data/clip_transform.dart';
 import 'package:crazycut_app/data/param_value.dart';
 import 'package:crazycut_app/data/project.dart';
+import 'package:crazycut_app/data/text_content.dart';
 import 'package:crazycut_app/engine/engine.dart';
 import 'package:crazycut_app/features/editor/presentation/widgets/canvas_gizmo.dart';
 import 'package:crazycut_app/models/rational.dart';
@@ -408,6 +409,58 @@ void main() {
       secondX,
       reason: 'extending the selection must not move anything',
     );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    c.dispose();
+  });
+
+  testWidgets('dragging text on the canvas updates its transform', (
+    tester,
+  ) async {
+    final doc = ProjectDoc.empty('Text drag', width: seqW, height: seqH, fps: 30);
+    final clip = Clip(
+      id: 'text',
+      trackId: doc.videoTrack()!.id,
+      mediaId: '',
+      label: 'Title',
+      start: Rt.zero(),
+      duration: Rt.fromSeconds(5),
+      sourceIn: Rt.zero(),
+      text: TextContent(content: 'Move me', fontSize: 96),
+    );
+    doc.clips.add(clip);
+    final c = EditorController(doc, path: '${tmp.path}/text-drag.crazycut');
+    c.selection.add(clip.id);
+
+    expect(c.gizmoSourceSize(clip), isNotNull);
+
+    const boxW = 960.0, boxH = 540.0;
+    tester.view.physicalSize = const ui.Size(boxW, boxH);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: SizedBox(
+          width: boxW,
+          height: boxH,
+          child: CanvasGizmo(controller: c),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final before = c.clipRectInSequence(clip)!;
+    final origin = tester.getTopLeft(find.byType(CanvasGizmo));
+    const dragBy = ui.Offset(50, 25);
+    await tester.dragFrom(
+      origin + before.center / (seqW / boxW),
+      dragBy,
+    );
+    await tester.pump();
+
+    expect(clip.transformOrDefault.x.static, closeTo(100, 1));
+    expect(clip.transformOrDefault.y.static, closeTo(50, 1));
 
     await tester.pumpWidget(const SizedBox.shrink());
     c.dispose();

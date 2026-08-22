@@ -51,6 +51,13 @@ void main() {
       expect(rect(framing: 'stretch', srcW: 300, srcH: 4000).size,
           const Size(1920, 1080));
     });
+
+    test('native keeps a text raster at its measured size', () {
+      expect(
+        rect(framing: 'native', srcW: 300, srcH: 100),
+        const Rect.fromLTWH(810, 490, 300, 100),
+      );
+    });
   });
 
   test('x/y offset the rect from the canvas centre', () {

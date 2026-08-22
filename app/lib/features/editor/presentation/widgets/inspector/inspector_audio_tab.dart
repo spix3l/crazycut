@@ -31,8 +31,8 @@ class ClipAudioTab extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
-      child: ListView(
-        padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (silent)
             const Padding(
@@ -75,8 +75,7 @@ class ClipAudioTab extends StatelessWidget {
                   onTap: () => c.setClipMuted(clip.id, !clip.mute),
                 ),
                 const SizedBox(width: 8),
-                Text('Mute clip', style: CcType.small),
-                const Spacer(),
+                Expanded(child: Text('Mute clip', style: CcType.small)),
                 CcTooltip(
                   message: 'Scan peaks and set gain for −1 dBFS',
                   child: CcButton(
@@ -173,9 +172,16 @@ class ClipAudioTab extends StatelessWidget {
                     onPressed: () => c.relinkAudio(clip.id),
                   )
                 else
-                  Text(
-                    silent ? 'Nothing to detach.' : 'Audio is on its own track.',
-                    style: CcType.style(size: 11, color: CcColors.textTertiary),
+                  Expanded(
+                    child: Text(
+                      silent
+                          ? 'Nothing to detach.'
+                          : 'Audio is on its own track.',
+                      style: CcType.style(
+                        size: 11,
+                        color: CcColors.textTertiary,
+                      ),
+                    ),
                   ),
               ],
             ),

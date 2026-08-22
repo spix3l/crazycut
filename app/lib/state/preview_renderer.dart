@@ -29,21 +29,35 @@ Rt computePreviewRenderTime({
 
 /// Prevents an old seek, old document snapshot, or playback-state transition
 /// from flashing on the monitor after a newer request superseded it.
+///
+/// Recency is decided by *dispatch order*, not by how close the rendered time
+/// landed to the playhead. Proximity looked like the same thing and is not: a
+/// clip that composites slower than the lead estimate can be bounded by
+/// ([computePreviewRenderTime] clamps the lead to 250 ms) lands late by a
+/// fixed margin on *every* frame, so a proximity window rejected all of them
+/// and the monitor froze solid on exactly the heavy clips that most need
+/// watching — a 4K source, a blur, a cold seek across a cut. A late frame is
+/// worth showing; there is nothing better to put on screen.
+///
+/// [requestSeq] is the sequence number stamped when the request started and
+/// [shownSeq] the one already on the monitor, so a request that overtakes an
+/// older one still in flight — text rasterization can await before the
+/// composite is even dispatched — can never be overwritten by it.
 bool isPreviewFrameCurrent({
   required int requestRevision,
   required int currentRevision,
   required bool requestWasPlaying,
   required bool currentlyPlaying,
-  required Rt requested,
-  required Rt playhead,
-  required Rt frameDuration,
+  required int requestSeq,
+  required int shownSeq,
 }) {
+  // A different document, size or transport mode: these pixels answer a
+  // question nobody is asking any more.
   if (requestRevision != currentRevision ||
       requestWasPlaying != currentlyPlaying) {
     return false;
   }
-  if (!requestWasPlaying) return requested == playhead;
-  return (playhead.minus(requested).micros).abs() <= frameDuration.micros * 2;
+  return requestSeq > shownSeq;
 }
 
 /// One composited preview frame.

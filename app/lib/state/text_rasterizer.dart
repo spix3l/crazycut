@@ -27,6 +27,60 @@ class TextRasterizer {
   /// happens once per font instead of once per preview frame.
   final Set<String> _fontsReady = {};
 
+  /// Synchronous layout size used by canvas hit-testing before the next text
+  /// raster has finished. A completed render replaces this estimate with its
+  /// exact normalized texture size in [EditorController].
+  (int, int)? measure(
+    TextContent text, {
+    required int canvasWidth,
+    required int sequenceHeight,
+    double? localSeconds,
+  }) {
+    final content = _visibleContent(text, localSeconds);
+    if (content.isEmpty) return null;
+    final scale = sequenceHeight <= 0 ? 1.0 : sequenceHeight / 1080.0;
+    final fontSize = (text.fontSize * scale).clamp(4.0, 512.0).toDouble();
+    final backgroundPad = text.backgroundPadding * scale;
+    final strokePad = text.strokeWidth * scale;
+    final shadowBlur = text.shadowBlur * scale;
+    final shadowX = text.shadowOffsetX * scale;
+    final shadowY = text.shadowOffsetY * scale;
+    final pad =
+        math
+            .max(
+              2.0,
+              math.max(
+                backgroundPad,
+                math.max(
+                  strokePad * 1.5,
+                  text.shadowOpacity > 0
+                      ? shadowBlur + math.max(shadowX.abs(), shadowY.abs())
+                      : 0,
+                ),
+              ),
+            )
+            .ceil() +
+        2;
+    final painter = TextPainter(
+      text: TextSpan(
+        text: content,
+        style: _fontStyle(
+          text,
+          fontSize: fontSize,
+          fontWeight: _weight(text.fontWeight),
+          height: text.lineHeight <= 0 ? 1.2 : text.lineHeight,
+          letterSpacing: text.letterSpacing * scale,
+        ),
+      ),
+      textAlign: _align(text.align),
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: math.max(4.0, canvasWidth.toDouble() - pad * 2));
+    return (
+      (painter.width.ceil() + pad * 2).clamp(4, canvasWidth),
+      (painter.height.ceil() + pad * 2).clamp(4, 4096),
+    );
+  }
+
   Future<RasterizedText?> render(
     TextContent text, {
     required int canvasWidth,

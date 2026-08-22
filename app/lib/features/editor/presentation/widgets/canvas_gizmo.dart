@@ -21,8 +21,8 @@ class _Hit {
   final Clip? clip;
 }
 
-/// TXT-6 on-canvas transform: drag the image on the program monitor to move it,
-/// drag a handle to resize it, drag the knob above it to rotate.
+/// TXT-6 on-canvas transform: drag visual media or text on the program monitor
+/// to move it, drag a handle to resize it, drag the knob above it to rotate.
 ///
 /// Every edit goes through [EditorController.setTransformParam], so the preview
 /// isolate and the export worker pick it up from the same `ClipTransform` the
@@ -70,7 +70,7 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
 
   double _rotation(Clip clip) => c.clipRotation(clip);
 
-  /// The other selected images, outlined without handles so a multi-selection
+  /// The other selected visuals, outlined without handles so a multi-selection
   /// built by modifier-clicking is visible before an align action runs.
   List<(Rect, double)> _companionBoxes(Clip target) => [
     for (final other in c.alignableClips())
@@ -118,7 +118,7 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
       }
     }
 
-    // Otherwise the click picks the front-most image it actually landed on.
+    // Otherwise the click picks the front-most visual it actually landed on.
     // Targeting only the selected clip meant that with two images on screen,
     // dragging one of them moved the other.
     for (final clip in c.gizmoClipsUnderPlayhead()) {
@@ -204,9 +204,9 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
     // One undo step per gesture (TIM-20); markDirty also skips engine sync
     // until endGesture, so a drag does not re-encode the project per frame.
     c.beginGesture(switch (hit.part) {
-      GizmoPart.move => 'Move image',
-      GizmoPart.resize => 'Resize image',
-      _ => 'Rotate image',
+      GizmoPart.move => clip.text == null ? 'Move image' : 'Move text',
+      GizmoPart.resize => clip.text == null ? 'Resize image' : 'Resize text',
+      _ => clip.text == null ? 'Rotate image' : 'Rotate text',
     });
     if (!c.selection.contains(clip.id)) {
       c.selectClip(clip.id, withLinked: false);

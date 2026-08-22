@@ -97,6 +97,10 @@ void main() {
     await tester.tapAt(location, buttons: kSecondaryMouseButton);
     await tester.pump();
     expect(find.text('Split at playhead'), findsOneWidget);
+    expect(find.textContaining('Animate:'), findsNothing);
+    expect(find.textContaining('Entry:'), findsNothing);
+    expect(find.textContaining('Leave:'), findsNothing);
+    expect(find.text('Clear clip animation'), findsNothing);
 
     await tester.pumpWidget(const SizedBox.shrink());
     controller.dispose();

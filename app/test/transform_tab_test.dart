@@ -4,8 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' hide Clip;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:crazycut_app/core/widgets/primitives.dart';
 import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/data/text_content.dart';
+import 'package:crazycut_app/features/editor/presentation/widgets/inspector/clip_animation_edge_control.dart';
 import 'package:crazycut_app/features/editor/presentation/widgets/inspector/inspector_transform_tab.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
@@ -101,6 +103,20 @@ void main() {
     expect(find.text('At clip start'), findsOneWidget);
     expect(find.text('Leave'), findsOneWidget);
     expect(find.text('At clip end'), findsOneWidget);
+    expect(find.byType(ClipAnimationEdgeControl), findsNWidgets(2));
+    final enterControl = find.byType(ClipAnimationEdgeControl).first;
+    final dropdown = find.descendant(
+      of: enterControl,
+      matching: find.byType(CcDropdown),
+    );
+    final chevron = find.descendant(
+      of: dropdown,
+      matching: find.byType(CcIcon),
+    );
+    expect(
+      tester.getRect(chevron).right,
+      closeTo(tester.getRect(dropdown).right - 10, 1),
+    );
     expect(find.text('LAYOUT'), findsOneWidget);
     expect(find.text('APPEARANCE'), findsOneWidget);
     expect(find.text('CONTINUOUS MOTION'), findsNothing);

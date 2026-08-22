@@ -70,37 +70,85 @@ void main() {
     );
   });
 
-  test('stale seek, snapshot and playback frames are rejected', () {
+  test('stale snapshots and transport transitions are rejected', () {
     bool current({
       int requestRevision = 2,
       int currentRevision = 2,
       bool requestPlaying = false,
       bool playing = false,
-      Rt? requested,
-      Rt? playhead,
+      int requestSeq = 7,
+      int shownSeq = 6,
     }) =>
         isPreviewFrameCurrent(
           requestRevision: requestRevision,
           currentRevision: currentRevision,
           requestWasPlaying: requestPlaying,
           currentlyPlaying: playing,
-          requested: requested ?? s(2),
-          playhead: playhead ?? s(2),
-          frameDuration: frame,
+          requestSeq: requestSeq,
+          shownSeq: shownSeq,
         );
 
     expect(current(), isTrue);
+    // Rendered from a document, size or transport mode that no longer applies.
     expect(current(currentRevision: 3), isFalse);
-    expect(current(playhead: s(3)), isFalse);
     expect(current(requestPlaying: true), isFalse);
-    expect(
-      current(requestPlaying: true, playing: true, playhead: s(2.05)),
-      isTrue,
-    );
-    expect(
-      current(requestPlaying: true, playing: true, playhead: s(2.2)),
-      isFalse,
-    );
+    // A request that an already-shown one overtook stays off the monitor.
+    expect(current(requestSeq: 5, shownSeq: 6), isFalse);
+    expect(current(requestSeq: 6, shownSeq: 6), isFalse);
+  });
+
+  /// Recency used to be judged by how close the rendered time landed to the
+  /// playhead. A clip that composites slower than the lead can compensate for
+  /// then missed the window by a fixed margin on *every* frame, so the monitor
+  /// showed nothing at all while audio and the playhead kept running — the
+  /// picture froze on exactly the heavy clips it most needed to show.
+  ///
+  /// This replays the loop's arithmetic at a range of render costs. The rule
+  /// is that expensive frames arrive late, never that they stop arriving.
+  test('a clip slower than the lead estimate still reaches the monitor', () {
+    int framesShown({required double renderMs, int frames = 60}) {
+      var playheadMicros = 0;
+      var renderMicros = frame.micros;
+      var shown = 0;
+      var seq = 0;
+      var shownSeq = 0;
+      final latency = (renderMs * 1000).round();
+      for (var i = 0; i < frames; i++) {
+        final requested = computePreviewRenderTime(
+          playhead: Rt.fromMicros(playheadMicros),
+          rangeStart: Rt.zero(),
+          rangeEnd: s(600),
+          frameDuration: frame,
+          playing: true,
+          rate: 1,
+          renderMicros: renderMicros,
+        );
+        expect(requested >= Rt.fromMicros(playheadMicros), isTrue);
+        // The composite takes `latency`; the playhead runs on a wall clock and
+        // has moved on by the time the frame lands.
+        playheadMicros += latency;
+        renderMicros = (renderMicros * 0.75 + latency * 0.25).round();
+        final mine = ++seq;
+        if (isPreviewFrameCurrent(
+          requestRevision: 1,
+          currentRevision: 1,
+          requestWasPlaying: true,
+          currentlyPlaying: true,
+          requestSeq: mine,
+          shownSeq: shownSeq,
+        )) {
+          shownSeq = mine;
+          shown++;
+        }
+      }
+      return shown;
+    }
+
+    // Comfortably realtime, and far past it: neither may blank the monitor.
+    for (final renderMs in [3.0, 40.0, 150.0, 316.0, 400.0, 800.0, 2000.0]) {
+      expect(framesShown(renderMs: renderMs), 60,
+          reason: 'a ${renderMs.toStringAsFixed(0)} ms frame must still show');
+    }
   });
 
   group('preview render size', () {

@@ -11,6 +11,7 @@ import '../../../../../data/project.dart';
 import '../../../../../models/rational.dart';
 import '../../../../../state/editor_controller.dart';
 import '../../../../../state/timeline_edits.dart';
+import 'clip_animation_edge_control.dart';
 import 'inspector_effects_tab.dart' show KeyframeDiamond;
 
 /// Clip animation and built-in transform (FX-9), grouped by consequence rather
@@ -316,16 +317,16 @@ class _ClipAnimationSection extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          _EdgeAnimationControl(
+          ClipAnimationEdgeControl(
             controller: controller,
             clip: clip,
-            side: 'entry',
+            side: ClipAnimationSide.enter,
           ),
           const SizedBox(height: 8),
-          _EdgeAnimationControl(
+          ClipAnimationEdgeControl(
             controller: controller,
             clip: clip,
-            side: 'leave',
+            side: ClipAnimationSide.leave,
           ),
           if (showContinuousMotion) ...[
             const SizedBox(height: 14),
@@ -389,144 +390,6 @@ class _PresetChip extends StatelessWidget {
           ),
         ),
         child: Text(label, style: CcType.style(size: 10)),
-      ),
-    );
-  }
-}
-
-/// One explicit edge behavior: what plays and the duration it occupies.
-class _EdgeAnimationControl extends StatelessWidget {
-  const _EdgeAnimationControl({
-    required this.controller,
-    required this.clip,
-    required this.side,
-  });
-
-  final EditorController controller;
-  final Clip clip;
-
-  /// 'entry' or 'leave'.
-  final String side;
-
-  static const double _maxSeconds = 2.0;
-
-  String? get _preset => controller.clipAnimationPreset(clip, side);
-
-  String get _label => side == 'entry' ? 'Enter' : 'Leave';
-
-  String get _helper => side == 'entry' ? 'At clip start' : 'At clip end';
-
-  String get _valueLabel {
-    final id = _preset;
-    if (id == null) return 'None';
-    return TimelineEdits.kClipEdgePresets.entries
-        .firstWhere(
-          (e) => e.value == id,
-          orElse: () => const MapEntry('None', ''),
-        )
-        .key;
-  }
-
-  void _pick(BuildContext context) {
-    final anchor = context.findRenderObject() as RenderBox?;
-    if (anchor == null || !anchor.attached) return;
-    showCcMenu(
-      context,
-      anchor.localToGlobal(Offset(0, anchor.size.height + 4)),
-      [
-        CcMenuItem('None', checked: _preset == null, onTap: () => _apply('')),
-        for (final entry in TimelineEdits.kClipEdgePresets.entries)
-          CcMenuItem(
-            entry.key,
-            checked: _preset == entry.value,
-            separatorBefore: entry.value == 'fade',
-            onTap: () => _apply(entry.value),
-          ),
-      ],
-    );
-  }
-
-  void _apply(String value) => controller.setClipEntryLeave(
-    clip.id,
-    entry: side == 'entry' ? value : null,
-    leave: side == 'leave' ? value : null,
-  );
-
-  void _setSeconds(double seconds) => controller.setClipEntryLeave(
-    clip.id,
-    entry: side == 'entry' ? (_preset ?? '') : null,
-    leave: side == 'leave' ? (_preset ?? '') : null,
-    seconds: seconds,
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    final seconds = controller.clipAnimationSeconds(clip, side);
-    final on = _preset != null;
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: CcColors.elevated,
-        borderRadius: CcRadius.brSm,
-        border: Border.all(color: on ? CcColors.accentDim : CcColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Text(
-                _label,
-                style: CcType.style(size: 11, weight: CcType.semibold),
-              ),
-              const SizedBox(width: 6),
-              Text(_helper, style: CcType.micro),
-            ],
-          ),
-          const SizedBox(height: 7),
-          Row(
-            children: [
-              Expanded(
-                flex: 3,
-                child: Builder(
-                  builder:
-                      (anchorContext) => CcDropdown(
-                        value: _valueLabel,
-                        height: 28,
-                        fontSize: 11,
-                        bordered: true,
-                        onTap: () => _pick(anchorContext),
-                      ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                flex: 2,
-                child: CcSlider(
-                  value: (seconds / _maxSeconds).clamp(0.0, 1.0),
-                  onChanged:
-                      on
-                          ? (t) =>
-                              _setSeconds(((t * _maxSeconds) * 20).round() / 20)
-                          : null,
-                ),
-              ),
-              const SizedBox(width: 6),
-              SizedBox(
-                width: 38,
-                child: Text(
-                  '${seconds.toStringAsFixed(2)} s',
-                  textAlign: TextAlign.right,
-                  style: CcType.style(
-                    size: 10,
-                    weight: CcType.medium,
-                    color: on ? CcColors.textPrimary : CcColors.textTertiary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
       ),
     );
   }

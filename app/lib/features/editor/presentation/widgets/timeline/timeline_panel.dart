@@ -237,13 +237,6 @@ class _TimelinePanelState extends State<TimelinePanel> {
   void _clipMenu(BuildContext context, Offset position, Clip clip) {
     if (!c.selection.contains(clip.id)) c.selectClip(clip.id);
     final linked = clip.linkedGroup != null;
-    final isImage = c.doc.assetById(clip.mediaId)?.type == 'image';
-    final isVisual =
-        clip.text != null ||
-        switch (c.doc.assetById(clip.mediaId)?.type) {
-          'image' || 'video' => true,
-          _ => false,
-        };
     showCcMenu(context, position, [
       CcMenuItem('Split at playhead', shortcut: 'S', onTap: c.splitAtPlayhead),
       CcMenuItem('Copy', shortcut: '⌘C', onTap: c.copySelection),
@@ -275,39 +268,6 @@ class _TimelinePanelState extends State<TimelinePanel> {
         clip.mute ? 'Unmute clip' : 'Mute clip',
         onTap: () => c.setClipAudio(clip.id, mute: !clip.mute),
       ),
-      if (isImage)
-        for (final preset in TimelineEdits.kImagePresets.entries)
-          CcMenuItem(
-            'Animate: ${preset.key}',
-            separatorBefore:
-                preset.key == TimelineEdits.kImagePresets.keys.first,
-            checked: c.clipAnimationPreset(clip, 'motion') == preset.value,
-            onTap: () => c.applyImagePreset(clip.id, preset.value),
-          ),
-      if (isVisual)
-        for (final preset in TimelineEdits.kClipEdgePresets.entries)
-          CcMenuItem(
-            'Entry: ${preset.key}',
-            separatorBefore:
-                preset.key == TimelineEdits.kClipEdgePresets.keys.first,
-            checked: c.clipAnimationPreset(clip, 'entry') == preset.value,
-            onTap: () => c.setClipEntryLeave(clip.id, entry: preset.value),
-          ),
-      if (isVisual)
-        for (final preset in TimelineEdits.kClipEdgePresets.entries)
-          CcMenuItem(
-            'Leave: ${preset.key}',
-            separatorBefore:
-                preset.key == TimelineEdits.kClipEdgePresets.keys.first,
-            checked: c.clipAnimationPreset(clip, 'leave') == preset.value,
-            onTap: () => c.setClipEntryLeave(clip.id, leave: preset.value),
-          ),
-      if (isVisual)
-        CcMenuItem(
-          'Clear clip animation',
-          separatorBefore: true,
-          onTap: () => c.clearClipAnimation(clip.id),
-        ),
     ]);
   }
 

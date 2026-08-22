@@ -110,6 +110,7 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   /// Transport-rate preview image channel. Only the monitor listens, so a new
   /// frame repaints one widget instead of the whole editor.
   final ValueNotifier<PreviewFrame?> previewImage = ValueNotifier(null);
+  final Map<String, (int, int)> _textGizmoSizes = {};
 
   bool playing = false;
   bool looping = false;
@@ -131,10 +132,19 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   /// moved past them.
   static const int _maxFramesInFlight = 2;
 
-  /// Dedupes dispatches: (revision, requested micros, render width). Renders
-  /// with an identical key produce an identical image, so re-issuing one only
-  /// burns a slot the newest playhead position could have used.
-  (int, int, int)? _lastRequestKey;
+  /// Identity of the frame currently on the monitor: (revision, requested
+  /// micros, render width). A request with this key would composite the image
+  /// that is already on screen, so it is skipped rather than given a slot the
+  /// newest playhead position could have used. Keyed on what was *shown*, not
+  /// on what was last dispatched — a request that never reached the monitor
+  /// must stay repeatable.
+  (int, int, int)? _shownKey;
+
+  /// Dispatch order. Stamped when a request starts and compared against
+  /// [_shownSeq] before publishing, so an older request cannot overwrite a
+  /// newer one that overtook it.
+  int _requestSeq = 0;
+  int _shownSeq = 0;
 
   bool get _frameBusy => _framesInFlight >= _maxFramesInFlight;
 
@@ -860,9 +870,6 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
 
   /// Clip the on-canvas transform gizmo should target: the selection when it
   /// is a rasterised visual clip under the playhead, otherwise the topmost one.
-  ///
-  /// Text clips are excluded — their texture is a Dart-side raster whose size
-  /// is unrelated to any media asset, so the gizmo cannot derive their rect.
   Clip? gizmoClipUnderPlayhead() {
     for (final id in selection) {
       final clip = doc.clipById(id);
@@ -888,7 +895,7 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   }
 
   bool _gizmoEligible(Clip c) {
-    if (c.text != null || c.mediaId.isEmpty) return false;
+    if (c.text == null && c.mediaId.isEmpty) return false;
     if (!(playhead >= c.start && playhead < c.end)) return false;
     final track = doc.trackById(c.trackId);
     if (track == null || !track.isVideo || track.hidden || track.lock) {
@@ -897,9 +904,18 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     return gizmoSourceSize(c) != null;
   }
 
-  /// Natural pixel size of a clip's source, or null when the asset never got
-  /// probed (an offline or audio asset) and the gizmo has nothing to measure.
+  /// Natural pixel size of a clip's source, or null when the asset/text raster
+  /// has not been measured yet and the gizmo has nothing truthful to outline.
   (int, int)? gizmoSourceSize(Clip clip) {
+    if (clip.text case final text?) {
+      return _textGizmoSizes[clip.id] ??
+          TextRasterizer.instance.measure(
+            text,
+            canvasWidth: doc.settings.width,
+            sequenceHeight: doc.settings.height,
+            localSeconds: clipLocalTime(clip).seconds,
+          );
+    }
     final asset = doc.assetById(clip.mediaId);
     if (asset == null || asset.type == 'audio') return null;
     final w = asset.width ?? 0;
@@ -936,7 +952,7 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
       seqH: doc.settings.height,
       srcW: size.$1,
       srcH: size.$2,
-      framing: t.framing,
+      framing: clip.text != null ? 'native' : t.framing,
       x: evalTransformNum(t.x, clip, 0),
       y: evalTransformNum(t.y, clip, 0),
       scalePercent: evalTransformNum(t.scale, clip, 100),
@@ -955,7 +971,7 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
       seqH: doc.settings.height,
       srcW: size.$1,
       srcH: size.$2,
-      framing: clip.transformOrDefault.framing,
+      framing: clip.text != null ? 'native' : clip.transformOrDefault.framing,
       x: 0,
       y: 0,
       scalePercent: 100,
@@ -1114,10 +1130,10 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     );
     final width = previewRenderWidth;
     // Same document, same time, same size: the composite would be pixel-for-
-    // pixel what is already queued or on screen.
+    // pixel what the monitor is already showing.
     final key = (revision, requested.micros, width);
-    if (key == _lastRequestKey) return;
-    _lastRequestKey = key;
+    if (key == _shownKey) return;
+    final seq = ++_requestSeq;
 
     _framesInFlight++;
     try {
@@ -1155,7 +1171,15 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
           sequenceHeight: height,
           localSeconds: (requested - clip.start).seconds,
         );
-        if (raster == null) continue;
+        if (raster == null) {
+          _textGizmoSizes.remove(clip.id);
+          continue;
+        }
+        final sequenceScale = doc.settings.height / height;
+        _textGizmoSizes[clip.id] = (
+          (raster.width * sequenceScale).round(),
+          (raster.height * sequenceScale).round(),
+        );
         textures['text:${clip.id}'] = raster.bytes;
         textureSizes['text:${clip.id}'] = (raster.width, raster.height);
       }
@@ -1182,18 +1206,17 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
         currentRevision: _previewRevision,
         requestWasPlaying: playbackRequest,
         currentlyPlaying: playing,
-        requested: requested,
-        playhead: playhead,
-        frameDuration: frameDuration,
+        requestSeq: seq,
+        shownSeq: _shownSeq,
       );
       if (current) {
         // One targeted repaint of the monitor. Nothing else on screen depends
         // on the frame, so nothing else is rebuilt.
+        _shownSeq = seq;
+        _shownKey = key;
         previewImage.value = frame;
       }
     } catch (e) {
-      // Let the same request through again; the failure may be transient.
-      _lastRequestKey = null;
       debugPrint('preview frame failed: $e');
     } finally {
       _framesInFlight--;
@@ -1207,7 +1230,10 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     }
     if (_framePending) {
       _framePending = false;
-      await updatePreviewFrame();
+      // Deliberately not awaited: awaiting here nests one pending future per
+      // composited frame, so a few minutes of playback builds a chain
+      // thousands deep that only unwinds when the transport stops.
+      unawaited(updatePreviewFrame());
     }
   }
 

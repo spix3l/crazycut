@@ -21,6 +21,7 @@ double framingBaseScale({
   final sx = seqW / srcW;
   final sy = seqH / srcH;
   return switch (framing) {
+    'native' => 1.0,
     'stretch' => 1.0,
     'fill' => math.max(sx, sy),
     _ => math.min(sx, sy),
@@ -54,7 +55,10 @@ Rect layerRectInSequence({
       scale;
   final double dw;
   final double dh;
-  if (framing == 'stretch') {
+  if (framing == 'native') {
+    dw = srcW * scale;
+    dh = srcH * scale;
+  } else if (framing == 'stretch') {
     dw = seqW * scale;
     dh = seqH * scale;
   } else {
