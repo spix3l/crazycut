@@ -32,18 +32,28 @@ class _InspectorPanelState extends State<InspectorPanel> {
 
   EditorController get c => widget.controller;
 
-  static const _clipTabs = ['Timing', 'Audio', 'Transform', 'Effects'];
-  static const _textClipTabs = ['Text', 'Transform', 'Effects'];
+  /// Tabs follow what the clip actually has: an image has no audio to mix and
+  /// a sound file has nothing to place on the canvas, and offering either is a
+  /// dead end the user has to discover by clicking it.
+  static List<String> _tabsFor(Clip? clip, MediaAsset? asset) {
+    if (clip == null) return const ['Timing', 'Audio', 'Transform', 'Effects'];
+    if (clip.text != null) return const ['Text', 'Transform', 'Effects'];
+    if (asset?.type == 'audio') return const ['Timing', 'Audio', 'Effects'];
+    if (asset != null && !asset.hasAudio) {
+      return const ['Timing', 'Transform', 'Effects'];
+    }
+    return const ['Timing', 'Audio', 'Transform', 'Effects'];
+  }
 
   @override
   Widget build(BuildContext context) {
     final selected = c.selectedClip;
     final multiple = c.selection.length > 1;
     final asset = selected == null ? null : c.doc.assetById(selected.mediaId);
-    final tabs = selected?.text != null ? _textClipTabs : _clipTabs;
+    final tabs = _tabsFor(selected, asset);
     final selectionKey = selected == null
         ? null
-        : '${selected.id}:${selected.text != null ? 'text' : 'media'}';
+        : '${selected.id}:${tabs.join(',')}';
     if (_selectionKey != selectionKey) {
       _selectionKey = selectionKey;
       _tab = 0;

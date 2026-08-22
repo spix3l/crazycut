@@ -2288,8 +2288,13 @@ mixin TimelineEdits on ChangeNotifier {
       };
     }
     final t = clip.transformOrDefault;
+    // Read an already-animated param at the middle of the clip, never at its
+    // head: t=0 is exactly where an entry animation parks its *start* value, so
+    // taking the pose from there made a clip shrink by the pop preset's 0.7
+    // every time the pose had to be re-derived.
+    final middle = Rt.fromMicros(clip.duration.micros ~/ 2);
     double at(ParamValue pv, double fallback) {
-      final v = pv.animated ? pv.evaluate(Rt.zero()) : pv.static;
+      final v = pv.animated ? pv.evaluate(middle) : pv.static;
       return v is num ? v.toDouble() : fallback;
     }
 
@@ -2416,11 +2421,11 @@ mixin TimelineEdits on ChangeNotifier {
         ..clear()
         ..addAll(keys);
       entry.value.sortKeys();
-      if (keys.isEmpty) {
-        entry.value.static = base[entry.key];
-      } else {
-        generated.add(entry.key);
-      }
+      // The static value is what the param falls back to once the generated
+      // keys go away, so keep it on the resting pose even while it is animated
+      // rather than leaving whatever the pose was before the last edit.
+      entry.value.static = base[entry.key];
+      if (keys.isNotEmpty) generated.add(entry.key);
     }
     spec['params'] = generated;
 

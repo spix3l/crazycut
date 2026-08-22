@@ -1,4 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+
+import 'package:crazycut_app/data/project.dart';
+import 'package:crazycut_app/state/editor_controller.dart';
 
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/preview_renderer.dart';
@@ -96,5 +101,51 @@ void main() {
       current(requestPlaying: true, playing: true, playhead: s(2.2)),
       isFalse,
     );
+  });
+
+  group('preview render size', () {
+    late Directory tmp;
+    late EditorController c;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('cc-preview-width');
+      final doc = ProjectDoc.empty('P', width: 1920, height: 1080, fps: 30);
+      c = EditorController(doc, path: '${tmp.path}/p.crazycut');
+      c.setPreviewWidth(1920);
+    });
+
+    tearDown(() {
+      c.dispose();
+      tmp.deleteSync(recursive: true);
+    });
+
+    test('parked monitor renders at the size it is displayed', () {
+      expect(c.previewRenderWidth, 1920);
+    });
+
+    // Rendering size is a latency question, not only a sharpness one: a
+    // full-resolution composite of a real project measures 30-110 ms, and at
+    // that latency the image visibly trails the handles dragging it, which
+    // reads as the gizmo being misaligned with its own clip.
+    test('an open canvas gesture drops the render size, and restores it', () {
+      c.beginGesture('Move image');
+      c.previewLiveEdit();
+      expect(c.previewRenderWidth, EditorController.maxLiveEditPreviewWidth);
+      c.endGesture();
+      expect(c.previewRenderWidth, 1920);
+    });
+
+    test('playback keeps its own cap', () {
+      c.playing = true;
+      expect(c.previewRenderWidth, EditorController.maxPlaybackPreviewWidth);
+    });
+
+    test('never renders larger than the monitor asked for', () {
+      c.setPreviewWidth(640);
+      c.beginGesture('Move image');
+      c.previewLiveEdit();
+      expect(c.previewRenderWidth, 640);
+      c.endGesture();
+    });
   });
 }

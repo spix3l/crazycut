@@ -34,6 +34,72 @@ void blendPixelOver(uint8_t* base, const uint8_t* top, float sa) {
   base[3] = static_cast<uint8_t>(std::lround(oa * 255.f));
 }
 
+// One axis of a bilinear tap: the two source indices to mix and the weight of
+// the second. `a < 0` means the canvas pixel falls outside the source.
+struct Tap {
+  int a = -1;   // first sample (also the nearest one when `n` is used)
+  int b = -1;   // second sample
+  int n = -1;   // nearest-neighbour index, for the 1:1 fast path
+  float t = 0.f;
+};
+
+// Maps a canvas coordinate to its source neighbours. The *inside* test still
+// uses the nearest-neighbour rule, so a layer covers exactly the same
+// destination rect it did before — only what is read inside it changes.
+Tap axisTap(double canvasCoord, double k, int extent, bool flip) {
+  const double f = canvasCoord / k;
+  const int nearest = static_cast<int>(std::floor(f));
+  if (nearest < 0 || nearest >= extent) return Tap{};
+  const double centred = f - 0.5;
+  int a = static_cast<int>(std::floor(centred));
+  const float t = static_cast<float>(centred - a);
+  int b = a + 1;
+  a = std::min(std::max(a, 0), extent - 1);
+  b = std::min(std::max(b, 0), extent - 1);
+  int n = nearest;
+  if (flip) {
+    a = extent - 1 - a;
+    b = extent - 1 - b;
+    n = extent - 1 - n;
+  }
+  return Tap{a, b, n, t};
+}
+
+// Bilinear fetch in premultiplied space. Interpolating straight alpha would
+// pull the RGB of fully transparent pixels (usually black) into the edge of
+// every logo and glyph, which shows up as a dark fringe.
+void sampleBilinear(const RgbaSurface& src, const Tap& cx, const Tap& cy,
+                    uint8_t* out) {
+  const size_t stride = static_cast<size_t>(src.width) * 4;
+  const uint8_t* rows[2] = {src.rgba.data() + cy.a * stride,
+                            src.rgba.data() + cy.b * stride};
+  const float wy[2] = {1.f - cy.t, cy.t};
+  const float wx[2] = {1.f - cx.t, cx.t};
+  const int xs[2] = {cx.a, cx.b};
+  float acc[4] = {0.f, 0.f, 0.f, 0.f};
+  for (int j = 0; j < 2; ++j) {
+    for (int i = 0; i < 2; ++i) {
+      const float w = wy[j] * wx[i];
+      if (w <= 0.f) continue;
+      const uint8_t* p = rows[j] + static_cast<size_t>(xs[i]) * 4;
+      const float a = p[3] / 255.f;
+      acc[0] += p[0] / 255.f * a * w;
+      acc[1] += p[1] / 255.f * a * w;
+      acc[2] += p[2] / 255.f * a * w;
+      acc[3] += a * w;
+    }
+  }
+  if (acc[3] <= 0.f) {
+    out[0] = out[1] = out[2] = out[3] = 0;
+    return;
+  }
+  const float inv = 1.f / acc[3];
+  out[0] = quantize(acc[0] * inv);
+  out[1] = quantize(acc[1] * inv);
+  out[2] = quantize(acc[2] * inv);
+  out[3] = quantize(acc[3]);
+}
+
 double paramNum(const json& transform, const char* key, double fallback) {
   const auto it = transform.find(key);
   if (it == transform.end() || it->is_null()) return fallback;
@@ -137,42 +203,53 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
   const double cosr = std::cos(rad), sinr = std::sin(rad);
 
   const int halfW = dw / 2, halfH = dh / 2;
-  // Nearest-neighbour sampling. Bilinear would be nicer; nearest keeps
-  // determinism trivially and is what golden tests assert on. Preview scale
-  // hides the difference.
+  // Sampling: nearest when the source maps 1:1 onto the canvas, bilinear when
+  // it does not. A layer drawn at its own resolution — text rasterized for this
+  // exact frame, footage delivered at sequence size — must stay bit-exact, both
+  // because interpolating it can only soften it and because the goldens assert
+  // on those pixels. Anything resized or rotated is resampled, and nearest made
+  // that visibly blocky: glyph stems landed on whole pixels so some came out a
+  // pixel wider than their neighbours.
+  const bool exact = std::abs(kx - 1.0) < 1e-9 && std::abs(ky - 1.0) < 1e-9 &&
+                     layer.rotationDeg == 0.0;
   if (layer.rotationDeg == 0.0) {
     // Unrotated is the overwhelmingly common case (and every frame of ordinary
     // playback). The source column for a canvas column is then the same on
     // every row, so it is computed once for the whole width instead of once
     // per pixel — same arithmetic, ~H times less of it.
-    std::vector<int> columns(W);
+    std::vector<Tap> columns(W);
     for (int px = 0; px < W; ++px) {
-      const double ux = (px + 0.5 - cx) + (halfW - axp);
-      int sx = static_cast<int>(std::floor(ux / kx));
-      if (sx < 0 || sx >= src.width) {
-        sx = -1;
-      } else if (layer.flipH) {
-        sx = src.width - 1 - sx;
-      }
-      columns[px] = sx;
+      columns[px] = axisTap((px + 0.5 - cx) + (halfW - axp), kx, src.width,
+                            layer.flipH);
     }
     for (int py = 0; py < H; ++py) {
-      const double uy = (py + 0.5 - cy) + (halfH - ayp);
-      int sy = static_cast<int>(std::floor(uy / ky));
-      if (sy < 0 || sy >= src.height) continue;
-      if (layer.flipV) sy = src.height - 1 - sy;
-      const uint8_t* row =
-          src.rgba.data() + static_cast<size_t>(sy) * src.width * 4;
+      const Tap rowTap =
+          axisTap((py + 0.5 - cy) + (halfH - ayp), ky, src.height, layer.flipV);
+      if (rowTap.a < 0) continue;
       uint8_t* q = out->rgba.data() + static_cast<size_t>(py) * W * 4;
+      if (exact) {
+        const uint8_t* row =
+            src.rgba.data() + static_cast<size_t>(rowTap.n) * src.width * 4;
+        for (int px = 0; px < W; ++px, q += 4) {
+          if (columns[px].a < 0) continue;
+          const uint8_t* p = row + static_cast<size_t>(columns[px].n) * 4;
+          if (p[3] == 0) continue;
+          q[0] = p[0];
+          q[1] = p[1];
+          q[2] = p[2];
+          q[3] = p[3];
+        }
+        continue;
+      }
       for (int px = 0; px < W; ++px, q += 4) {
-        const int sx = columns[px];
-        if (sx < 0) continue;
-        const uint8_t* p = row + static_cast<size_t>(sx) * 4;
-        if (p[3] == 0) continue;
-        q[0] = p[0];
-        q[1] = p[1];
-        q[2] = p[2];
-        q[3] = p[3];
+        if (columns[px].a < 0) continue;
+        uint8_t px4[4];
+        sampleBilinear(src, columns[px], rowTap, px4);
+        if (px4[3] == 0) continue;
+        q[0] = px4[0];
+        q[1] = px4[1];
+        q[2] = px4[2];
+        q[3] = px4[3];
       }
     }
     return Error::None;
@@ -186,22 +263,17 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
       // Inverse-rotate to find source pixel.
       const double ux = rx * cosr + ry * sinr + (halfW - axp);
       const double uy = -rx * sinr + ry * cosr + (halfH - ayp);
-      double sxF = ux / kx;
-      double syF = uy / ky;
-      int sx = static_cast<int>(std::floor(sxF));
-      int sy = static_cast<int>(std::floor(syF));
-      bool inside = sx >= 0 && sy >= 0 && sx < src.width && sy < src.height;
+      const Tap tapX = axisTap(ux, kx, src.width, layer.flipH);
+      const Tap tapY = axisTap(uy, ky, src.height, layer.flipV);
+      if (tapX.a < 0 || tapY.a < 0) continue;
       uint8_t* q = out->rgba.data() + (static_cast<size_t>(py) * W + px) * 4;
-      if (!inside) continue;
-      if (layer.flipH) sx = src.width - 1 - sx;
-      if (layer.flipV) sy = src.height - 1 - sy;
-      const uint8_t* p =
-          src.rgba.data() + (static_cast<size_t>(sy) * src.width + sx) * 4;
-      if (p[3] == 0) continue;
-      q[0] = p[0];
-      q[1] = p[1];
-      q[2] = p[2];
-      q[3] = p[3];
+      uint8_t px4[4];
+      sampleBilinear(src, tapX, tapY, px4);
+      if (px4[3] == 0) continue;
+      q[0] = px4[0];
+      q[1] = px4[1];
+      q[2] = px4[2];
+      q[3] = px4[3];
     }
   }
   return Error::None;

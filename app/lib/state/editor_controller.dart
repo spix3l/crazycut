@@ -154,6 +154,14 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   /// ahead of a 30 fps playhead on high-DPI displays.
   static const int maxPlaybackPreviewWidth = 960;
 
+  /// Cap while a direct-manipulation gesture is open. A full-resolution
+  /// composite of a real project measures 30-110 ms; at that latency the image
+  /// visibly trails the handles the pointer is dragging, which reads as the
+  /// gizmo sitting off its own clip. The committed edit re-renders at full size
+  /// the moment the gesture ends, so the softness is only ever on screen while
+  /// the mouse button is down.
+  static const int maxLiveEditPreviewWidth = 640;
+
   int _previewWidth = minPreviewWidth;
   int get previewWidth => _previewWidth;
 
@@ -198,7 +206,6 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   void dispose() {
     _disposed = true;
     _playTimer?.cancel();
-    _liveEditTimer?.cancel();
     _audio?.stop();
     _audio?.dispose();
     _audio = null;
@@ -804,10 +811,7 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
         }
         mediaPaths[asset.id] = ProxyService.decodePath(asset);
       }
-      final width =
-          playing && _previewWidth > maxPlaybackPreviewWidth
-              ? maxPlaybackPreviewWidth
-              : _previewWidth;
+      final width = previewRenderWidth;
       var height = (width * doc.settings.height / doc.settings.width).round();
       if (height.isOdd) height += 1;
       final textures = <String, Uint8List>{};
@@ -865,7 +869,14 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     } finally {
       _frameBusy = false;
     }
-    if (_framePending && !_disposed) {
+    if (_disposed) return;
+    // A move that arrived while this frame was in flight: push the document it
+    // produced now, so the drag always ends on the newest pose.
+    if (_liveEditPending && inGesture) {
+      _pushLivePreview();
+      return;
+    }
+    if (_framePending) {
       _framePending = false;
       await updatePreviewFrame();
     }
@@ -877,13 +888,28 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   void markDirty() {
     // Mid-drag the document changes every frame; the engine only needs the
     // committed result, which endGesture() delivers.
-    if (!inGesture) _syncEngineGraph();
+    if (!inGesture) {
+      _liveEditing = false;
+      _liveEditPending = false;
+      _syncEngineGraph();
+    }
     autosave.markDirty();
   }
 
-  Timer? _liveEditTimer;
-  DateTime _lastLiveEdit = DateTime.fromMillisecondsSinceEpoch(0);
-  static const _liveEditInterval = Duration(milliseconds: 40);
+  /// True between the first [previewLiveEdit] of a gesture and its commit.
+  bool _liveEditing = false;
+  bool _liveEditPending = false;
+
+  /// Width the next preview frame renders at, given what the transport and the
+  /// pointer are doing.
+  int get previewRenderWidth {
+    final cap = playing
+        ? maxPlaybackPreviewWidth
+        : _liveEditing
+        ? maxLiveEditPreviewWidth
+        : _previewWidth;
+    return cap < _previewWidth ? cap : _previewWidth;
+  }
 
   /// Refreshes the monitor from an *uncommitted* gesture.
   ///
@@ -895,22 +921,35 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   /// and to nothing else: no history, no autosave, no audio graph.
   void previewLiveEdit() {
     if (!inGesture || _disposed) return;
-    final since = DateTime.now().difference(_lastLiveEdit);
-    if (since >= _liveEditInterval) {
-      _pushLivePreview();
+    final first = !_liveEditing;
+    _liveEditing = true;
+    // Paced by the renderer, not by a clock: a pointer emits moves far faster
+    // than a frame can be composited, and a fixed interval either wastes
+    // encodes or leaves the last one waiting on a timer. One push per completed
+    // frame is both the freshest and the cheapest schedule.
+    if (_frameBusy && !first) {
+      _liveEditPending = true;
       return;
     }
-    // Trailing edge: the last move of a drag must not be the one throttling
-    // drops, or the frame sits stale until the pointer comes up.
-    _liveEditTimer?.cancel();
-    _liveEditTimer = Timer(_liveEditInterval - since, _pushLivePreview);
+    _pushLivePreview();
+  }
+
+  /// A gesture that ended without committing anything (a click, a drag that
+  /// resolved to no change) never reaches [markDirty], so the live-edit state
+  /// is cleared here too — otherwise the monitor would stay at the reduced
+  /// drag resolution until the next edit.
+  @override
+  void endGesture() {
+    super.endGesture();
+    if (!_liveEditing) return;
+    _liveEditing = false;
+    _liveEditPending = false;
+    _syncEngineGraph();
   }
 
   void _pushLivePreview() {
-    _liveEditTimer?.cancel();
-    _liveEditTimer = null;
     if (_disposed) return;
-    _lastLiveEdit = DateTime.now();
+    _liveEditPending = false;
     // Only the render isolate: the in-process engine serves audio and
     // thumbnails, which an in-flight drag has nothing to say to.
     _previewRevision++;

@@ -765,7 +765,11 @@ class _TimelinePanelState extends State<TimelinePanel> {
         cursor: locked ? SystemMouseCursors.basic : cursor,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTapDown: (_) => _onClipTap(clip),
+          // Wait until the gesture resolves as a tap before collapsing the
+          // selection. A selected clip may be the handle for dragging the
+          // whole selection, and selecting it again on pointer-down would
+          // discard its peers before [beginDrag] captures their origins.
+          onTap: () => _onClipTap(clip),
           onSecondaryTapDown: (d) => _clipMenu(context, d.globalPosition, clip),
           onPanStart: locked ? null : (_) => _startClipDrag(clip, kind),
           onPanUpdate: locked

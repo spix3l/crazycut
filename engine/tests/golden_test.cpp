@@ -399,6 +399,79 @@ TEST(GoldenFrames, TextTextureKeepsItsRasterizedSize) {
       << "text bounds must not be image-fitted to the full canvas";
 }
 
+// A texture with one hard vertical edge, for looking at what the sampler does
+// with it.
+cc::RgbaSurface edgeFrame(int w, int h) {
+  cc::RgbaSurface out{w, h, std::vector<uint8_t>(static_cast<size_t>(w) * h * 4)};
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      uint8_t* q = out.rgba.data() + (static_cast<size_t>(y) * w + x) * 4;
+      const uint8_t v = x < w / 2 ? 0 : 255;
+      q[0] = q[1] = q[2] = v;
+      q[3] = 255;
+    }
+  }
+  return out;
+}
+
+json textClipAtScale(double scale) {
+  json text = {{"id", "ct"},     {"trackId", "v1"}, {"mediaId", ""},
+               {"label", "Text"}, {"start", "0/1"},  {"duration", "5/1"},
+               {"text", {{"content", "HELLO"}}}};
+  text["transform"] = {{"scale", {{"static", scale}}},
+                       {"opacity", {{"static", 100.0}}}};
+  return text;
+}
+
+cc::RgbaSurface renderTexture(const json& clip, cc::RgbaSurface texture) {
+  cc::RgbaSurface out;
+  EXPECT_EQ(cc::renderFrame(
+                baseDoc(json::array({clip})), cc::RationalTime{}, 320, 180,
+                [&](const std::string& key) -> std::optional<cc::ClipSource> {
+                  if (key != "text:ct") return std::nullopt;
+                  cc::ClipSource source;
+                  source.texture = texture;
+                  return source;
+                },
+                &out),
+            cc::Error::None);
+  return out;
+}
+
+// A layer drawn at its own resolution has to come through untouched. Text is
+// rasterized for the exact frame it is composited into, so resampling it could
+// only soften it — and this is also what keeps the goldens above stable.
+TEST(GoldenFrames, NativeSizedTextureIsCopiedNotResampled) {
+  const cc::RgbaSurface texture = edgeFrame(40, 20);
+  const cc::RgbaSurface out = renderTexture(textClipAtScale(100.0), texture);
+
+  std::map<int, size_t> levels;
+  for (size_t i = 0; i < out.rgba.size(); i += 4) {
+    if (out.rgba[i + 3] == 0) continue;
+    levels[out.rgba[i]] += 1;
+  }
+  ASSERT_EQ(levels.size(), 2u)
+      << "a 1:1 texture must keep exactly the two levels it was drawn with";
+  EXPECT_EQ(levels.begin()->first, 0);
+  EXPECT_EQ(levels.rbegin()->first, 255);
+}
+
+// Anything resized is resampled. Nearest-neighbour made scaled text and logos
+// visibly blocky: every glyph stem snapped to whole source pixels, so some came
+// out a pixel wider than their neighbours.
+TEST(GoldenFrames, ScaledTextureIsInterpolated) {
+  const cc::RgbaSurface texture = edgeFrame(40, 20);
+  const cc::RgbaSurface out = renderTexture(textClipAtScale(370.0), texture);
+
+  size_t intermediate = 0;
+  for (size_t i = 0; i < out.rgba.size(); i += 4) {
+    if (out.rgba[i + 3] == 0) continue;
+    if (out.rgba[i] > 8 && out.rgba[i] < 247) ++intermediate;
+  }
+  EXPECT_GT(intermediate, 0u)
+      << "a magnified edge should be interpolated, not stair-stepped";
+}
+
 TEST(GoldenFrames, PreviewMatchesExportSamplingBitForBit) {
   // The core WYSIWYG guarantee: rendering the same document at the same time
   // through the same entry point twice yields identical bytes.

@@ -279,4 +279,20 @@ void main() {
     expect(e.imageAnimPreset(restored, 'in'), 'pop');
     expect(e.imageAnimPreset(restored, 'out'), 'fade');
   });
+
+  test('the resting pose survives a rebuild on an already-animated clip', () {
+    final (e, clip) = harness();
+    e.setTransformParam(clip.id, 'scale', 40);
+    e.setImageEntryExit(clip.id, appear: 'pop');
+    expect(e.imageAnimResting(clip)['scale'], 40);
+
+    // A rebuild that has to re-derive the pose (a project whose spec was lost,
+    // an older file) must read it from the middle of the clip. Reading t=0 —
+    // where pop parks its 0.7x start value — shrank the image by 30% every time
+    // the animation was touched.
+    clip.extra.remove('imageAnim');
+    e.setImageEntryExit(clip.id, appear: 'pop');
+    expect(e.imageAnimResting(clip)['scale'], closeTo(40, 0.001));
+    expect(evalAt(clip.transformOrDefault.scale, 3), closeTo(40, 0.001));
+  });
 }

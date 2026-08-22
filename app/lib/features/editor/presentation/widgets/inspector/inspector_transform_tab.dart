@@ -282,14 +282,19 @@ class _EntryExitRow extends StatelessWidget {
       padding: const EdgeInsets.only(top: 8),
       child: Row(
         children: [
+          // Wide enough for DISAPPEAR at this size; the label used to be cut
+          // off by the dropdown next to it.
           SizedBox(
-            width: 66,
+            width: 74,
             child: Text(
               _label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: CcType.style(size: 9, color: CcColors.textTertiary),
             ),
           ),
           Expanded(
+            flex: 3,
             child: Builder(
               builder: (anchorContext) => CcDropdown(
                 value: _valueLabel,
@@ -300,9 +305,9 @@ class _EntryExitRow extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 54,
+          const SizedBox(width: 10),
+          Expanded(
+            flex: 2,
             child: CcSlider(
               value: (seconds / _maxSeconds).clamp(0.0, 1.0),
               onChanged: on
@@ -312,8 +317,9 @@ class _EntryExitRow extends StatelessWidget {
                   : null,
             ),
           ),
+          const SizedBox(width: 6),
           SizedBox(
-            width: 34,
+            width: 32,
             child: Text(
               '${seconds.toStringAsFixed(2)}s',
               textAlign: TextAlign.right,
