@@ -5,6 +5,40 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('CcMultilineTextField works below WidgetsApp', (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      WidgetsApp(
+        color: CcColors.bg,
+        pageRouteBuilder: <T>(RouteSettings settings, WidgetBuilder builder) =>
+            PageRouteBuilder<T>(
+              settings: settings,
+              pageBuilder: (context, _, _) => builder(context),
+            ),
+        home: Center(
+          child: SizedBox(
+            width: 240,
+            child: CcMultilineTextField(
+              controller: controller,
+              placeholder: 'Type…',
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Type…'), findsOneWidget);
+
+    await tester.enterText(find.byType(EditableText), 'First line\nSecond line');
+    await tester.pump();
+
+    expect(controller.text, 'First line\nSecond line');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('CcTooltip overlay stays content-sized', (tester) async {
     await tester.pumpWidget(
       WidgetsApp(

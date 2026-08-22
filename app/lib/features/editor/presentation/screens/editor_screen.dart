@@ -64,6 +64,18 @@ class _EditorScreenState extends State<EditorScreen> {
   EditorController? get _controller =>
       AppSession.instance.hasProject ? AppSession.instance.editor : null;
 
+  /// Text is an insert action rather than a persistent pointer mode. Creating
+  /// the clip immediately makes the toolbar affordance useful on its own; the
+  /// selected clip then exposes its editor in the inspector.
+  void _changeTool(EditorController c, int tool) {
+    if (tool == 2) {
+      c.addTextClip();
+      setState(() => _tool = 0);
+      return;
+    }
+    setState(() => _tool = tool);
+  }
+
   @override
   void dispose() {
     _focus.dispose();
@@ -187,8 +199,28 @@ class _EditorScreenState extends State<EditorScreen> {
 
   // --- Keyboard (04-ui-ux §7) ----------------------------------------------
 
+  bool get _textInputHasFocus {
+    final focusContext = FocusManager.instance.primaryFocus?.context;
+    if (focusContext == null) return false;
+    return focusContext.widget is EditableText ||
+        focusContext.findAncestorWidgetOfExactType<EditableText>() != null;
+  }
+
   KeyEventResult _onKey(EditorController c, KeyEvent event) {
     if (event is KeyUpEvent) return KeyEventResult.ignored;
+
+    // EditableText handles typing after focus-key propagation. Do not let the
+    // editor's single-key commands (S, M, I, Backspace, arrows, and friends)
+    // consume those same events first. Escape deliberately returns focus to
+    // the editor, re-enabling its shortcuts.
+    if (_textInputHasFocus) {
+      if (event.logicalKey == LogicalKeyboardKey.escape) {
+        _focus.requestFocus();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+
     final keys = HardwareKeyboard.instance;
     final meta = keys.isMetaPressed || keys.isControlPressed;
     final shift = keys.isShiftPressed;
@@ -312,7 +344,7 @@ class _EditorScreenState extends State<EditorScreen> {
                   children: [
                     EditorToolbar(
                       selectedTool: _tool,
-                      onToolChanged: (i) => setState(() => _tool = i),
+                      onToolChanged: (i) => _changeTool(c, i),
                       onBack: () async {
                         await AppSession.instance.close();
                         if (context.mounted) context.router.maybePop();

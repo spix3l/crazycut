@@ -37,7 +37,7 @@ class EditorToolbar extends StatelessWidget {
   static const _tools = [
     (LucideIcons.mousePointer2, 'Select (V)'),
     (LucideIcons.scissors, 'Blade (B)'),
-    (LucideIcons.type, 'Text (T)'),
+    (LucideIcons.type, 'Add text (T)'),
   ];
 
   final int selectedTool;

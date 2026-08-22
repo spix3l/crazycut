@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -47,6 +48,7 @@ class TextRasterizer {
     final fontSize =
         (text.fontSize * scale * supersample).clamp(8.0, 512.0).toDouble();
     final fontWeight = _weight(text.fontWeight);
+    final fontFamily = text.fontFamily == 'default' ? null : text.fontFamily;
     final lineHeight = text.lineHeight <= 0 ? 1.2 : text.lineHeight;
 
     final tp = TextPainter(
@@ -54,6 +56,7 @@ class TextRasterizer {
         text: content,
         style: TextStyle(
           color: _color(text.color),
+          fontFamily: fontFamily,
           fontSize: fontSize,
           fontWeight: fontWeight,
           height: lineHeight,
@@ -64,7 +67,12 @@ class TextRasterizer {
       textDirection: TextDirection.ltr,
     )..layout(maxWidth: canvasWidth.toDouble());
 
-    final pad = (fontSize * 0.25).ceil();
+    final backgroundPad = text.backgroundPadding * scale * supersample;
+    final strokePad = text.strokeWidth * scale * supersample;
+    final pad = math.max(
+      fontSize * 0.25,
+      math.max(backgroundPad, strokePad),
+    ).ceil();
     final width = (tp.width.ceil() + pad * 2).clamp(4, canvasWidth);
     final height = (tp.height.ceil() + pad * 2).clamp(4, 4096);
 
@@ -75,7 +83,12 @@ class TextRasterizer {
     final bgColor = _color(text.backgroundColor);
     if (bgColor.a > 0) {
       final r = text.backgroundRadius * scale * supersample;
-      final rect = Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble());
+      final rect = Rect.fromLTWH(
+        pad - backgroundPad,
+        pad - backgroundPad,
+        math.min(tp.width + backgroundPad * 2, width.toDouble()),
+        math.min(tp.height + backgroundPad * 2, height.toDouble()),
+      );
       final paint = Paint()..color = bgColor;
       if (r > 0) {
         canvas.drawRRect(RRect.fromRectAndRadius(rect, Radius.circular(r)), paint);
@@ -92,6 +105,7 @@ class TextRasterizer {
           text: content,
           style: TextStyle(
             color: sc.withValues(alpha: text.shadowOpacity),
+            fontFamily: fontFamily,
             fontSize: fontSize,
             fontWeight: fontWeight,
             height: lineHeight,
@@ -122,6 +136,32 @@ class TextRasterizer {
         );
         canvas.restore();
       }
+    }
+
+    // Stroke sits behind the fill so the inspector's outline controls affect
+    // the actual preview instead of only being persisted in the project file.
+    if (text.strokeWidth > 0) {
+      final stroke = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = text.strokeWidth * scale * supersample
+        ..strokeJoin = StrokeJoin.round
+        ..color = _color(text.strokeColor);
+      final strokeTp = TextPainter(
+        text: TextSpan(
+          text: content,
+          style: TextStyle(
+            foreground: stroke,
+            fontFamily: fontFamily,
+            fontSize: fontSize,
+            fontWeight: fontWeight,
+            height: lineHeight,
+            letterSpacing: text.letterSpacing * scale * supersample,
+          ),
+        ),
+        textAlign: _align(text.align),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: canvasWidth.toDouble());
+      strokeTp.paint(canvas, Offset(pad.toDouble(), pad.toDouble()));
     }
 
     // Fill.

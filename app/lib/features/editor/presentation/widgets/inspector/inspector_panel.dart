@@ -28,6 +28,7 @@ class InspectorPanel extends StatefulWidget {
 
 class _InspectorPanelState extends State<InspectorPanel> {
   int _tab = 0;
+  String? _selectionKey;
 
   EditorController get c => widget.controller;
 
@@ -39,6 +40,15 @@ class _InspectorPanelState extends State<InspectorPanel> {
     final selected = c.selectedClip;
     final multiple = c.selection.length > 1;
     final asset = selected == null ? null : c.doc.assetById(selected.mediaId);
+    final tabs = selected?.text != null ? _textClipTabs : _clipTabs;
+    final selectionKey = selected == null
+        ? null
+        : '${selected.id}:${selected.text != null ? 'text' : 'media'}';
+    if (_selectionKey != selectionKey) {
+      _selectionKey = selectionKey;
+      _tab = 0;
+    }
+    final activeTab = _tab.clamp(0, tabs.length - 1);
 
     return Container(
       width: InspectorPanel.width,
@@ -54,7 +64,9 @@ class _InspectorPanelState extends State<InspectorPanel> {
               children: [
                 if (selected != null) ...[
                   CcIcon(
-                    asset?.type == 'audio'
+                    selected.text != null
+                        ? LucideIcons.type
+                        : asset?.type == 'audio'
                         ? LucideIcons.audioWaveform
                         : asset?.type == 'image'
                             ? LucideIcons.image
@@ -81,8 +93,8 @@ class _InspectorPanelState extends State<InspectorPanel> {
           ),
           if (selected != null)
             CcTabBar(
-              tabs: selected.text != null ? _textClipTabs : _clipTabs,
-              selectedIndex: _tab.clamp(0, _clipTabs.length - 1),
+              tabs: tabs,
+              selectedIndex: activeTab,
               fontSize: 11,
               horizontalPadding: 9,
               onChanged: (i) => setState(() => _tab = i),
@@ -91,7 +103,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
             child: SingleChildScrollView(
               child: selected == null
                   ? SequenceSettingsTab(controller: c)
-                  : _clipBody(selected),
+                  : _clipBody(selected, tabs[activeTab]),
             ),
           ),
         ],
@@ -99,11 +111,8 @@ class _InspectorPanelState extends State<InspectorPanel> {
     );
   }
 
-  Widget _clipBody(Clip clip) {
-    if (clip.text != null && _clipTabs[_tab.clamp(0, _clipTabs.length - 1)] == 'Text') {
-      return TextTab(controller: c, clip: clip);
-    }
-    return switch (_clipTabs[_tab.clamp(0, _clipTabs.length - 1)]) {
+  Widget _clipBody(Clip clip, String tab) {
+    return switch (tab) {
       'Timing' => ClipTimingTab(controller: c, clip: clip),
       'Audio' => ClipAudioTab(controller: c, clip: clip),
       'Transform' => TransformTab(controller: c, clip: clip),

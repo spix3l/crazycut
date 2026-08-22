@@ -7,7 +7,6 @@ import '../../../../../data/project.dart';
 import '../../../../../state/editor_controller.dart';
 import '../../../../../data/text_content.dart';
 import '../../../../../state/timeline_edits.dart';
-import 'package:flutter/material.dart' show TextField, InputDecoration, OutlineInputBorder;
 
 /// Text clip editing (TXT-2/3/4): content, style, and the preset gallery that
 /// bakes keyframes (TXT-5).
@@ -43,7 +42,9 @@ class TextTab extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14),
             child: _ContentField(
+              key: ValueKey(clip.id),
               initial: text.content,
+              autofocus: text.content.isEmpty,
               onCommitted: (v) => c.setTextContent(clip.id, v),
             ),
           ),
@@ -261,9 +262,15 @@ class TextTab extends StatelessWidget {
 }
 
 class _ContentField extends StatefulWidget {
-  const _ContentField({required this.initial, required this.onCommitted});
+  const _ContentField({
+    super.key,
+    required this.initial,
+    required this.autofocus,
+    required this.onCommitted,
+  });
 
   final String initial;
+  final bool autofocus;
   final ValueChanged<String> onCommitted;
 
   @override
@@ -291,19 +298,12 @@ class _ContentFieldState extends State<_ContentField> {
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
+    return CcMultilineTextField(
       controller: _controller,
-      style: CcType.small,
+      autofocus: widget.autofocus,
+      placeholder: 'Type…',
       maxLines: 3,
       minLines: 1,
-      decoration: InputDecoration(
-        hintText: 'Type…',
-        hintStyle: CcType.style(size: 12, color: CcColors.textTertiary),
-        isDense: true,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      ),
       onChanged: widget.onCommitted,
     );
   }
