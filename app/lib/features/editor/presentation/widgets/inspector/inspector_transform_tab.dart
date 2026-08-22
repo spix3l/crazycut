@@ -32,13 +32,17 @@ class TransformTab extends StatelessWidget {
           'image' || 'video' => true,
           _ => false,
         };
-    return Padding(
+    final content = Padding(
       padding: const EdgeInsets.only(bottom: 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (isVisualMedia)
-            _ClipAnimationSection(controller: c, clip: clip, showContinuousMotion: isImage),
+            _ClipAnimationSection(
+              controller: c,
+              clip: clip,
+              showContinuousMotion: isImage,
+            ),
           _TransformSectionHeader('Layout'),
           _AlignSection(controller: c),
           for (final row in const [
@@ -73,21 +77,31 @@ class TransformTab extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(14, 8, 14, 2),
               child: Row(
                 children: [
-                  Text('Flip', style: CcType.style(size: 11, color: CcColors.textSecondary)),
+                  Text(
+                    'Flip',
+                    style: CcType.style(
+                      size: 11,
+                      color: CcColors.textSecondary,
+                    ),
+                  ),
                   const Spacer(),
-                  CcSegmented(
-                    selectedIndex: (t.flipH ? 1 : 0) + (t.flipV ? 2 : 0),
-                    children: [
-                      Text('None', style: CcType.nano),
-                      Text('H', style: CcType.nano),
-                      Text('V', style: CcType.nano),
-                      Text('H+V', style: CcType.nano),
-                    ],
-                    onChanged: (i) => c.setClipTransform(clip.id, (cur) {
-                      cur.flipH = i == 1 || i == 3;
-                      cur.flipV = i >= 2;
-                      return cur;
-                    }),
+                  Expanded(
+                    child: CcSegmented(
+                      expand: true,
+                      selectedIndex: (t.flipH ? 1 : 0) + (t.flipV ? 2 : 0),
+                      children: [
+                        Text('None', style: CcType.nano),
+                        Text('H', style: CcType.nano),
+                        Text('V', style: CcType.nano),
+                        Text('H+V', style: CcType.nano),
+                      ],
+                      onChanged:
+                          (i) => c.setClipTransform(clip.id, (cur) {
+                            cur.flipH = i == 1 || i == 3;
+                            cur.flipV = i >= 2;
+                            return cur;
+                          }),
+                    ),
                   ),
                 ],
               ),
@@ -96,27 +110,37 @@ class TransformTab extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(14, 6, 14, 2),
               child: Row(
                 children: [
-                  Text('Framing', style: CcType.style(size: 11, color: CcColors.textSecondary)),
+                  Text(
+                    'Framing',
+                    style: CcType.style(
+                      size: 11,
+                      color: CcColors.textSecondary,
+                    ),
+                  ),
                   const Spacer(),
-                  CcSegmented(
-                    selectedIndex: switch (t.framing) {
-                      'fill' => 1,
-                      'stretch' => 2,
-                      _ => 0,
-                    },
-                    children: [
-                      Text('Fit', style: CcType.nano),
-                      Text('Fill', style: CcType.nano),
-                      Text('Stretch', style: CcType.nano),
-                    ],
-                    onChanged: (i) => c.setClipTransform(clip.id, (cur) {
-                      cur.framing = switch (i) {
-                        1 => 'fill',
-                        2 => 'stretch',
-                        _ => 'fit',
-                      };
-                      return cur;
-                    }),
+                  Expanded(
+                    child: CcSegmented(
+                      expand: true,
+                      selectedIndex: switch (t.framing) {
+                        'fill' => 1,
+                        'stretch' => 2,
+                        _ => 0,
+                      },
+                      children: [
+                        Text('Fit', style: CcType.nano),
+                        Text('Fill', style: CcType.nano),
+                        Text('Stretch', style: CcType.nano),
+                      ],
+                      onChanged:
+                          (i) => c.setClipTransform(clip.id, (cur) {
+                            cur.framing = switch (i) {
+                              1 => 'fill',
+                              2 => 'stretch',
+                              _ => 'fit',
+                            };
+                            return cur;
+                          }),
+                    ),
                   ),
                 ],
               ),
@@ -124,6 +148,13 @@ class TransformTab extends StatelessWidget {
           ],
         ],
       ),
+    );
+    return LayoutBuilder(
+      builder:
+          (context, constraints) =>
+              constraints.hasBoundedHeight
+                  ? SingleChildScrollView(child: content)
+                  : content,
     );
   }
 }
@@ -166,7 +197,11 @@ class _AlignSection extends StatelessWidget {
       LucideIcons.alignHorizontalDistributeCenter,
       'Distribute horizontally',
     ),
-    (AlignAxis.vertical, LucideIcons.alignVerticalDistributeCenter, 'Distribute vertically'),
+    (
+      AlignAxis.vertical,
+      LucideIcons.alignVerticalDistributeCenter,
+      'Distribute vertically',
+    ),
   ];
 
   @override
@@ -186,7 +221,10 @@ class _AlignSection extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text('Align', style: CcType.style(size: 11, color: CcColors.textSecondary)),
+              Text(
+                'Align',
+                style: CcType.style(size: 11, color: CcColors.textSecondary),
+              ),
               const Spacer(),
               Text('to $reference', style: CcType.nano),
             ],
@@ -207,7 +245,10 @@ class _AlignSection extends StatelessWidget {
               const Spacer(),
               for (final (axis, icon, label) in _distributes)
                 CcTooltip(
-                  message: canDistribute ? label : '$label — needs three or more images',
+                  message:
+                      canDistribute
+                          ? label
+                          : '$label — needs three or more images',
                   child: CcIconButton(
                     icon: icon,
                     size: 28,
@@ -249,29 +290,42 @@ class _ClipAnimationSection extends StatelessWidget {
         children: [
           CcSectionHeader(
             'CLIP ANIMATION',
-            trailing: _hasAnimation
-                ? CcTappable(
-                    onTap: () => controller.clearClipAnimation(clip.id),
-                    child: Text(
-                      'Clear',
-                      style: CcType.style(
-                        size: 10,
-                        weight: CcType.semibold,
-                        color: CcColors.accent,
+            trailing:
+                _hasAnimation
+                    ? CcTappable(
+                      onTap: () => controller.clearClipAnimation(clip.id),
+                      child: Text(
+                        'Clear',
+                        style: CcType.style(
+                          size: 10,
+                          weight: CcType.semibold,
+                          color: CcColors.accent,
+                        ),
                       ),
-                    ),
-                  )
-                : null,
+                    )
+                    : null,
           ),
           const SizedBox(height: 6),
           Text(
             'Set how the clip arrives and leaves the frame.',
-            style: CcType.style(size: 10, height: 1.35, color: CcColors.textTertiary),
+            style: CcType.style(
+              size: 10,
+              height: 1.35,
+              color: CcColors.textTertiary,
+            ),
           ),
           const SizedBox(height: 10),
-          _EdgeAnimationControl(controller: controller, clip: clip, side: 'in'),
+          _EdgeAnimationControl(
+            controller: controller,
+            clip: clip,
+            side: 'entry',
+          ),
           const SizedBox(height: 8),
-          _EdgeAnimationControl(controller: controller, clip: clip, side: 'out'),
+          _EdgeAnimationControl(
+            controller: controller,
+            clip: clip,
+            side: 'leave',
+          ),
           if (showContinuousMotion) ...[
             const SizedBox(height: 14),
             Text(
@@ -292,10 +346,11 @@ class _ClipAnimationSection extends StatelessWidget {
                   _PresetChip(
                     label: entry.key,
                     selected: _motion() == entry.value,
-                    onTap: () => controller.applyImagePreset(
-                      clip.id,
-                      _motion() == entry.value ? null : entry.value,
-                    ),
+                    onTap:
+                        () => controller.applyImagePreset(
+                          clip.id,
+                          _motion() == entry.value ? null : entry.value,
+                        ),
                   ),
               ],
             ),
@@ -307,7 +362,11 @@ class _ClipAnimationSection extends StatelessWidget {
 }
 
 class _PresetChip extends StatelessWidget {
-  const _PresetChip({required this.label, required this.selected, required this.onTap});
+  const _PresetChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   final String label;
   final bool selected;
@@ -324,7 +383,9 @@ class _PresetChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? CcColors.accentDim : CcColors.elevated,
           borderRadius: CcRadius.brSm,
-          border: Border.all(color: selected ? CcColors.accent : CcColors.border),
+          border: Border.all(
+            color: selected ? CcColors.accent : CcColors.border,
+          ),
         ),
         child: Text(label, style: CcType.style(size: 10)),
       ),
@@ -343,50 +404,57 @@ class _EdgeAnimationControl extends StatelessWidget {
   final EditorController controller;
   final Clip clip;
 
-  /// 'in' (entry) or 'out' (leave).
+  /// 'entry' or 'leave'.
   final String side;
 
   static const double _maxSeconds = 2.0;
 
   String? get _preset => controller.clipAnimationPreset(clip, side);
 
-  String get _label => side == 'in' ? 'Enter' : 'Leave';
+  String get _label => side == 'entry' ? 'Enter' : 'Leave';
 
-  String get _helper => side == 'in' ? 'At clip start' : 'At clip end';
+  String get _helper => side == 'entry' ? 'At clip start' : 'At clip end';
 
   String get _valueLabel {
     final id = _preset;
     if (id == null) return 'None';
     return TimelineEdits.kClipEdgePresets.entries
-        .firstWhere((e) => e.value == id, orElse: () => const MapEntry('None', ''))
+        .firstWhere(
+          (e) => e.value == id,
+          orElse: () => const MapEntry('None', ''),
+        )
         .key;
   }
 
   void _pick(BuildContext context) {
     final anchor = context.findRenderObject() as RenderBox?;
     if (anchor == null || !anchor.attached) return;
-    showCcMenu(context, anchor.localToGlobal(Offset(0, anchor.size.height + 4)), [
-      CcMenuItem('None', checked: _preset == null, onTap: () => _apply('')),
-      for (final entry in TimelineEdits.kClipEdgePresets.entries)
-        CcMenuItem(
-          entry.key,
-          checked: _preset == entry.value,
-          separatorBefore: entry.value == 'fade',
-          onTap: () => _apply(entry.value),
-        ),
-    ]);
+    showCcMenu(
+      context,
+      anchor.localToGlobal(Offset(0, anchor.size.height + 4)),
+      [
+        CcMenuItem('None', checked: _preset == null, onTap: () => _apply('')),
+        for (final entry in TimelineEdits.kClipEdgePresets.entries)
+          CcMenuItem(
+            entry.key,
+            checked: _preset == entry.value,
+            separatorBefore: entry.value == 'fade',
+            onTap: () => _apply(entry.value),
+          ),
+      ],
+    );
   }
 
-  void _apply(String value) => controller.setClipEntryExit(
+  void _apply(String value) => controller.setClipEntryLeave(
     clip.id,
-    appear: side == 'in' ? value : null,
-    disappear: side == 'out' ? value : null,
+    entry: side == 'entry' ? value : null,
+    leave: side == 'leave' ? value : null,
   );
 
-  void _setSeconds(double seconds) => controller.setClipEntryExit(
+  void _setSeconds(double seconds) => controller.setClipEntryLeave(
     clip.id,
-    appear: side == 'in' ? (_preset ?? '') : null,
-    disappear: side == 'out' ? (_preset ?? '') : null,
+    entry: side == 'entry' ? (_preset ?? '') : null,
+    leave: side == 'leave' ? (_preset ?? '') : null,
     seconds: seconds,
   );
 
@@ -406,7 +474,10 @@ class _EdgeAnimationControl extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(_label, style: CcType.style(size: 11, weight: CcType.semibold)),
+              Text(
+                _label,
+                style: CcType.style(size: 11, weight: CcType.semibold),
+              ),
               const SizedBox(width: 6),
               Text(_helper, style: CcType.micro),
             ],
@@ -417,13 +488,14 @@ class _EdgeAnimationControl extends StatelessWidget {
               Expanded(
                 flex: 3,
                 child: Builder(
-                  builder: (anchorContext) => CcDropdown(
-                    value: _valueLabel,
-                    height: 28,
-                    fontSize: 11,
-                    bordered: true,
-                    onTap: () => _pick(anchorContext),
-                  ),
+                  builder:
+                      (anchorContext) => CcDropdown(
+                        value: _valueLabel,
+                        height: 28,
+                        fontSize: 11,
+                        bordered: true,
+                        onTap: () => _pick(anchorContext),
+                      ),
                 ),
               ),
               const SizedBox(width: 10),
@@ -431,9 +503,11 @@ class _EdgeAnimationControl extends StatelessWidget {
                 flex: 2,
                 child: CcSlider(
                   value: (seconds / _maxSeconds).clamp(0.0, 1.0),
-                  onChanged: on
-                      ? (t) => _setSeconds(((t * _maxSeconds) * 20).round() / 20)
-                      : null,
+                  onChanged:
+                      on
+                          ? (t) =>
+                              _setSeconds(((t * _maxSeconds) * 20).round() / 20)
+                          : null,
                 ),
               ),
               const SizedBox(width: 6),
@@ -509,8 +583,9 @@ class _TransformRowState extends State<_TransformRow> {
   }
 
   void _keyframeMenu(Offset position) {
-    final times = _param().keyframes.map(ParamValue.timeOf).toList()
-      ..sort((a, b) => a.compareTo(b));
+    final times =
+        _param().keyframes.map(ParamValue.timeOf).toList()
+          ..sort((a, b) => a.compareTo(b));
     final before = times.where((time) => time < _localTime).toList();
     final after = times.where((time) => time > _localTime).toList();
     final previous = before.isEmpty ? null : before.last;
@@ -519,40 +594,45 @@ class _TransformRowState extends State<_TransformRow> {
       CcMenuItem(
         'Previous keyframe',
         icon: LucideIcons.chevronLeft,
-        onTap: previous == null
-            ? null
-            : () => widget.controller.seekTo(widget.clip.start.plus(previous)),
+        onTap:
+            previous == null
+                ? null
+                : () =>
+                    widget.controller.seekTo(widget.clip.start.plus(previous)),
       ),
       CcMenuItem(
         'Next keyframe',
         icon: LucideIcons.chevronRight,
-        onTap: next == null
-            ? null
-            : () => widget.controller.seekTo(widget.clip.start.plus(next)),
+        onTap:
+            next == null
+                ? null
+                : () => widget.controller.seekTo(widget.clip.start.plus(next)),
       ),
       CcMenuItem(
         'Delete keyframe',
         icon: LucideIcons.trash2,
         separatorBefore: true,
-        onTap: !_keyAtPlayhead
-            ? null
-            : () => widget.controller.removeKeyframe(
-                widget.clip.id,
-                '__transform',
-                widget.paramId,
-                _localTime,
-              ),
+        onTap:
+            !_keyAtPlayhead
+                ? null
+                : () => widget.controller.removeKeyframe(
+                  widget.clip.id,
+                  '__transform',
+                  widget.paramId,
+                  _localTime,
+                ),
       ),
       CcMenuItem(
         'Clear all keyframes',
         danger: true,
-        onTap: !_animated
-            ? null
-            : () => widget.controller.clearKeyframes(
-                widget.clip.id,
-                '__transform',
-                widget.paramId,
-              ),
+        onTap:
+            !_animated
+                ? null
+                : () => widget.controller.clearKeyframes(
+                  widget.clip.id,
+                  '__transform',
+                  widget.paramId,
+                ),
       ),
     ]);
   }
@@ -576,16 +656,16 @@ class _TransformRowState extends State<_TransformRow> {
             Expanded(
               flex: 7,
               child: CcSlider(
-                value: ((_currentValue - widget.min) / (widget.max - widget.min)).clamp(
-                  0.0,
-                  1.0,
-                ),
-                onChanged: (t) => widget.controller.setTransformParam(
-                  widget.clip.id,
-                  widget.paramId,
-                  widget.min + t * (widget.max - widget.min),
-                  at: _localTime,
-                ),
+                value: ((_currentValue - widget.min) /
+                        (widget.max - widget.min))
+                    .clamp(0.0, 1.0),
+                onChanged:
+                    (t) => widget.controller.setTransformParam(
+                      widget.clip.id,
+                      widget.paramId,
+                      widget.min + t * (widget.max - widget.min),
+                      at: _localTime,
+                    ),
               ),
             ),
             SizedBox(
@@ -602,12 +682,13 @@ class _TransformRowState extends State<_TransformRow> {
                 child: KeyframeDiamond(
                   animated: _animated,
                   atCurrentTime: _keyAtPlayhead,
-                  onTap: () => widget.controller.toggleKeyframe(
-                    widget.clip.id,
-                    '__transform',
-                    widget.paramId,
-                    widget.controller.playhead.minus(widget.clip.start),
-                  ),
+                  onTap:
+                      () => widget.controller.toggleKeyframe(
+                        widget.clip.id,
+                        '__transform',
+                        widget.paramId,
+                        widget.controller.playhead.minus(widget.clip.start),
+                      ),
                   onContextMenu: _keyframeMenu,
                 ),
               ),

@@ -15,13 +15,15 @@ const String kSchemaVersion = 'crazycut/project@1';
 String generateId() {
   final now = DateTime.now().millisecondsSinceEpoch;
   final rand = _random;
-  String hex(int value, int digits) =>
-      (value & ((1 << (digits * 4)) - 1)).toRadixString(16).padLeft(digits, '0');
+  String hex(int value, int digits) => (value & ((1 << (digits * 4)) - 1))
+      .toRadixString(16)
+      .padLeft(digits, '0');
   final a = hex(now >> 16, 8);
   final b = hex(now, 4);
   final c = '7${hex(rand.nextInt(0x1000), 3)}';
   final d = ((8 + rand.nextInt(4)) << 12) | rand.nextInt(0x1000);
-  final e = '${hex(rand.nextInt(0xFFFFFFFF), 8)}${hex(rand.nextInt(0xFFFF), 4)}';
+  final e =
+      '${hex(rand.nextInt(0xFFFFFFFF), 8)}${hex(rand.nextInt(0xFFFF), 4)}';
   return '$a-$b-$c-${hex(d, 4)}-$e';
 }
 
@@ -44,9 +46,67 @@ class _XorShift {
 /// Fields we do not model yet are carried through load → save untouched
 /// (`02-data-model.md` §1 "forward-safe").
 Map<String, dynamic> _unknown(Map<String, dynamic> json, Set<String> known) => {
-      for (final entry in json.entries)
-        if (!known.contains(entry.key)) entry.key: entry.value,
+  for (final entry in json.entries)
+    if (!known.contains(entry.key)) entry.key: entry.value,
+};
+
+dynamic _copyJsonValue(dynamic value) {
+  if (value is Map) {
+    return <String, dynamic>{
+      for (final entry in value.entries)
+        entry.key.toString(): _copyJsonValue(entry.value),
     };
+  }
+  if (value is List) return [for (final item in value) _copyJsonValue(item)];
+  return value;
+}
+
+/// Migrates the pre-v1 visual animation payload to the generic clip payload.
+/// The old field was image-specific and called the two edges `in`/`out`; the
+/// persisted model now names the same behaviors `entry`/`leave` for every
+/// visual clip type.
+Map<String, dynamic>? _migrateClipAnimation(dynamic value) {
+  if (value is! Map) return null;
+  final migrated = _copyJsonValue(value) as Map<String, dynamic>;
+  if (!migrated.containsKey('entry') && migrated.containsKey('in')) {
+    migrated['entry'] = migrated['in'];
+  }
+  if (!migrated.containsKey('leave') && migrated.containsKey('out')) {
+    migrated['leave'] = migrated['out'];
+  }
+  migrated.remove('in');
+  migrated.remove('out');
+  return migrated;
+}
+
+Map<String, dynamic> _clipExtra(Map<String, dynamic> json) {
+  final extra = _unknown(json, {
+    'id',
+    'trackId',
+    'mediaId',
+    'label',
+    'start',
+    'duration',
+    'sourceIn',
+    'speed',
+    'reverse',
+    'volume',
+    'pan',
+    'mute',
+    'fadeIn',
+    'fadeOut',
+    'linkedGroup',
+    'effects',
+    'blend',
+    'transform',
+    'text',
+  });
+  final legacy = extra.remove('imageAnim');
+  final current = extra['clipAnim'];
+  final animation = _migrateClipAnimation(current ?? legacy);
+  if (animation != null) extra['clipAnim'] = animation;
+  return extra;
+}
 
 /// Master output bus (AUD-10/11). The limiter is on by default: it exists to
 /// stop an accidental over reaching the file, not to shape the mix.
@@ -60,14 +120,17 @@ class MasterBus {
   MasterBus copy() =>
       MasterBus(gain: gain, limiter: limiter, ceilingDb: ceilingDb);
 
-  Map<String, dynamic> toJson() =>
-      {'gain': gain, 'limiter': limiter, 'ceilingDb': ceilingDb};
+  Map<String, dynamic> toJson() => {
+    'gain': gain,
+    'limiter': limiter,
+    'ceilingDb': ceilingDb,
+  };
 
   static MasterBus fromJson(Map<String, dynamic>? j) => MasterBus(
-        gain: (j?['gain'] as num?)?.toDouble() ?? 1.0,
-        limiter: (j?['limiter'] as bool?) ?? true,
-        ceilingDb: (j?['ceilingDb'] as num?)?.toDouble() ?? -1.0,
-      );
+    gain: (j?['gain'] as num?)?.toDouble() ?? 1.0,
+    limiter: (j?['limiter'] as bool?) ?? true,
+    ceilingDb: (j?['ceilingDb'] as num?)?.toDouble() ?? -1.0,
+  );
 }
 
 class SequenceSettings {
@@ -98,31 +161,31 @@ class SequenceSettings {
   }
 
   SequenceSettings copy() => SequenceSettings(
-        width: width,
-        height: height,
-        fps: fps,
-        audioSampleRate: audioSampleRate,
-        background: background,
-        master: master.copy(),
-      );
+    width: width,
+    height: height,
+    fps: fps,
+    audioSampleRate: audioSampleRate,
+    background: background,
+    master: master.copy(),
+  );
 
   Map<String, dynamic> toJson() => {
-        'width': width,
-        'height': height,
-        'fps': fps,
-        'audioSampleRate': audioSampleRate,
-        'background': background,
-        'master': master.toJson(),
-      };
+    'width': width,
+    'height': height,
+    'fps': fps,
+    'audioSampleRate': audioSampleRate,
+    'background': background,
+    'master': master.toJson(),
+  };
 
   static SequenceSettings fromJson(Map<String, dynamic> j) => SequenceSettings(
-        width: j['width'] as int,
-        height: j['height'] as int,
-        fps: j['fps'] as String,
-        audioSampleRate: (j['audioSampleRate'] as num?)?.toInt() ?? 48000,
-        background: (j['background'] as String?) ?? '#000000',
-        master: MasterBus.fromJson(j['master'] as Map<String, dynamic>?),
-      );
+    width: j['width'] as int,
+    height: j['height'] as int,
+    fps: j['fps'] as String,
+    audioSampleRate: (j['audioSampleRate'] as num?)?.toInt() ?? 48000,
+    background: (j['background'] as String?) ?? '#000000',
+    master: MasterBus.fromJson(j['master'] as Map<String, dynamic>?),
+  );
 }
 
 enum ThumbStatus { none, pending, ready, failed }
@@ -157,7 +220,8 @@ class MediaAsset {
       name: j['name'] as String,
       path: j['path'] as String,
       type: j['type'] as String,
-      duration: j['duration'] == null ? Rt.zero() : Rt.parse(j['duration'] as String),
+      duration:
+          j['duration'] == null ? Rt.zero() : Rt.parse(j['duration'] as String),
       hasAudio: (j['hasAudio'] as bool?) ?? false,
       hash: (j['hash'] as String?) ?? '',
       width: (probe['width'] as num?)?.toInt(),
@@ -169,13 +233,22 @@ class MediaAsset {
       hdr: (probe['hdr'] as String?) ?? 'none',
       bitrate: (probe['bitrate'] as num?)?.toInt(),
       proxyPath: j['proxyPath'] as String?,
-      thumbStatus: ThumbStatus.values.firstWhereOrNull(
+      thumbStatus:
+          ThumbStatus.values.firstWhereOrNull(
             (s) => s.name == (j['thumbStatus'] as String?),
           ) ??
           ThumbStatus.none,
       extra: _unknown(j, {
-        'id', 'hash', 'name', 'path', 'type', 'duration', 'hasAudio', 'probe',
-        'proxyPath', 'thumbStatus',
+        'id',
+        'hash',
+        'name',
+        'path',
+        'type',
+        'duration',
+        'hasAudio',
+        'probe',
+        'proxyPath',
+        'thumbStatus',
       }),
     );
   }
@@ -212,33 +285,35 @@ class MediaAsset {
     if ((height ?? 0) > 1440) return true;
     if ((bitrate ?? 0) > 60000000) return true;
     final c = codec?.toLowerCase() ?? '';
-    if (c.contains('hevc') || c.contains('h265') || c.contains('av1')) return true;
+    if (c.contains('hevc') || c.contains('h265') || c.contains('av1')) {
+      return true;
+    }
     return vfr;
   }
 
   Map<String, dynamic> toJson() => {
-        ...extra,
-        'id': id,
-        'hash': hash,
-        'name': name,
-        'path': path,
-        'type': type,
-        if (!duration.isZero) 'duration': duration.toString(),
-        'hasAudio': hasAudio,
-        'probe': {
-          if (width != null) 'width': width,
-          if (height != null) 'height': height,
-          'rotation': rotation,
-          if (fps != null) 'fps': fps,
-          'vfr': vfr,
-          if (codec != null) 'codec': codec,
-          if (bitrate != null) 'bitrate': bitrate,
-          'hdr': hdr,
-          if (hasAudio) 'audio': 'stereo',
-        },
-        'proxyPath': proxyPath,
-        'thumbStatus': thumbStatus.name,
-      };
+    ...extra,
+    'id': id,
+    'hash': hash,
+    'name': name,
+    'path': path,
+    'type': type,
+    if (!duration.isZero) 'duration': duration.toString(),
+    'hasAudio': hasAudio,
+    'probe': {
+      if (width != null) 'width': width,
+      if (height != null) 'height': height,
+      'rotation': rotation,
+      if (fps != null) 'fps': fps,
+      'vfr': vfr,
+      if (codec != null) 'codec': codec,
+      if (bitrate != null) 'bitrate': bitrate,
+      'hdr': hdr,
+      if (hasAudio) 'audio': 'stereo',
+    },
+    'proxyPath': proxyPath,
+    'thumbStatus': thumbStatus.name,
+  };
 }
 
 /// Track row heights offered by the header menu (TIM-2).
@@ -301,53 +376,67 @@ class Track {
   Track copy() => Track.fromJson(toJson());
 
   Map<String, dynamic> toJson() => {
-        ...extra,
-        'id': id,
-        'kind': kind,
-        'name': name,
-        'index': index,
-        'mute': mute,
-        'solo': solo,
-        'lock': lock,
-        'hidden': hidden,
-        'height': height,
-        'gain': gain,
-        'pan': pan,
-      };
+    ...extra,
+    'id': id,
+    'kind': kind,
+    'name': name,
+    'index': index,
+    'mute': mute,
+    'solo': solo,
+    'lock': lock,
+    'hidden': hidden,
+    'height': height,
+    'gain': gain,
+    'pan': pan,
+  };
 
   static Track fromJson(Map<String, dynamic> j) => Track(
-        id: j['id'] as String,
-        kind: j['kind'] as String,
-        name: j['name'] as String,
-        index: (j['index'] as num).toInt(),
-        mute: (j['mute'] as bool?) ?? false,
-        solo: (j['solo'] as bool?) ?? false,
-        lock: (j['lock'] as bool?) ?? false,
-        hidden: (j['hidden'] as bool?) ?? false,
-        height: (j['height'] as num?)?.toInt() ?? 72,
-        gain: (j['gain'] as num?)?.toDouble() ?? 1.0,
-        pan: (j['pan'] as num?)?.toDouble() ?? 0.0,
-        extra: _unknown(j, {
-          'id', 'kind', 'name', 'index', 'mute', 'solo', 'lock', 'hidden',
-          'height', 'gain', 'pan',
-        }),
-      );
+    id: j['id'] as String,
+    kind: j['kind'] as String,
+    name: j['name'] as String,
+    index: (j['index'] as num).toInt(),
+    mute: (j['mute'] as bool?) ?? false,
+    solo: (j['solo'] as bool?) ?? false,
+    lock: (j['lock'] as bool?) ?? false,
+    hidden: (j['hidden'] as bool?) ?? false,
+    height: (j['height'] as num?)?.toInt() ?? 72,
+    gain: (j['gain'] as num?)?.toDouble() ?? 1.0,
+    pan: (j['pan'] as num?)?.toDouble() ?? 0.0,
+    extra: _unknown(j, {
+      'id',
+      'kind',
+      'name',
+      'index',
+      'mute',
+      'solo',
+      'lock',
+      'hidden',
+      'height',
+      'gain',
+      'pan',
+    }),
+  );
 }
 
 class Fade {
-  Fade({Rt? duration, this.curve = 'linear'}) : duration = duration ?? Rt.zero();
+  Fade({Rt? duration, this.curve = 'linear'})
+    : duration = duration ?? Rt.zero();
 
   Rt duration;
   String curve;
 
   Fade copy() => Fade(duration: duration, curve: curve);
 
-  Map<String, dynamic> toJson() => {'duration': duration.toString(), 'curve': curve};
+  Map<String, dynamic> toJson() => {
+    'duration': duration.toString(),
+    'curve': curve,
+  };
 
   static Fade fromJson(Map<String, dynamic>? j) => Fade(
-        duration: j?['duration'] == null ? Rt.zero() : Rt.parse(j!['duration'] as String),
-        curve: (j?['curve'] as String?) ?? 'linear',
-      );
+    duration:
+        j?['duration'] == null ? Rt.zero() : Rt.parse(j!['duration'] as String),
+    curve: (j?['curve'] as String?) ?? 'linear',
+  );
 }
 
 class Clip {
@@ -372,10 +461,10 @@ class Clip {
     this.transform,
     this.text,
     Map<String, dynamic>? extra,
-  })  : fadeIn = fadeIn ?? Fade(),
-        fadeOut = fadeOut ?? Fade(),
-        effects = effects ?? [],
-        extra = extra ?? {};
+  }) : fadeIn = fadeIn ?? Fade(),
+       fadeOut = fadeOut ?? Fade(),
+       effects = effects ?? [],
+       extra = extra ?? {};
 
   /// Blend mode of this clip over the composite below it (engine contract):
   /// normal|multiply|screen|overlay|add|softLight.
@@ -388,42 +477,39 @@ class Clip {
   TextContent? text;
 
   factory Clip.fromJson(Map<String, dynamic> j) => Clip(
-        id: j['id'] as String,
-        trackId: j['trackId'] as String,
-        mediaId: j['mediaId'] as String,
-        label: (j['label'] as String?) ?? '',
-        start: Rt.parse(j['start'] as String),
-        duration: Rt.parse(j['duration'] as String),
-        sourceIn: j['sourceIn'] == null ? Rt.zero() : Rt.parse(j['sourceIn'] as String),
-        speed: switch (j['speed']) {
-          final String value => value,
-          final Map<String, dynamic> value =>
-            '${(value['num'] as num?)?.toInt() ?? 1}/${(value['den'] as num?)?.toInt() ?? 1}',
-          _ => '1/1',
-        },
-        reverse: (j['reverse'] as bool?) ?? false,
-        volume: (j['volume'] as num?)?.toDouble() ?? 1.0,
-        pan: (j['pan'] as num?)?.toDouble() ?? 0.0,
-        mute: (j['mute'] as bool?) ?? false,
-        fadeIn: Fade.fromJson(j['fadeIn'] as Map<String, dynamic>?),
-        fadeOut: Fade.fromJson(j['fadeOut'] as Map<String, dynamic>?),
-        linkedGroup: j['linkedGroup'] as String?,
-        effects: (j['effects'] as List<dynamic>?)?.toList(),
-        blend: (j['blend'] as String?) ?? 'normal',
-        transform: j['transform'] == null
+    id: j['id'] as String,
+    trackId: j['trackId'] as String,
+    mediaId: j['mediaId'] as String,
+    label: (j['label'] as String?) ?? '',
+    start: Rt.parse(j['start'] as String),
+    duration: Rt.parse(j['duration'] as String),
+    sourceIn:
+        j['sourceIn'] == null ? Rt.zero() : Rt.parse(j['sourceIn'] as String),
+    speed: switch (j['speed']) {
+      final String value => value,
+      final Map<String, dynamic> value =>
+        '${(value['num'] as num?)?.toInt() ?? 1}/${(value['den'] as num?)?.toInt() ?? 1}',
+      _ => '1/1',
+    },
+    reverse: (j['reverse'] as bool?) ?? false,
+    volume: (j['volume'] as num?)?.toDouble() ?? 1.0,
+    pan: (j['pan'] as num?)?.toDouble() ?? 0.0,
+    mute: (j['mute'] as bool?) ?? false,
+    fadeIn: Fade.fromJson(j['fadeIn'] as Map<String, dynamic>?),
+    fadeOut: Fade.fromJson(j['fadeOut'] as Map<String, dynamic>?),
+    linkedGroup: j['linkedGroup'] as String?,
+    effects: (j['effects'] as List<dynamic>?)?.toList(),
+    blend: (j['blend'] as String?) ?? 'normal',
+    transform:
+        j['transform'] == null
             ? null
             : ClipTransform.fromJson(j['transform'] as Map<String, dynamic>),
-        text: j['text'] == null
+    text:
+        j['text'] == null
             ? null
             : TextContent.fromJson(j['text'] as Map<String, dynamic>),
-        extra: _unknown(j, {
-          'id', 'trackId', 'mediaId', 'label', 'start', 'duration', 'sourceIn',
-          'speed', 'reverse', 'volume', 'pan', 'mute', 'fadeIn', 'fadeOut',
-          'linkedGroup', 'effects',
-          'blend', 'transform', 'text',
-        }),
-      );
-
+    extra: _clipExtra(j),
+  );
 
   final String id;
   String trackId;
@@ -474,41 +560,46 @@ class Clip {
   }
 
   Map<String, dynamic> toJson() => {
-        ...extra,
-        'id': id,
-        'trackId': trackId,
-        'mediaId': mediaId,
-        'label': label,
-        'start': start.toString(),
-        'duration': duration.toString(),
-        'sourceIn': sourceIn.toString(),
-        'speed': {
-          'num': int.tryParse(speed.split('/').first) ?? 1,
-          'den': int.tryParse(speed.split('/').last) ?? 1,
-        },
-        'reverse': reverse,
-        'volume': volume,
-        'pan': pan,
-        'mute': mute,
-        'fadeIn': fadeIn.toJson(),
-        'fadeOut': fadeOut.toJson(),
-        if (linkedGroup != null) 'linkedGroup': linkedGroup,
-        'effects': effects,
-        if (blend != 'normal') 'blend': blend,
-        if (transform != null) 'transform': transform!.toJson(),
-        if (text != null) 'text': text!.toJson(),
-      };
+    ...extra,
+    'id': id,
+    'trackId': trackId,
+    'mediaId': mediaId,
+    'label': label,
+    'start': start.toString(),
+    'duration': duration.toString(),
+    'sourceIn': sourceIn.toString(),
+    'speed': {
+      'num': int.tryParse(speed.split('/').first) ?? 1,
+      'den': int.tryParse(speed.split('/').last) ?? 1,
+    },
+    'reverse': reverse,
+    'volume': volume,
+    'pan': pan,
+    'mute': mute,
+    'fadeIn': fadeIn.toJson(),
+    'fadeOut': fadeOut.toJson(),
+    if (linkedGroup != null) 'linkedGroup': linkedGroup,
+    'effects': effects,
+    if (blend != 'normal') 'blend': blend,
+    if (transform != null) 'transform': transform!.toJson(),
+    if (text != null) 'text': text!.toJson(),
+  };
 }
 
 class Marker {
-  Marker({required this.id, required this.time, this.name = '', this.color = '#F5C451'});
+  Marker({
+    required this.id,
+    required this.time,
+    this.name = '',
+    this.color = '#F5C451',
+  });
 
   factory Marker.fromJson(Map<String, dynamic> j) => Marker(
-        id: j['id'] as String,
-        time: Rt.parse(j['time'] as String),
-        name: (j['name'] as String?) ?? '',
-        color: (j['color'] as String?) ?? '#F5C451',
-      );
+    id: j['id'] as String,
+    time: Rt.parse(j['time'] as String),
+    name: (j['name'] as String?) ?? '',
+    color: (j['color'] as String?) ?? '#F5C451',
+  );
 
   final String id;
   Rt time;
@@ -518,11 +609,11 @@ class Marker {
   Marker copy() => Marker(id: id, time: time, name: name, color: color);
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'time': time.toString(),
-        'name': name,
-        'color': color,
-      };
+    'id': id,
+    'time': time.toString(),
+    'name': name,
+    'color': color,
+  };
 }
 
 /// What the loader had to repair to satisfy §10 invariants.
@@ -539,14 +630,19 @@ class ProjectDoc {
     required this.modifiedAt,
     required this.settings,
     Map<String, dynamic>? extra,
-  })  : media = [],
-        tracks = [],
-        clips = [],
-        markers = [],
-        transitions = [],
-        extra = extra ?? {};
+  }) : media = [],
+       tracks = [],
+       clips = [],
+       markers = [],
+       transitions = [],
+       extra = extra ?? {};
 
-  factory ProjectDoc.empty(String name, {int? width, int? height, double? fps}) {
+  factory ProjectDoc.empty(
+    String name, {
+    int? width,
+    int? height,
+    double? fps,
+  }) {
     return ProjectDoc(
       id: generateId(),
       name: name,
@@ -562,7 +658,9 @@ class ProjectDoc {
 
   void _initDefaultTracks() {
     tracks.add(Track(id: generateId(), kind: 'video', name: 'V1', index: 0));
-    tracks.add(Track(id: generateId(), kind: 'audio', name: 'A1', index: 0, height: 56));
+    tracks.add(
+      Track(id: generateId(), kind: 'audio', name: 'A1', index: 0, height: 56),
+    );
   }
 
   factory ProjectDoc.fromJson(Map<String, dynamic> j, {RepairReport? report}) {
@@ -571,13 +669,26 @@ class ProjectDoc {
       name: j['name'] as String,
       createdAt: DateTime.parse(j['createdAt'] as String),
       modifiedAt: DateTime.parse(j['modifiedAt'] as String),
-      settings: SequenceSettings.fromJson(j['settings'] as Map<String, dynamic>),
+      settings: SequenceSettings.fromJson(
+        j['settings'] as Map<String, dynamic>,
+      ),
       extra: _unknown(j, {
-        'schema', 'id', 'name', 'createdAt', 'modifiedAt', 'appVersion', 'settings',
-        'media', 'tracks', 'clips', 'transitions', 'markers',
+        'schema',
+        'id',
+        'name',
+        'createdAt',
+        'modifiedAt',
+        'appVersion',
+        'settings',
+        'media',
+        'tracks',
+        'clips',
+        'transitions',
+        'markers',
       }),
     );
-    void quarantine(String what, Object error) => report?.issues.add('$what: $error');
+    void quarantine(String what, Object error) =>
+        report?.issues.add('$what: $error');
 
     for (final m in (j['media'] as List<dynamic>? ?? const [])) {
       try {
@@ -677,7 +788,6 @@ class ProjectDoc {
     });
   }
 
-
   /// Drops keyframes outside [0, clip.duration] or non-increasing, silently
   /// into the report like other repairs. O(n) over clips and their params.
   void _repairParamValues(RepairReport? report) {
@@ -727,19 +837,20 @@ class ProjectDoc {
       }
     }
     if (!bad) return pv;
-    report?.issues.add('$what: dropped keyframe(s) outside span or non-increasing');
+    report?.issues.add(
+      '$what: dropped keyframe(s) outside span or non-increasing',
+    );
     pv.keyframes.removeWhere((k) => k.remove('__drop') as bool? ?? false);
     return pv;
   }
 
   static Rt _keyTime(dynamic t) =>
-      t is String ? Rt.parse(t) : (t is num ? Rt.fromSeconds(t.toDouble()) : Rt.zero());
-
+      t is String
+          ? Rt.parse(t)
+          : (t is num ? Rt.fromSeconds(t.toDouble()) : Rt.zero());
 
   Transition? transitionById(String id) =>
       transitions.firstWhereOrNull((t) => t.id == id);
-
-
 
   factory ProjectDoc.decode(String contents, {RepairReport? report}) {
     final json = jsonDecode(contents) as Map<String, dynamic>;
@@ -767,11 +878,13 @@ class ProjectDoc {
 
   Rt get frameDuration => settings.frameDuration;
 
-  List<Track> get videoTracks =>
-      tracks.where((t) => t.isVideo).sorted((a, b) => a.index.compareTo(b.index));
+  List<Track> get videoTracks => tracks
+      .where((t) => t.isVideo)
+      .sorted((a, b) => a.index.compareTo(b.index));
 
-  List<Track> get audioTracks =>
-      tracks.where((t) => !t.isVideo).sorted((a, b) => a.index.compareTo(b.index));
+  List<Track> get audioTracks => tracks
+      .where((t) => !t.isVideo)
+      .sorted((a, b) => a.index.compareTo(b.index));
 
   Track? videoTrack() => videoTracks.firstOrNull;
   Track? audioTrack() => audioTracks.firstOrNull;
@@ -779,8 +892,9 @@ class ProjectDoc {
   Clip? clipById(String id) => clips.firstWhereOrNull((c) => c.id == id);
   MediaAsset? assetById(String id) => media.firstWhereOrNull((m) => m.id == id);
 
-  List<Clip> clipsOn(String trackId) =>
-      clips.where((c) => c.trackId == trackId).sorted((a, b) => a.start.compareTo(b.start));
+  List<Clip> clipsOn(String trackId) => clips
+      .where((c) => c.trackId == trackId)
+      .sorted((a, b) => a.start.compareTo(b.start));
 
   /// Clips sharing [clip]'s linked group, including itself.
   List<Clip> linkedWith(Clip clip) {
@@ -798,23 +912,24 @@ class ProjectDoc {
   }
 
   /// How many clips reference an asset (IMP-14).
-  int usageCount(String mediaId) => clips.where((c) => c.mediaId == mediaId).length;
+  int usageCount(String mediaId) =>
+      clips.where((c) => c.mediaId == mediaId).length;
 
   Map<String, dynamic> toJson() => {
-        ...extra,
-        'schema': kSchemaVersion,
-        'id': id,
-        'name': name,
-        'createdAt': createdAt.toIso8601String(),
-        'modifiedAt': modifiedAt.toIso8601String(),
-        'appVersion': '0.1.0',
-        'settings': settings.toJson(),
-        'media': media.map((m) => m.toJson()).toList(),
-        'tracks': tracks.map((t) => t.toJson()).toList(),
-        'clips': clips.map((c) => c.toJson()).toList(),
-        'transitions': [for (final t in transitions) t.toJson()],
-        'markers': markers.map((m) => m.toJson()).toList(),
-      };
+    ...extra,
+    'schema': kSchemaVersion,
+    'id': id,
+    'name': name,
+    'createdAt': createdAt.toIso8601String(),
+    'modifiedAt': modifiedAt.toIso8601String(),
+    'appVersion': '0.1.0',
+    'settings': settings.toJson(),
+    'media': media.map((m) => m.toJson()).toList(),
+    'tracks': tracks.map((t) => t.toJson()).toList(),
+    'clips': clips.map((c) => c.toJson()).toList(),
+    'transitions': [for (final t in transitions) t.toJson()],
+    'markers': markers.map((m) => m.toJson()).toList(),
+  };
 
   String encode({bool touchModified = true}) {
     if (touchModified) modifiedAt = DateTime.now().toUtc();
@@ -823,7 +938,8 @@ class ProjectDoc {
 
   /// Independent copy with fresh ids — Duplicate project (PRJ-2, criterion 3).
   ProjectDoc duplicate({String? name}) {
-    final json = jsonDecode(encode(touchModified: false)) as Map<String, dynamic>;
+    final json =
+        jsonDecode(encode(touchModified: false)) as Map<String, dynamic>;
     final copy = ProjectDoc.fromJson(json);
     final clone = ProjectDoc(
       id: generateId(),
@@ -860,14 +976,18 @@ class ProjectDoc {
       clipIds[c.id] = clone.clips.last.id;
     }
     for (final m in copy.markers) {
-      clone.markers.add(Marker(id: generateId(), time: m.time, name: m.name, color: m.color));
+      clone.markers.add(
+        Marker(id: generateId(), time: m.time, name: m.name, color: m.color),
+      );
     }
     for (final tr in copy.transitions) {
-      clone.transitions.add(tr.copy(
-        id: generateId(),
-        aClipId: clipIds[tr.aClipId] ?? tr.aClipId,
-        bClipId: clipIds[tr.bClipId] ?? tr.bClipId,
-      ));
+      clone.transitions.add(
+        tr.copy(
+          id: generateId(),
+          aClipId: clipIds[tr.aClipId] ?? tr.aClipId,
+          bClipId: clipIds[tr.bClipId] ?? tr.bClipId,
+        ),
+      );
     }
     return clone;
   }

@@ -11,6 +11,92 @@ import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
 
 void main() {
+  testWidgets('trackpad pan scrolls without selecting or moving a clip', (
+    tester,
+  ) async {
+    final temp = Directory.systemTemp.createTempSync('crazycut-trackpad-');
+    final doc = ProjectDoc.empty(
+      'Trackpad scroll',
+      width: 1920,
+      height: 1080,
+      fps: 30,
+    );
+    doc.media.add(
+      MediaAsset(
+        id: 'asset',
+        name: 'offline.mov',
+        path: '',
+        type: 'video',
+        duration: Rt.fromSeconds(60),
+        hasAudio: false,
+      ),
+    );
+    final clip = Clip(
+      id: 'clip',
+      trackId: doc.videoTrack()!.id,
+      mediaId: 'asset',
+      label: 'clip',
+      start: Rt.zero(),
+      duration: Rt.fromSeconds(30),
+      sourceIn: Rt.zero(),
+    );
+    doc.clips.add(clip);
+    final controller = EditorController(
+      doc,
+      path: '${temp.path}/timeline.crazycut',
+    );
+    addTearDown(() {
+      if (temp.existsSync()) temp.deleteSync(recursive: true);
+    });
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Overlay(
+          initialEntries: [
+            OverlayEntry(
+              builder: (_) => SizedBox(
+                width: 1200,
+                height: 500,
+                child: TimelinePanel(
+                  controller: controller,
+                  pxPerSec: 100,
+                  snap: false,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final horizontal = find.byWidgetPredicate(
+      (widget) =>
+          widget is Scrollable && widget.axisDirection == AxisDirection.right,
+    );
+    final position = tester.state<ScrollableState>(horizontal).position;
+    expect(position.pixels, 0);
+    expect(controller.selection, isEmpty);
+
+    final trackpad = TestPointer(7, PointerDeviceKind.trackpad);
+    final location =
+        tester.getTopLeft(horizontal) +
+        const Offset(200, TimelinePanel.rulerHeight + 20);
+    await tester.sendEventToBinding(trackpad.panZoomStart(location));
+    await tester.sendEventToBinding(
+      trackpad.panZoomUpdate(location, pan: const Offset(-160, 0)),
+    );
+    await tester.sendEventToBinding(trackpad.panZoomEnd());
+    await tester.pump();
+
+    expect(position.pixels, greaterThan(0));
+    expect(controller.selection, isEmpty);
+    expect(clip.start, Rt.zero());
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.dispose();
+  });
+
   testWidgets('dragging a track header reorders its lane', (tester) async {
     final temp = Directory.systemTemp.createTempSync('crazycut-lane-drag-');
     final doc =

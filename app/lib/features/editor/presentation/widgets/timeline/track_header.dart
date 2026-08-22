@@ -202,76 +202,30 @@ class _TrackMenu extends StatefulWidget {
 }
 
 class _TrackMenuState extends State<_TrackMenu> {
-  final _link = LayerLink();
-  OverlayEntry? _entry;
-
-  @override
-  void dispose() {
-    _entry?.remove();
-    super.dispose();
-  }
-
-  void _toggle() {
-    if (_entry != null) {
-      _close();
-      return;
-    }
-    final overlay = Overlay.of(context);
-    _entry = OverlayEntry(
-      builder: (context) => Stack(
-        children: [
-          Positioned.fill(
-            child: GestureDetector(
-                behavior: HitTestBehavior.opaque, onTap: _close),
-          ),
-          CompositedTransformFollower(
-            link: _link,
-            offset: const Offset(-120, 18),
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: CcMenu(
-                items: [
-                  CcMenuItem('Rename', onTap: widget.onRename),
-                  CcMenuItem('Cycle height', onTap: widget.onCycleHeight),
-                  CcMenuItem(
-                    'Move up',
-                    onTap: widget.onReorder == null
-                        ? null
-                        : () => widget.onReorder!(-1),
-                  ),
-                  CcMenuItem(
-                    'Move down',
-                    onTap: widget.onReorder == null
-                        ? null
-                        : () => widget.onReorder!(1),
-                  ),
-                  CcMenuItem('Delete track',
-                      danger: true, onTap: widget.onRemove),
-                ],
-                onSelected: _close,
-              ),
-            ),
-          ),
-        ],
+  void _open(BuildContext anchorContext) {
+    showCcMenuBelow(anchorContext, [
+      CcMenuItem('Rename', onTap: widget.onRename),
+      CcMenuItem('Cycle height', onTap: widget.onCycleHeight),
+      CcMenuItem(
+        'Move up',
+        onTap:
+            widget.onReorder == null ? null : () => widget.onReorder!(-1),
       ),
-    );
-    overlay.insert(_entry!);
-  }
-
-  void _close() {
-    _entry?.remove();
-    _entry = null;
+      CcMenuItem(
+        'Move down',
+        onTap: widget.onReorder == null ? null : () => widget.onReorder!(1),
+      ),
+      CcMenuItem('Delete track', danger: true, onTap: widget.onRemove),
+    ]);
   }
 
   @override
-  Widget build(BuildContext context) {
-    return CompositedTransformTarget(
-      link: _link,
-      child: CcTappable(
-        onTap: _toggle,
-        child: const CcIcon(LucideIcons.ellipsis,
-            size: 13, color: CcColors.textTertiary),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => CcTappable(
+    onTap: () => _open(context),
+    child: const CcIcon(
+      LucideIcons.ellipsis,
+      size: 13,
+      color: CcColors.textTertiary,
+    ),
+  );
 }

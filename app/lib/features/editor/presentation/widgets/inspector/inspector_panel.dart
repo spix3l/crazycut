@@ -51,9 +51,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
     final multiple = c.selection.length > 1;
     final asset = selected == null ? null : c.doc.assetById(selected.mediaId);
     final tabs = _tabsFor(selected, asset);
-    final selectionKey = selected == null
-        ? null
-        : '${selected.id}:${tabs.join(',')}';
+    final selectionKey = selected == null ? null : '${selected.id}:${tabs.join(',')}';
     if (_selectionKey != selectionKey) {
       _selectionKey = selectionKey;
       _tab = 0;
@@ -79,8 +77,8 @@ class _InspectorPanelState extends State<InspectorPanel> {
                         : asset?.type == 'audio'
                         ? LucideIcons.audioWaveform
                         : asset?.type == 'image'
-                            ? LucideIcons.image
-                            : LucideIcons.video,
+                        ? LucideIcons.image
+                        : LucideIcons.video,
                     size: 14,
                     color: CcColors.videoPlate2,
                   ),
@@ -91,8 +89,8 @@ class _InspectorPanelState extends State<InspectorPanel> {
                     selected == null
                         ? 'Sequence settings'
                         : multiple
-                            ? '${c.selection.length} clips selected'
-                            : selected.label,
+                        ? '${c.selection.length} clips selected'
+                        : selected.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: CcType.bodyStrong,
@@ -166,7 +164,8 @@ class SequenceSettingsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = controller.doc.settings;
     final fps = s.fpsValue;
-    Widget value(String text) => Text(text, style: CcType.style(size: 12, weight: CcType.medium));
+    Widget value(String text) =>
+        Text(text, style: CcType.style(size: 12, weight: CcType.medium));
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
@@ -174,7 +173,7 @@ class SequenceSettingsTab extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'Nothing selected — select a clip on the timeline to edit its properties.',
+            'Nothing selected. Select a clip on the timeline to edit its properties.',
             style: CcType.style(size: 11, color: CcColors.textTertiary, height: 1.4),
           ),
           const SizedBox(height: 24),
@@ -256,9 +255,7 @@ class _LoudnessSection extends StatelessWidget {
               style: CcType.style(
                 size: 12,
                 weight: CcType.medium,
-                color: report.truePeakDb > -1.0
-                    ? CcColors.warning
-                    : CcColors.textPrimary,
+                color: report.truePeakDb > -1.0 ? CcColors.warning : CcColors.textPrimary,
               ),
             ),
           ),
@@ -276,14 +273,12 @@ class _LoudnessSection extends StatelessWidget {
           label: controller.analyzingLoudness
               ? 'Analyzing…'
               : report == null
-                  ? 'Analyze loudness'
-                  : 'Re-analyze',
+              ? 'Analyze loudness'
+              : 'Re-analyze',
           kind: CcButtonKind.secondary,
           height: 30,
           radius: CcRadius.sm,
-          onPressed: controller.analyzingLoudness
-              ? null
-              : () => controller.analyzeLoudness(),
+          onPressed: controller.analyzingLoudness ? null : () => controller.analyzeLoudness(),
         ),
       ],
     );
@@ -310,17 +305,14 @@ class _OutputDeviceRow extends StatelessWidget {
         : controller.outputDeviceName;
     return Builder(
       builder: (context) => CcTappable(
-        onTap: () => showCcMenuBelow(
-          context,
-          [
-            for (final device in devices)
-              CcMenuItem(
-                device,
-                checked: device == current,
-                onTap: () => controller.setOutputDevice(device),
-              ),
-          ],
-        ),
+        onTap: () => showCcMenuBelow(context, [
+          for (final device in devices)
+            CcMenuItem(
+              device,
+              checked: device == current,
+              onTap: () => controller.setOutputDevice(device),
+            ),
+        ]),
         child: CcDropdown(value: current, height: 28, fontSize: 11),
       ),
     );

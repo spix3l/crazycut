@@ -59,8 +59,8 @@ const kSupportedExtensions = {
 /// frame, autosave and proxies.
 class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   EditorController(this.doc, {required String path, ProxyService? proxies})
-      : proxies = proxies ?? ProxyService(),
-        _ownsProxies = proxies == null {
+    : proxies = proxies ?? ProxyService(),
+      _ownsProxies = proxies == null {
     autosave = ProjectAutosave(
       doc,
       path: path,
@@ -747,7 +747,9 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   Clip? textClipUnderPlayhead() {
     final tracks = doc.videoTracks.where((t) => !t.hidden).toList().reversed;
     for (final track in tracks) {
-      final hit = doc.clipsOn(track.id).firstWhereOrNull(
+      final hit = doc
+          .clipsOn(track.id)
+          .firstWhereOrNull(
             (c) => c.text != null && playhead >= c.start && playhead < c.end,
           );
       if (hit != null) return hit;
@@ -789,7 +791,8 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   /// one image dragged whichever clip happened to be selected instead.
   List<Clip> gizmoClipsUnderPlayhead() {
     final out = <Clip>[];
-    for (final track in doc.videoTracks.where((t) => !t.hidden).toList().reversed) {
+    for (final track
+        in doc.videoTracks.where((t) => !t.hidden).toList().reversed) {
       out.addAll(doc.clipsOn(track.id).where(_gizmoEligible));
     }
     return out;
@@ -836,7 +839,9 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     final t = clip.transformOrDefault;
     final anchor = t.anchor.evaluate(clipLocalTime(clip));
     double axis(String key) =>
-        anchor is Map && anchor[key] is num ? (anchor[key] as num).toDouble() : 0;
+        anchor is Map && anchor[key] is num
+            ? (anchor[key] as num).toDouble()
+            : 0;
     return layerRectInSequence(
       seqW: doc.settings.width,
       seqH: doc.settings.height,
@@ -887,11 +892,11 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
 
   /// The frame a single-clip align lines up against: the whole sequence canvas.
   Rect get sequenceRect => Rect.fromLTWH(
-        0,
-        0,
-        doc.settings.width.toDouble(),
-        doc.settings.height.toDouble(),
-      );
+    0,
+    0,
+    doc.settings.width.toDouble(),
+    doc.settings.height.toDouble(),
+  );
 
   /// Lines the selected images up on [edge]. With one clip selected the
   /// reference is the sequence canvas; with several it is their combined
@@ -911,7 +916,11 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   void distributeClips(AlignAxis axis) {
     final (clips, bounds) = _layoutTargets();
     if (clips.length < 3) return;
-    _applyLayoutDeltas(clips, distributeDeltas(bounds, axis), 'Distribute clips');
+    _applyLayoutDeltas(
+      clips,
+      distributeDeltas(bounds, axis),
+      'Distribute clips',
+    );
   }
 
   /// The clips a layout op moves paired with their canvas footprints, dropping
@@ -931,11 +940,7 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   /// Translates each clip by its delta, as one undo step. Writes rebase like a
   /// gizmo drag so a clip carrying a generated image animation moves its
   /// resting pose instead of writing a key the next rebuild would discard.
-  void _applyLayoutDeltas(
-    List<Clip> clips,
-    List<Offset> deltas,
-    String label,
-  ) {
+  void _applyLayoutDeltas(List<Clip> clips, List<Offset> deltas, String label) {
     if (deltas.length != clips.length) return;
     if (deltas.every((d) => d.dx.abs() < 0.5 && d.dy.abs() < 0.5)) return;
     beginGesture(label);
@@ -943,15 +948,25 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
       final delta = deltas[i];
       if (delta == Offset.zero) continue;
       final clip = clips[i];
-      final resting = imageAnimResting(clip);
+      final resting = clipAnimationResting(clip);
       final at = clipLocalTime(clip);
       if (delta.dx != 0) {
-        setTransformParam(clip.id, 'x', resting['x']! + delta.dx,
-            at: at, rebase: true);
+        setTransformParam(
+          clip.id,
+          'x',
+          resting['x']! + delta.dx,
+          at: at,
+          rebase: true,
+        );
       }
       if (delta.dy != 0) {
-        setTransformParam(clip.id, 'y', resting['y']! + delta.dy,
-            at: at, rebase: true);
+        setTransformParam(
+          clip.id,
+          'y',
+          resting['y']! + delta.dy,
+          at: at,
+          rebase: true,
+        );
       }
     }
     endGesture();
@@ -1061,9 +1076,10 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
       );
       renderWatch.stop();
       if (playbackRequest) {
-        _previewRenderMicros = (_previewRenderMicros * 0.75 +
-                renderWatch.elapsedMicroseconds * 0.25)
-            .round();
+        _previewRenderMicros =
+            (_previewRenderMicros * 0.75 +
+                    renderWatch.elapsedMicroseconds * 0.25)
+                .round();
       }
       if (_disposed) return;
       final current = isPreviewFrameCurrent(
@@ -1120,9 +1136,10 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   /// Width the next preview frame renders at, given what the transport and the
   /// pointer are doing.
   int get previewRenderWidth {
-    final cap = playing
-        ? maxPlaybackPreviewWidth
-        : _liveEditing
+    final cap =
+        playing
+            ? maxPlaybackPreviewWidth
+            : _liveEditing
             ? maxLiveEditPreviewWidth
             : _previewWidth;
     return cap < _previewWidth ? cap : _previewWidth;

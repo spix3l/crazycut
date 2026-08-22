@@ -123,7 +123,10 @@ void main() {
     // Canvas centre is 960; a 432-wide box hugging the left edge sits at
     // x = -(960 - 216).
     expect(xOf(c, 'c0'), closeTo(-(seqW / 2 - drawn / 2), 0.001));
-    expect(c.clipBoundsInSequence(c.doc.clipById('c0')!)!.left, closeTo(0, 0.001));
+    expect(
+      c.clipBoundsInSequence(c.doc.clipById('c0')!)!.left,
+      closeTo(0, 0.001),
+    );
 
     c.alignClips(AlignEdge.centerX);
     expect(xOf(c, 'c0'), closeTo(0, 0.001));
@@ -224,5 +227,6 @@ void main() {
     );
     await tester.pump();
     expect(find.text('to canvas'), findsOneWidget);
+    c.dispose();
   });
 }

@@ -80,10 +80,11 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
 
   /// Handle centres in widget space, in [gizmoAnchors] order, rotated about the
   /// rect centre exactly as the compositor rotates the image.
-  List<Offset> _handlePoints(Rect rectSeq, double rotation, double seqPerPx) => [
-    for (final p in gizmoAnchors(rectSeq))
-      rotatePoint(p, rectSeq.center, rotation) / seqPerPx,
-  ];
+  List<Offset> _handlePoints(Rect rectSeq, double rotation, double seqPerPx) =>
+      [
+        for (final p in gizmoAnchors(rectSeq))
+          rotatePoint(p, rectSeq.center, rotation) / seqPerPx,
+      ];
 
   Offset _rotateKnob(Rect rectSeq, double rotation, double seqPerPx) {
     final top = rectSeq.topCenter.translate(0, -_rotateOffset * seqPerPx);
@@ -124,7 +125,11 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
       final rect = _rectSeq(clip);
       if (rect == null) continue;
       // The inside test runs in the rect's own unrotated frame.
-      final point = rotatePoint(local * seqPerPx, rect.center, -_rotation(clip));
+      final point = rotatePoint(
+        local * seqPerPx,
+        rect.center,
+        -_rotation(clip),
+      );
       if (rect.contains(point)) return _Hit(GizmoPart.move, 4, clip);
     }
     return const _Hit(GizmoPart.none);
@@ -180,7 +185,7 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
 
     // Start values come from the resting pose, which is what a rebasing write
     // moves. On a clip with no generated animation that is just its transform.
-    final resting = c.imageAnimResting(clip);
+    final resting = c.clipAnimationResting(clip);
     _clipId = clip.id;
     _drag = GizmoDrag(
       part: hit.part,
@@ -361,17 +366,19 @@ class _GizmoPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final outline = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1
-      ..color = CcColors.accent;
+    final outline =
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = CcColors.accent;
     final hoverFill = Paint()..color = CcColors.accent;
     final chromeFill = Paint()..color = CcColors.bg;
 
-    final companionOutline = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1
-      ..color = CcColors.accent.withValues(alpha: 0.45);
+    final companionOutline =
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = CcColors.accent.withValues(alpha: 0.45);
     for (final (companionRect, companionRotation) in companions) {
       final companionBox = _toWidget(companionRect);
       canvas.save();
@@ -399,11 +406,15 @@ class _GizmoPainter extends CustomPainter {
     final anchors = gizmoAnchors(box);
     for (var i = 0; i < anchors.length; i += 1) {
       if (i == 4) continue;
-      final side = i == hoverHandle
-          ? _CanvasGizmoState._handleSize + 2
-          : _CanvasGizmoState._handleSize;
-      final square =
-          Rect.fromCenter(center: anchors[i], width: side, height: side);
+      final side =
+          i == hoverHandle
+              ? _CanvasGizmoState._handleSize + 2
+              : _CanvasGizmoState._handleSize;
+      final square = Rect.fromCenter(
+        center: anchors[i],
+        width: side,
+        height: side,
+      );
       canvas.drawRect(square, chromeFill);
       canvas.drawRect(square, i == hoverHandle ? hoverFill : outline);
     }

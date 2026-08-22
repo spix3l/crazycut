@@ -1897,7 +1897,10 @@ mixin TimelineEdits on ChangeNotifier {
   /// Compatibility name for older callers and persisted image-animation tests.
   static const Map<String, String> kImageEntryPresets = kClipEdgePresets;
 
-  static const double kImageEntryDefaultSeconds = 0.4;
+  static const double kClipEdgeDefaultSeconds = 0.4;
+
+  /// Compatibility name for callers that still use the old image terminology.
+  static const double kImageEntryDefaultSeconds = kClipEdgeDefaultSeconds;
 
   /// TXT-1: a text clip at the playhead on the topmost unlocked video track
   /// (or [trackId]), default 5 s, pushed clear of neighbours and selected.
@@ -2120,16 +2123,16 @@ mixin TimelineEdits on ChangeNotifier {
     }
   }
 
-  // --- Clip animation (TXT-9 motion + entry/leave) ----------------------------
+  // --- Clip animation (TXT-9 motion + explicit entry/leave) ------------------
   //
   // The animation is generated from a small spec kept on the clip, rather than
   // merged into whatever keyframes happen to be there. Entry/leave applies to
   // visual media; continuous motion remains image-only:
   //
-  //   extra['imageAnim'] = {
+  //   extra['clipAnim'] = {
   //     'motion': 'zoomIn',                     // full-clip Ken Burns, or null
-  //     'in':  {'type': 'pop',  'seconds': 0.4},
-  //     'out': {'type': 'fade', 'seconds': 0.4},
+  //     'entry': {'type': 'pop',  'seconds': 0.4},
+  //     'leave': {'type': 'fade', 'seconds': 0.4},
   //     'base': {'x': 0, 'y': 0, 'scale': 100, 'opacity': 100},
   //     'fx':   ['<effect instance id>', ...],  // blur/wipe instances we own
   //   }
@@ -2139,49 +2142,77 @@ mixin TimelineEdits on ChangeNotifier {
   // Only x/y/scale/opacity and the listed effect instances are ever touched —
   // rotation, user effects and hand-authored keys on other params survive.
 
-  static const String _animKey = 'imageAnim';
+  static const String _animKey = 'clipAnim';
+  static const String _legacyAnimKey = 'imageAnim';
 
   /// The transform parameters a generated clip animation may write.
   static const List<String> _animParams = ['x', 'y', 'scale', 'opacity'];
 
   /// The live animation spec for [clip], or null when it has none.
-  Map<String, dynamic>? imageAnimSpec(Clip clip) {
-    final raw = clip.extra[_animKey];
-    return raw is Map<String, dynamic> ? raw : null;
+  /// New projects store this under `extra.clipAnim`; the fallback keeps old
+  /// extensions that still inject `extra.imageAnim` readable in memory.
+  Map<String, dynamic>? clipAnimationSpec(Clip clip) {
+    final current = clip.extra[_animKey];
+    final legacy = clip.extra[_legacyAnimKey];
+    if (legacy == null && current is Map<String, dynamic>) return current;
+    final raw = current ?? legacy;
+    if (raw is! Map) return null;
+    final spec = Map<String, dynamic>.from(raw);
+    if (!spec.containsKey('entry') && spec.containsKey('in')) {
+      spec['entry'] = spec['in'];
+    }
+    if (!spec.containsKey('leave') && spec.containsKey('out')) {
+      spec['leave'] = spec['out'];
+    }
+    spec.remove('in');
+    spec.remove('out');
+    clip.extra
+      ..[_animKey] = spec
+      ..remove(_legacyAnimKey);
+    return spec;
   }
 
-  Map<String, dynamic>? clipAnimationSpec(Clip clip) => imageAnimSpec(clip);
+  /// Compatibility name for callers written before clip animations became
+  /// generic. New code should use [clipAnimationSpec].
+  Map<String, dynamic>? imageAnimSpec(Clip clip) => clipAnimationSpec(clip);
 
-  /// Preset id currently applied on a side ('motion', 'in' or 'out').
-  String? imageAnimPreset(Clip clip, String side) {
-    final spec = imageAnimSpec(clip);
+  String _animationSide(String side) => switch (side) {
+    'in' => 'entry',
+    'out' => 'leave',
+    _ => side,
+  };
+
+  /// Preset id currently applied on a side ('motion', 'entry' or 'leave').
+  String? clipAnimationPreset(Clip clip, String side) {
+    final spec = clipAnimationSpec(clip);
     if (spec == null) return null;
-    if (side == 'motion') return spec['motion'] as String?;
-    final entry = spec[side];
-    return entry is Map ? entry['type'] as String? : null;
+    final key = _animationSide(side);
+    if (key == 'motion') return spec['motion'] as String?;
+    final edge = spec[key];
+    return edge is Map ? edge['type'] as String? : null;
   }
 
-  String? clipAnimationPreset(Clip clip, String side) =>
-      imageAnimPreset(clip, side);
+  String? imageAnimPreset(Clip clip, String side) =>
+      clipAnimationPreset(clip, side);
 
-  double imageAnimSeconds(Clip clip, String side) {
-    final entry = imageAnimSpec(clip)?[side];
-    return entry is Map
-        ? ((entry['seconds'] as num?)?.toDouble() ?? kImageEntryDefaultSeconds)
-        : kImageEntryDefaultSeconds;
+  double clipAnimationSeconds(Clip clip, String side) {
+    final edge = clipAnimationSpec(clip)?[_animationSide(side)];
+    return edge is Map
+        ? ((edge['seconds'] as num?)?.toDouble() ?? kClipEdgeDefaultSeconds)
+        : kClipEdgeDefaultSeconds;
   }
 
-  double clipAnimationSeconds(Clip clip, String side) =>
-      imageAnimSeconds(clip, side);
+  double imageAnimSeconds(Clip clip, String side) =>
+      clipAnimationSeconds(clip, side);
 
   /// The pose a generated animation plays around, or the clip's plain
   /// transform values when it has no generated animation. Direct manipulation
   /// reads its starting values from here so a drag stays 1:1 with the pointer
-  /// even while an entry animation is offsetting the image on screen.
-  Map<String, double> imageAnimResting(Clip clip) =>
-      _restingValues(clip, imageAnimSpec(clip));
+  /// even while an entry animation is offsetting the clip on screen.
+  Map<String, double> clipAnimationResting(Clip clip) =>
+      _restingValues(clip, clipAnimationSpec(clip));
 
-  Map<String, double> clipAnimationResting(Clip clip) => imageAnimResting(clip);
+  Map<String, double> imageAnimResting(Clip clip) => clipAnimationResting(clip);
 
   bool _isImageClip(Clip clip) => doc.assetById(clip.mediaId)?.type == 'image';
 
@@ -2203,17 +2234,17 @@ mixin TimelineEdits on ChangeNotifier {
     });
   }
 
-  /// Sets the entry and/or leave animation on an image or video clip. Passing
-  /// `''` for a side clears it; omitting a side leaves it alone.
-  void setClipEntryExit(
+  /// Sets the explicit entry and/or leave animation on any visual clip.
+  /// Passing `''` for an edge clears it; omitting an edge leaves it alone.
+  void setClipEntryLeave(
     String clipId, {
-    String? appear,
-    String? disappear,
+    String? entry,
+    String? leave,
     double? seconds,
   }) {
     final clip = _editableClip(clipId);
     if (clip == null || !_isVisualMediaClip(clip)) return;
-    _run('Clip animation', (tx) {
+    _run('Clip entry and leave animation', (tx) {
       tx.clip(clipId);
       final textPreset = clip.text?.animation ?? '';
       if (textPreset.isNotEmpty) {
@@ -2222,7 +2253,7 @@ mixin TimelineEdits on ChangeNotifier {
         clip.text!.animation = '';
       }
       final spec = _ensureAnimSpec(clip);
-      void side(String key, String? value) {
+      void setEdge(String key, String? value) {
         if (value == null) {
           if (seconds != null && spec[key] is Map) {
             (spec[key] as Map)['seconds'] = seconds;
@@ -2244,11 +2275,24 @@ mixin TimelineEdits on ChangeNotifier {
         };
       }
 
-      side('in', appear);
-      side('out', disappear);
+      setEdge('entry', entry);
+      setEdge('leave', leave);
       _writeClipAnimation(clip);
     });
   }
+
+  /// Compatibility wrapper for the former image-oriented naming.
+  void setClipEntryExit(
+    String clipId, {
+    String? appear,
+    String? disappear,
+    double? seconds,
+  }) => setClipEntryLeave(
+    clipId,
+    entry: appear,
+    leave: disappear,
+    seconds: seconds,
+  );
 
   /// Compatibility entry point retained for project extensions and tests.
   void setImageEntryExit(
@@ -2317,7 +2361,9 @@ mixin TimelineEdits on ChangeNotifier {
     if (spec == null) return;
     final transform = clip.transform;
     if (transform == null) {
-      clip.extra.remove(_animKey);
+      clip.extra
+        ..remove(_animKey)
+        ..remove(_legacyAnimKey);
       return;
     }
     final base = _restingValues(clip, spec);
@@ -2327,10 +2373,12 @@ mixin TimelineEdits on ChangeNotifier {
       'scale': transform.scale,
       'opacity': transform.opacity,
     };
-    final generated = ((spec['params'] as List?) ?? const [])
-        .whereType<String>();
+    final generated =
+        ((spec['params'] as List?) ?? const []).whereType<String>();
     _removeManagedEffects(clip, spec);
-    clip.extra.remove(_animKey);
+    clip.extra
+      ..remove(_animKey)
+      ..remove(_legacyAnimKey);
     for (final id in generated) {
       final param = params[id];
       if (param == null) continue;
@@ -2340,12 +2388,12 @@ mixin TimelineEdits on ChangeNotifier {
   }
 
   Map<String, dynamic> _ensureAnimSpec(Clip clip) {
-    final existing = imageAnimSpec(clip);
+    final existing = clipAnimationSpec(clip);
     if (existing != null) return existing;
     final spec = <String, dynamic>{
       'motion': null,
-      'in': null,
-      'out': null,
+      'entry': null,
+      'leave': null,
       'base': _restingValues(clip, null),
       'fx': <String>[],
     };
@@ -2427,18 +2475,18 @@ mixin TimelineEdits on ChangeNotifier {
       Rt.fromMicros((seconds * 1000000).round().clamp(0, duration.micros)),
     );
     final durSec = duration.seconds;
-    final inType = imageAnimPreset(clip, 'in');
-    final outType = imageAnimPreset(clip, 'out');
+    final inType = clipAnimationPreset(clip, 'entry');
+    final outType = clipAnimationPreset(clip, 'leave');
     // Neither side may eat more than its half of the clip, or a short clip
     // would animate in while it is still animating out.
     final inSec =
         inType == null
             ? 0.0
-            : imageAnimSeconds(clip, 'in').clamp(0.05, durSec / 2);
+            : clipAnimationSeconds(clip, 'entry').clamp(0.05, durSec / 2);
     final outSec =
         outType == null
             ? 0.0
-            : imageAnimSeconds(clip, 'out').clamp(0.05, durSec / 2);
+            : clipAnimationSeconds(clip, 'leave').clamp(0.05, durSec / 2);
 
     // 1. The resting curve: the Ken Burns move if there is one, else flat.
     final curves = <String, List<Map<String, dynamic>>>{
@@ -3454,7 +3502,7 @@ mixin TimelineEdits on ChangeNotifier {
       // moving the *resting pose*: a raw keyframe here would be erased by the
       // next rebuild, so move the pose and replay the animation around it.
       if (rebase &&
-          imageAnimSpec(clip) != null &&
+          clipAnimationSpec(clip) != null &&
           _animParams.contains(paramId)) {
         _syncAnimBase(clip, paramId, value);
         return;
@@ -3584,11 +3632,12 @@ mixin TimelineEdits on ChangeNotifier {
   }) {
     final payload = _attributeClipboard;
     if (payload == null) return;
-    final targets = selectedClips.where((clip) {
-      if (_locked(clip.trackId)) return false;
-      return (payload['visual'] == true && _isVisualClip(clip)) ||
-          (audio && payload['audio'] == true && _hasClipAudio(clip));
-    }).toList();
+    final targets =
+        selectedClips.where((clip) {
+          if (_locked(clip.trackId)) return false;
+          return (payload['visual'] == true && _isVisualClip(clip)) ||
+              (audio && payload['audio'] == true && _hasClipAudio(clip));
+        }).toList();
     if (targets.isEmpty) return;
     _run('Paste settings', (tx) {
       for (final clip in targets) {
@@ -3599,11 +3648,12 @@ mixin TimelineEdits on ChangeNotifier {
           }
           if (transform) {
             final value = payload['transform'];
-            clip.transform = value is Map<String, dynamic>
-                ? ClipTransform.fromJson(
-                    _cloneSettingValue(value) as Map<String, dynamic>,
-                  )
-                : null;
+            clip.transform =
+                value is Map<String, dynamic>
+                    ? ClipTransform.fromJson(
+                      _cloneSettingValue(value) as Map<String, dynamic>,
+                    )
+                    : null;
           }
           if (effects && payload['effects'] is List) {
             clip.effects
@@ -3632,8 +3682,7 @@ mixin TimelineEdits on ChangeNotifier {
           final total = fadeIn.duration.plus(fadeOut.duration);
           if (total > clip.duration && total.micros > 0) {
             final inMicros =
-                (clip.duration.micros * fadeIn.duration.micros /
-                        total.micros)
+                (clip.duration.micros * fadeIn.duration.micros / total.micros)
                     .round();
             fadeIn.duration = Rt.fromMicros(inMicros);
             fadeOut.duration = clip.duration.minus(fadeIn.duration);

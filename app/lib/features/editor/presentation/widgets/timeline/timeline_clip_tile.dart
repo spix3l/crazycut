@@ -380,11 +380,20 @@ class _FadeHandle extends StatelessWidget {
   final bool active;
   final ValueChanged<double> onDelta;
 
+  static const _editPointerDevices = <ui.PointerDeviceKind>{
+    ui.PointerDeviceKind.mouse,
+    ui.PointerDeviceKind.touch,
+    ui.PointerDeviceKind.stylus,
+    ui.PointerDeviceKind.invertedStylus,
+    ui.PointerDeviceKind.unknown,
+  };
+
   @override
   Widget build(BuildContext context) {
     return Align(
       alignment: fromLeft ? Alignment.topLeft : Alignment.topRight,
       child: GestureDetector(
+        supportedDevices: _editPointerDevices,
         behavior: HitTestBehavior.opaque,
         onHorizontalDragUpdate: (d) => onDelta(d.delta.dx),
         child: MouseRegion(

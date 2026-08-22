@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -72,10 +74,12 @@ void main() {
     test('video clips have the same explicit entry and leave animation', () {
       final (e, clip) = harness(type: 'video');
 
-      e.setClipEntryExit(clip.id, appear: 'slideLeft', disappear: 'fade');
+      e.setClipEntryLeave(clip.id, entry: 'slideLeft', leave: 'fade');
 
-      expect(e.clipAnimationPreset(clip, 'in'), 'slideLeft');
-      expect(e.clipAnimationPreset(clip, 'out'), 'fade');
+      expect(e.clipAnimationPreset(clip, 'entry'), 'slideLeft');
+      expect(e.clipAnimationPreset(clip, 'leave'), 'fade');
+      expect(clip.extra['clipAnim'], isA<Map<String, dynamic>>());
+      expect(clip.extra['imageAnim'], isNull);
       expect(evalAt(clip.transform!.x, 0), greaterThan(0));
       expect(evalAt(clip.transform!.opacity, 6), 0);
 
@@ -99,11 +103,11 @@ void main() {
       clip.text = TextContent(content: 'Lower third');
       e.applyTextPreset(clip.id, 'pop');
 
-      e.setClipEntryExit(clip.id, appear: 'fade', disappear: 'slideLeft');
+      e.setClipEntryLeave(clip.id, entry: 'fade', leave: 'slideLeft');
 
       expect(clip.text!.animation, isEmpty);
-      expect(e.clipAnimationPreset(clip, 'in'), 'fade');
-      expect(e.clipAnimationPreset(clip, 'out'), 'slideLeft');
+      expect(e.clipAnimationPreset(clip, 'entry'), 'fade');
+      expect(e.clipAnimationPreset(clip, 'leave'), 'slideLeft');
 
       e.applyTextPreset(clip.id, 'slideUp');
 
@@ -316,15 +320,41 @@ void main() {
     });
   });
 
-  test('the spec survives a project round-trip', () {
+  test('the generic spec survives a project round-trip', () {
     final (e, clip) = harness();
-    e.setImageEntryExit(clip.id, appear: 'pop', disappear: 'fade');
+    e.setClipEntryLeave(clip.id, entry: 'pop', leave: 'fade');
 
     final reloaded = ProjectDoc.decode(e.doc.encode(touchModified: false));
     final restored = reloaded.clipById('c1')!;
 
-    expect(e.imageAnimPreset(restored, 'in'), 'pop');
-    expect(e.imageAnimPreset(restored, 'out'), 'fade');
+    expect(e.clipAnimationPreset(restored, 'entry'), 'pop');
+    expect(e.clipAnimationPreset(restored, 'leave'), 'fade');
+    expect(restored.extra['clipAnim'], isNotNull);
+    expect(restored.extra['imageAnim'], isNull);
+  });
+
+  test('legacy image animation data migrates to explicit entry and leave', () {
+    final (e, clip) = harness();
+    final legacy = <String, dynamic>{
+      'motion': null,
+      'in': {'type': 'fade', 'seconds': 0.4},
+      'out': {'type': 'pop', 'seconds': 0.6},
+      'base': {'x': 0, 'y': 0, 'scale': 100, 'opacity': 100},
+      'fx': <String>[],
+    };
+    final json = e.doc.encode(touchModified: false);
+    final decodedJson = jsonDecode(json) as Map<String, dynamic>;
+    (decodedJson['clips'] as List<dynamic>)[0]['imageAnim'] = legacy;
+    final decoded = ProjectDoc.decode(jsonEncode(decodedJson));
+    final restored = decoded.clipById(clip.id)!;
+    final migrated = Edits(decoded).clipAnimationSpec(restored)!;
+
+    expect(migrated['entry'], isNotNull);
+    expect(migrated['leave'], isNotNull);
+    expect(migrated['in'], isNull);
+    expect(migrated['out'], isNull);
+    expect(restored.extra['clipAnim'], isNotNull);
+    expect(restored.extra['imageAnim'], isNull);
   });
 
   test('the resting pose survives a rebuild on an already-animated clip', () {

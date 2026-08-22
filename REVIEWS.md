@@ -1,1 +1,1 @@
-- We lack (and this should be sysmetatic) explicit entry and leave animations 
+- We lack (and this should be systematic) explicit entry and leave animations 
