@@ -692,6 +692,21 @@ void main() {
       expect(e.clipById(id)!.transform!.y.keyframes, hasLength(2));
     });
 
+    test('preset keys are marked generated and survive a delete request', () {
+      final e = imageHarness();
+      final id = e.placeAsset('image-1').single;
+      e.applyImagePreset(id, 'zoomIn');
+
+      final markers = e.clipKeyframeMarkers(e.clipById(id)!);
+      expect(markers, isNotEmpty);
+      expect(markers.every((m) => m.allGenerated), isTrue);
+
+      // Deleting one would only be undone by the next spec rebuild, so the
+      // operation refuses rather than pretending.
+      expect(e.removeKeyframesAt(id, markers.first.time), 0);
+      expect(e.clipById(id)!.transform!.scale.keyframes, hasLength(2));
+    });
+
     test('image presets ignore video clips', () {
       final e = harness();
       addClip(e, id: 'video', start: 0, duration: 5);
@@ -1004,6 +1019,59 @@ void main() {
         expect(e.moveKeyframe('a', '__transform', 'scale', s(99), s(4)), s(4));
       },
     );
+
+    test('clipKeyframeMarkers gathers every keyed param onto one instant', () {
+      final e = harness(assetSeconds: 30);
+      addClip(e, id: 'a', start: 0, duration: 5);
+      final fxId = e.addEffect('a', 'saturation');
+      e.setKeyframeValue('a', fxId, 'amount', s(2), 1.5);
+      e.setKeyframeValue('a', '__transform', 'scale', s(2), 150.0);
+      e.setKeyframeValue('a', '__transform', 'scale', s(4), 200.0);
+
+      final markers = e.clipKeyframeMarkers(e.clipById('a')!);
+      expect(markers.map((m) => m.time.seconds), [0.0, 2.0, 4.0]);
+      // The two params keyed at 2 s are one diamond carrying both.
+      expect(markers[1].keys, hasLength(2));
+      expect(markers[1].keys.map((k) => k.paramId).toSet(), {
+        'amount',
+        'scale',
+      });
+      expect(markers.every((m) => !m.anyGenerated), isTrue);
+    });
+
+    test('removeKeyframesAt clears every param keyed at that instant', () {
+      final e = harness(assetSeconds: 30);
+      addClip(e, id: 'a', start: 0, duration: 5);
+      final fxId = e.addEffect('a', 'saturation');
+      e.setKeyframeValue('a', fxId, 'amount', s(2), 1.5);
+      e.setKeyframeValue('a', '__transform', 'scale', s(2), 150.0);
+      e.setKeyframeValue('a', '__transform', 'scale', s(4), 200.0);
+
+      expect(e.removeKeyframesAt('a', s(2)), 2);
+      expect(
+        e.clipKeyframeMarkers(e.clipById('a')!).map((m) => m.time.seconds),
+        [0.0, 4.0],
+      );
+
+      // One undo step brings both back.
+      e.undo();
+      expect(
+        e.clipKeyframeMarkers(e.clipById('a')!).map((m) => m.time.seconds),
+        [0.0, 2.0, 4.0],
+      );
+    });
+
+    test('clearAllKeyframes leaves every param static', () {
+      final e = harness(assetSeconds: 30);
+      addClip(e, id: 'a', start: 0, duration: 5);
+      final fxId = e.addEffect('a', 'saturation');
+      e.setKeyframeValue('a', fxId, 'amount', s(2), 1.5);
+      e.setKeyframeValue('a', '__transform', 'scale', s(2), 150.0);
+
+      e.clearAllKeyframes('a');
+      expect(e.clipKeyframes(e.clipById('a')!), isEmpty);
+      expect(e.clipById('a')!.transform!.scale.animated, isFalse);
+    });
 
     test('removeKeyframe drops just that key', () {
       final e = harness(assetSeconds: 30);

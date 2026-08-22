@@ -293,9 +293,11 @@ Error renderFrame(const json& document, const RationalTime& time, int width,
         blendComposite(canvas, *surf, layer.opacity, layer.blend);
         return Error::None;
       }
-      err = rasterizeLayer(*surf, layer, ctx, framing, &renderedScratch);
+      LayerBounds bounds;
+      err = rasterizeLayer(*surf, layer, ctx, framing, &renderedScratch, &bounds);
       if (err != Error::None) return err;
-      blendComposite(canvas, renderedScratch, layer.opacity, layer.blend);
+      blendComposite(canvas, renderedScratch, layer.opacity, layer.blend,
+                     &bounds);
       return Error::None;
     };
 

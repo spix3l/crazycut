@@ -43,6 +43,16 @@ struct DecoderSession {
   SwsContext* sws = nullptr;
   int swsSrcW = 0, swsSrcH = 0, swsSrcFmt = -1, swsDstW = 0, swsDstH = 0;
 
+  // A still image decodes to the same pixels at every timeline instant, so the
+  // scaled RGBA is kept and handed back for the rest of the clip. Without this
+  // an animated photo re-ran a full decode + swscale of the original (often
+  // 12-24 megapixel) file on every preview frame, which is the single largest
+  // cost in playing a keyframed image clip.
+  bool still = false;
+  std::vector<uint8_t> stillRgba;
+  int stillW = 0, stillH = 0;
+  int stillTargetWidth = -1;
+
   ~DecoderSession() {
     if (sws) sws_freeContext(sws);
     if (scratch) av_frame_free(&scratch);
@@ -78,6 +88,17 @@ Error openVideoDecoder(const std::string& path, DecoderSession* session) {
     setLastError("decoder open failed");
     return Error::MediaDecodeFailed;
   }
+  // Same rule the prober uses to call a file an image (media/probe.cpp): the
+  // single-image demuxers, plus the still codecs by id for containers that do
+  // not name themselves. GIF counts as a still here too, matching the image
+  // clip contract — v1 does not play animated images.
+  const std::string fmtName =
+      session->format->iformat ? session->format->iformat->name : "";
+  const AVCodecID codecId = session->stream->codecpar->codec_id;
+  session->still = fmtName.find("image2") != std::string::npos ||
+                   fmtName.find("_pipe") != std::string::npos ||
+                   codecId == AV_CODEC_ID_PNG || codecId == AV_CODEC_ID_MJPEG ||
+                   codecId == AV_CODEC_ID_WEBP || codecId == AV_CODEC_ID_GIF;
   return Error::None;
 }
 
@@ -246,7 +267,12 @@ Error decodeFrameNear(DecoderSession* s, double seconds, AVFrame** outFrame) {
                          s->heldPtsSec >= 0 &&
                          seconds > s->heldPtsSec &&
                          seconds - s->heldPtsSec <= 2.0;
-  if (!forwardOk) {
+  // A still is never seeked: its file holds one packet, and asking the
+  // single-image demuxers to seek leaves them unable to read it at all — a
+  // JPEG then failed every decode and drew the offline slate instead of the
+  // photo. A freshly opened session is already positioned at the only frame
+  // there is.
+  if (!forwardOk && !s->still) {
     const AVRational tb = s->stream->time_base;
     const int64_t targetTs = static_cast<int64_t>(seconds / av_q2d(tb));
     if (seconds > 0.5) {
@@ -287,8 +313,20 @@ Error extractFrameRgba(const std::string& path, double seconds, int targetWidth,
   Error err = acquireDecoder(path, &session);
   if (err != Error::None) return err;
 
+  // A still already scaled for this output size: hand back the cached pixels
+  // rather than decoding the source again for a frame that cannot differ.
+  if (session->still && !session->stillRgba.empty() &&
+      session->stillTargetWidth == targetWidth) {
+    outFrame->width = session->stillW;
+    outFrame->height = session->stillH;
+    outFrame->rgba.assign(session->stillRgba.begin(), session->stillRgba.end());
+    return Error::None;
+  }
+
   AVFrame* frame = nullptr;  // borrowed from the session
-  err = decodeFrameNear(session, seconds, &frame);
+  // A still has one frame; asking for it at the clip-local time would send the
+  // decoder seeking past the end of a one-packet file on every call.
+  err = decodeFrameNear(session, session->still ? 0.0 : seconds, &frame);
   if (err != Error::None) return err;
 
   const int srcW = frame->width;
@@ -356,6 +394,12 @@ Error extractFrameRgba(const std::string& path, double seconds, int targetWidth,
   outFrame->height = dstH;
   rotateRgba(&outFrame->rgba, &outFrame->width, &outFrame->height,
              displayRotationFor(session->stream));
+  if (session->still) {
+    session->stillRgba = outFrame->rgba;
+    session->stillW = outFrame->width;
+    session->stillH = outFrame->height;
+    session->stillTargetWidth = targetWidth;
+  }
   return Error::None;
 }
 

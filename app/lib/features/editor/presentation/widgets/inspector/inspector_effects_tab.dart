@@ -3,7 +3,9 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../../../core/design/tokens.dart';
 import '../../../../../core/widgets/primitives.dart';
+import '../../../../../data/param_value.dart';
 import '../../../../../data/project.dart';
+import '../../../../../models/rational.dart';
 import '../../../../../state/editor_controller.dart';
 
 /// The per-clip effect stack (FX-1..4): ordered list, enable/disable,
@@ -191,19 +193,24 @@ class _ParamRow extends StatefulWidget {
 }
 
 class _ParamRowState extends State<_ParamRow> {
-  bool get isAnimated {
+  ParamValue get _param {
     final p = widget.param;
-    return p is Map && (p['keyframes'] as List?)?.isNotEmpty == true;
+    return p is num ? ParamValue.staticNum(p.toDouble()) : ParamValue.from(p);
   }
 
-  double get staticValue {
-    final p = widget.param;
-    if (p is num) return p.toDouble();
-    if (p is Map) {
-      final s = p['static'];
-      if (s is num) return s.toDouble();
-    }
-    return 0;
+  bool get isAnimated => _param.animated;
+
+  Rt get _localTime => widget.controller.playhead
+      .minus(widget.clip.start)
+      .clampTo(Rt.zero(), widget.clip.duration);
+
+  /// What the parameter is worth *right now* — the animated value under the
+  /// playhead, not the resting static. Showing the static on an animated row
+  /// meant the slider sat still while the picture moved, and dragging it
+  /// edited a value nothing was reading.
+  double get currentValue {
+    final v = _param.evaluate(_localTime);
+    return v is num ? v.toDouble() : 0;
   }
 
   @override
@@ -234,18 +241,13 @@ class _ParamRowState extends State<_ParamRow> {
               flex: 7,
               child: CcSlider(
                 value:
-                    ((staticValue - min) / (max - min)).clamp(0.0, 1.0),
-                onChanged: (t) => widget.controller.setEffectParam(
-                  widget.clip.id,
-                  widget.instanceId,
-                  widget.paramId,
-                  min + t * (max - min),
-                ),
+                    ((currentValue - min) / (max - min)).clamp(0.0, 1.0),
+                onChanged: (t) => _setValue(min + t * (max - min)),
               ),
             ),
             SizedBox(
               width: 40,
-              child: Text(staticValue.toStringAsFixed(1),
+              child: Text(currentValue.toStringAsFixed(1),
                   textAlign: TextAlign.right,
                   style: CcType.style(size: 10, weight: CcType.medium)),
             ),
@@ -262,6 +264,16 @@ class _ParamRowState extends State<_ParamRow> {
                     widget.controller.playhead
                         .minus(widget.clip.start),
                   ),
+                  onContextMenu: (position) => showKeyframeMenu(
+                    context,
+                    position,
+                    controller: widget.controller,
+                    clip: widget.clip,
+                    effectInstanceId: widget.instanceId,
+                    paramId: widget.paramId,
+                    param: _param,
+                    localTime: _localTime,
+                  ),
                 ),
               ),
             ),
@@ -271,23 +283,32 @@ class _ParamRowState extends State<_ParamRow> {
     );
   }
 
-  bool _keyAtPlayhead() {
-    final p = widget.param;
-    if (p is! Map) return false;
-    final keys = p['keyframes'];
-    if (keys is! List) return false;
-    final local = widget.controller.playhead.minus(widget.clip.start);
-    for (final k in keys) {
-      final t = k is Map ? k['t'] : null;
-      if (t is String) {
-        final parts = t.split('/');
-        final secs =
-            (num.tryParse(parts[0]) ?? 0) / (num.tryParse(parts[1]) ?? 1);
-        if ((secs - local.seconds).abs() < 0.02) return true;
-      }
+  /// An animated parameter writes to the key under the playhead (creating one
+  /// if the drag started between keys); a static one keeps editing its static.
+  void _setValue(double value) {
+    if (isAnimated) {
+      widget.controller.setKeyframeValue(
+        widget.clip.id,
+        widget.instanceId,
+        widget.paramId,
+        _localTime,
+        value,
+      );
+      return;
     }
-    return false;
+    widget.controller.setEffectParam(
+      widget.clip.id,
+      widget.instanceId,
+      widget.paramId,
+      value,
+    );
   }
+
+  bool _keyAtPlayhead() => _param.keyframes.any(
+        (key) =>
+            (ParamValue.timeOf(key) - _localTime).micros.abs() <=
+            widget.controller.frameDuration.micros ~/ 2,
+      );
 
   (double, double)? _schemaFor(String typeId, String paramId) {
     for (final def in widget.controller.catalogCache) {
@@ -325,6 +346,68 @@ class _ParamRowState extends State<_ParamRow> {
         'opacity' => 'Opacity',
         _ => id,
       };
+}
+
+/// The options behind a right-click on any keyframe diamond (KEY-7).
+///
+/// Both the transform rows and the effect rows show this: a keyframe that can
+/// only be created and never removed is a trap, and the diamond alone gives no
+/// way to walk between the keys already on the parameter.
+void showKeyframeMenu(
+  BuildContext context,
+  Offset position, {
+  required EditorController controller,
+  required Clip clip,
+  required String effectInstanceId,
+  required String paramId,
+  required ParamValue param,
+  required Rt localTime,
+}) {
+  final times = param.keyframes.map(ParamValue.timeOf).toList()
+    ..sort((a, b) => a.compareTo(b));
+  final previous = times.where((time) => time < localTime).lastOrNull;
+  final next = times.where((time) => time > localTime).firstOrNull;
+  final atPlayhead = times.any(
+    (time) =>
+        (time - localTime).micros.abs() <= controller.frameDuration.micros ~/ 2,
+  );
+  showCcMenu(context, position, [
+    CcMenuItem(
+      'Previous keyframe',
+      icon: LucideIcons.chevronLeft,
+      onTap: previous == null
+          ? null
+          : () => controller.seekTo(clip.start.plus(previous)),
+    ),
+    CcMenuItem(
+      'Next keyframe',
+      icon: LucideIcons.chevronRight,
+      onTap: next == null
+          ? null
+          : () => controller.seekTo(clip.start.plus(next)),
+    ),
+    CcMenuItem(
+      'Delete keyframe',
+      icon: LucideIcons.trash2,
+      separatorBefore: true,
+      onTap: !atPlayhead
+          ? null
+          : () => controller.removeKeyframe(
+                clip.id,
+                effectInstanceId,
+                paramId,
+                localTime,
+              ),
+    ),
+    CcMenuItem(
+      'Clear all keyframes',
+      danger: true,
+      onTap: !param.animated
+          ? null
+          : () =>
+              controller.clearKeyframes(clip.id, effectInstanceId, paramId),
+    ),
+  ]);
 }
 
 /// The ◆ toggle (KEY-4).

@@ -76,6 +76,28 @@ void sampleBilinear(const RgbaSurface& src, const Tap& cx, const Tap& cy,
   const float wy[2] = {1.f - cy.t, cy.t};
   const float wx[2] = {1.f - cx.t, cx.t};
   const int xs[2] = {cx.a, cx.b};
+
+  // Opaque source — video frames, photos, the inside of any logo — is the
+  // overwhelmingly common tap. Premultiplying by an alpha that is always 1 and
+  // dividing it back out again is eight multiplies and a divide per pixel of
+  // pure ceremony, and this runs once per canvas pixel of every scaled or
+  // rotated layer.
+  const uint8_t* q00 = rows[0] + static_cast<size_t>(xs[0]) * 4;
+  const uint8_t* q01 = rows[0] + static_cast<size_t>(xs[1]) * 4;
+  const uint8_t* q10 = rows[1] + static_cast<size_t>(xs[0]) * 4;
+  const uint8_t* q11 = rows[1] + static_cast<size_t>(xs[1]) * 4;
+  if (q00[3] == 255 && q01[3] == 255 && q10[3] == 255 && q11[3] == 255) {
+    const float w00 = wy[0] * wx[0], w01 = wy[0] * wx[1];
+    const float w10 = wy[1] * wx[0], w11 = wy[1] * wx[1];
+    for (int ch = 0; ch < 3; ++ch) {
+      out[ch] = static_cast<uint8_t>(std::lround(clampf(
+          q00[ch] * w00 + q01[ch] * w01 + q10[ch] * w10 + q11[ch] * w11, 0.f,
+          255.f)));
+    }
+    out[3] = 255;
+    return;
+  }
+
   float acc[4] = {0.f, 0.f, 0.f, 0.f};
   for (int j = 0; j < 2; ++j) {
     for (int i = 0; i < 2; ++i) {
@@ -154,12 +176,15 @@ void applyTransformJson(const json& transform, const RationalTime& local,
 
 Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
                      const RenderContext& ctx, const std::string& framing,
-                     RgbaSurface* out) {
+                     RgbaSurface* out, LayerBounds* outBounds) {
   if (!out || src.rgba.empty()) return Error::InvalidArgument;
   const int W = ctx.sequenceWidth, H = ctx.sequenceHeight;
   out->width = W;
   out->height = H;
   out->rgba.assign(static_cast<size_t>(W) * H * 4, 0);
+  // Nothing written yet; an early return leaves an empty footprint, which the
+  // composite pass reads as "skip this layer".
+  if (outBounds) *outBounds = LayerBounds{0, 0, -1, -1};
 
   // --- Framing: source px → canvas px, per axis -----------------------------
   // kx/ky are the whole mapping: framing chooses how the source is fitted to
@@ -218,14 +243,22 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
     // every row, so it is computed once for the whole width instead of once
     // per pixel — same arithmetic, ~H times less of it.
     std::vector<Tap> columns(W);
+    int firstCol = W, lastCol = -1;
     for (int px = 0; px < W; ++px) {
       columns[px] = axisTap((px + 0.5 - cx) + (halfW - axp), kx, src.width,
                             layer.flipH);
+      if (columns[px].a >= 0) {
+        if (px < firstCol) firstCol = px;
+        lastCol = px;
+      }
     }
+    int firstRow = H, lastRow = -1;
     for (int py = 0; py < H; ++py) {
       const Tap rowTap =
           axisTap((py + 0.5 - cy) + (halfH - ayp), ky, src.height, layer.flipV);
       if (rowTap.a < 0) continue;
+      if (py < firstRow) firstRow = py;
+      lastRow = py;
       uint8_t* q = out->rgba.data() + static_cast<size_t>(py) * W * 4;
       if (exact) {
         const uint8_t* row =
@@ -252,9 +285,13 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
         q[3] = px4[3];
       }
     }
+    if (outBounds && lastCol >= 0 && lastRow >= 0) {
+      *outBounds = LayerBounds{firstCol, firstRow, lastCol, lastRow};
+    }
     return Error::None;
   }
 
+  int firstCol = W, lastCol = -1, firstRow = H, lastRow = -1;
   for (int py = 0; py < H; ++py) {
     for (int px = 0; px < W; ++px) {
       // Canvas point relative to centre.
@@ -266,6 +303,10 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
       const Tap tapX = axisTap(ux, kx, src.width, layer.flipH);
       const Tap tapY = axisTap(uy, ky, src.height, layer.flipV);
       if (tapX.a < 0 || tapY.a < 0) continue;
+      if (px < firstCol) firstCol = px;
+      if (px > lastCol) lastCol = px;
+      if (py < firstRow) firstRow = py;
+      if (py > lastRow) lastRow = py;
       uint8_t* q = out->rgba.data() + (static_cast<size_t>(py) * W + px) * 4;
       uint8_t px4[4];
       sampleBilinear(src, tapX, tapY, px4);
@@ -276,22 +317,30 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
       q[3] = px4[3];
     }
   }
+  if (outBounds && lastCol >= 0 && lastRow >= 0) {
+    *outBounds = LayerBounds{firstCol, firstRow, lastCol, lastRow};
+  }
   return Error::None;
 }
 
 void blendComposite(RgbaSurface* base, const RgbaSurface& top, double opacity,
-                    const std::string& blendMode) {
+                    const std::string& blendMode, const LayerBounds* bounds) {
   if (!base || top.rgba.empty()) return;
   const size_t n = std::min(base->rgba.size(), top.rgba.size());
   const float gOpacity = static_cast<float>(clampd(opacity, 0.0, 1.0));
   const bool normal = blendMode.empty() || blendMode == "normal";
 
+  // One horizontal run of the canvas. Splitting the pass this way is what lets
+  // a layer that occupies a corner of the frame — anything scaled down, moved
+  // off centre, or mid-animation — pay for its own pixels instead of for a
+  // full-canvas walk that finds transparent bytes almost everywhere.
+  const auto blendRange = [&](size_t from, size_t to) {
   // Compositing every visible track over the canvas is the single hottest loop
   // in the renderer, so the ordinary case — opaque source, normal blend — gets
   // a straight copy. It is bit-identical to the general path below (alpha 1
   // makes the over-operator collapse to "take the source").
   if (normal && gOpacity >= 1.0f) {
-    for (size_t i = 0; i < n; i += 4) {
+    for (size_t i = from; i < to; i += 4) {
       const uint8_t sa = top.rgba[i + 3];
       if (sa == 0) continue;
       if (sa == 255) {
@@ -306,7 +355,7 @@ void blendComposite(RgbaSurface* base, const RgbaSurface& top, double opacity,
     return;
   }
 
-  for (size_t i = 0; i < n; i += 4) {
+  for (size_t i = from; i < to; i += 4) {
     float sr = top.rgba[i] / 255.f, sg = top.rgba[i + 1] / 255.f,
           sb = top.rgba[i + 2] / 255.f, sa = top.rgba[i + 3] / 255.f * gOpacity;
     if (sa <= 0.f) continue;
@@ -356,6 +405,26 @@ void blendComposite(RgbaSurface* base, const RgbaSurface& top, double opacity,
     base->rgba[i + 2] = quantize((sb * sa + bb * keep) * inv);
     base->rgba[i + 3] = static_cast<uint8_t>(std::lround(oa * 255.f));
   }
+  };
+
+  const int W = top.width;
+  if (bounds && W > 0 && base->width == W) {
+    if (bounds->empty()) return;
+    const int rows = std::min(base->height, top.height);
+    const int x0 = std::max(0, bounds->x0);
+    const int x1 = std::min(W - 1, bounds->x1);
+    const int y0 = std::max(0, bounds->y0);
+    const int y1 = std::min(rows - 1, bounds->y1);
+    for (int y = y0; y <= y1; ++y) {
+      const size_t from = (static_cast<size_t>(y) * W + x0) * 4;
+      size_t to = (static_cast<size_t>(y) * W + x1 + 1) * 4;
+      if (to > n) to = n;
+      if (from >= to) continue;
+      blendRange(from, to);
+    }
+    return;
+  }
+  blendRange(0, n);
 }
 
 double easeProgress(double p, const std::string& easing) {

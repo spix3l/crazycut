@@ -48,6 +48,46 @@ class _Gesture {
   final bool breakLinks;
 }
 
+/// One keyframe on a clip, tagged with the parameter it animates.
+///
+/// [effectInstanceId] is `'__transform'` for the built-in transform, matching
+/// the id the keyframe operations take.
+class ClipKeyframe {
+  const ClipKeyframe({
+    required this.effectInstanceId,
+    required this.paramId,
+    required this.time,
+    required this.label,
+    required this.generated,
+  });
+
+  final String effectInstanceId;
+  final String paramId;
+
+  /// Clip-local time.
+  final Rt time;
+
+  /// What to call this parameter in a menu ("Scale", "Blur · Radius").
+  final String label;
+
+  /// Written by a clip-animation preset rather than by hand. Deleting one is
+  /// pointless: the next spec rebuild puts it straight back, so the UI offers
+  /// to clear the preset instead.
+  final bool generated;
+}
+
+/// All the keyframes sharing one instant on a clip — what a single diamond on
+/// the timeline stands for.
+class ClipKeyframeMarker {
+  const ClipKeyframeMarker({required this.time, required this.keys});
+
+  final Rt time;
+  final List<ClipKeyframe> keys;
+
+  bool get allGenerated => keys.every((k) => k.generated);
+  bool get anyGenerated => keys.any((k) => k.generated);
+}
+
 /// Every document mutation in the editor (TIM-1..18, 20/21).
 ///
 /// The mixin owns the command history, the selection and the clipboard; hosts
@@ -3283,6 +3323,160 @@ mixin TimelineEdits on ChangeNotifier {
     final pv = ParamValue.from(params[paramId]);
     mutate(pv);
     params[paramId] = pv.toJson();
+  }
+
+  /// Every keyframe on [clip], transform first then effects, in time order.
+  ///
+  /// This is what the timeline draws its keyframe ribbon from: without it a
+  /// clip gave no sign that it was animated at all, and the only way to find a
+  /// key was to scrub until the inspector diamond happened to light up.
+  List<ClipKeyframe> clipKeyframes(Clip clip) {
+    final out = <ClipKeyframe>[];
+    final spec = clipAnimationSpec(clip);
+    final generatedParams =
+        ((spec?['params'] as List?) ?? const []).whereType<String>().toSet();
+    final generatedEffects =
+        ((spec?['fx'] as List?) ?? const []).whereType<String>().toSet();
+
+    final transform = clip.transform;
+    if (transform != null) {
+      for (final entry in <String, ParamValue>{
+        'x': transform.x,
+        'y': transform.y,
+        'scale': transform.scale,
+        'rotation': transform.rotation,
+        'anchor': transform.anchor,
+        'opacity': transform.opacity,
+      }.entries) {
+        for (final key in entry.value.keyframes) {
+          out.add(
+            ClipKeyframe(
+              effectInstanceId: '__transform',
+              paramId: entry.key,
+              time: ParamValue.timeOf(key),
+              label: _transformParamLabel(entry.key),
+              generated: generatedParams.contains(entry.key),
+            ),
+          );
+        }
+      }
+    }
+
+    for (final instance in clip.effects.whereType<Map<String, dynamic>>()) {
+      final instanceId = instance['id'] as String? ?? '';
+      final params = instance['params'];
+      if (params is! Map<String, dynamic>) continue;
+      final effectLabel =
+          _effectDef(instance['type'] as String? ?? '')?['label'] as String? ??
+          (instance['type'] as String? ?? 'Effect');
+      for (final entry in params.entries) {
+        final raw = entry.value;
+        if (raw is! Map) continue;
+        final keys = raw['keyframes'];
+        if (keys is! List) continue;
+        for (final key in keys.whereType<Map>()) {
+          out.add(
+            ClipKeyframe(
+              effectInstanceId: instanceId,
+              paramId: entry.key,
+              time: ParamValue.timeOf(key.cast<String, dynamic>()),
+              label: '$effectLabel · ${entry.key}',
+              generated: generatedEffects.contains(instanceId),
+            ),
+          );
+        }
+      }
+    }
+    out.sort((a, b) => a.time.compareTo(b.time));
+    return out;
+  }
+
+  String _transformParamLabel(String paramId) => switch (paramId) {
+    'x' => 'Position X',
+    'y' => 'Position Y',
+    'scale' => 'Scale',
+    'rotation' => 'Rotation',
+    'anchor' => 'Anchor',
+    'opacity' => 'Opacity',
+    _ => paramId,
+  };
+
+  /// [clipKeyframes] collapsed onto the frame grid: several parameters keyed
+  /// at the same instant are one diamond on the timeline, not a pile of them
+  /// drawn on top of each other.
+  List<ClipKeyframeMarker> clipKeyframeMarkers(Clip clip) {
+    final grouped = <int, List<ClipKeyframe>>{};
+    for (final key in clipKeyframes(clip)) {
+      final frame = (key.time.micros / frameDuration.micros).round();
+      grouped.putIfAbsent(frame, () => []).add(key);
+    }
+    final markers = [
+      // The bucket's own earliest key, not the frame it rounded into: seeking
+      // to a marker must land exactly on a keyframe, and reconstructing the
+      // time from a truncated frame duration lands a hair beside it.
+      for (final entry in grouped.entries)
+        ClipKeyframeMarker(
+          time: entry.value.map((k) => k.time).reduce((a, b) => a < b ? a : b),
+          keys: entry.value,
+        ),
+    ];
+    markers.sort((a, b) => a.time.compareTo(b.time));
+    return markers;
+  }
+
+  /// Removes every hand-made keyframe at clip-local [t] as one undo step, and
+  /// returns how many went. Generated keys are skipped: the spec would write
+  /// them straight back, so deleting them would look like the editor ignoring
+  /// the request.
+  int removeKeyframesAt(String clipId, Rt t) {
+    final clip = _editableClip(clipId);
+    if (clip == null) return 0;
+    final doomed =
+        clipKeyframeMarkers(clip)
+            .where(
+              (m) => (m.time - t).micros.abs() <= frameDuration.micros ~/ 2,
+            )
+            .expand((m) => m.keys)
+            .where((k) => !k.generated)
+            .toList();
+    if (doomed.isEmpty) return 0;
+    _run('Delete keyframe', (tx) {
+      tx.clip(clipId);
+      for (final key in doomed) {
+        mutateParam(clip, key.effectInstanceId, key.paramId, (pv) {
+          pv.keyframes.removeWhere(
+            (k) =>
+                (ParamValue.timeOf(k) - key.time).micros.abs() <=
+                frameDuration.micros ~/ 2,
+          );
+        });
+      }
+    });
+    return doomed.length;
+  }
+
+  /// Drops every hand-made keyframe on [clip], leaving each parameter static at
+  /// the value it was last showing.
+  void clearAllKeyframes(String clipId) {
+    final clip = _editableClip(clipId);
+    if (clip == null) return;
+    final targets =
+        clipKeyframes(clip)
+            .where((k) => !k.generated)
+            .map((k) => (k.effectInstanceId, k.paramId))
+            .toSet();
+    if (targets.isEmpty) return;
+    _run('Clear keyframes', (tx) {
+      tx.clip(clipId);
+      for (final (instanceId, paramId) in targets) {
+        mutateParam(clip, instanceId, paramId, (pv) {
+          if (!pv.animated) return;
+          final last = pv.evaluate(playhead.minus(clip.start));
+          pv.keyframes.clear();
+          pv.static = last;
+        });
+      }
+    });
   }
 
   /// KEY-3: the first-ever key seeds from the current static value; a second

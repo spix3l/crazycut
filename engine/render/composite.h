@@ -33,18 +33,32 @@ struct CompositedLayer {
 void applyTransformJson(const nlohmann::json& transform, const RationalTime& local,
                         const RenderContext& ctx, CompositedLayer* layer);
 
+// The canvas rectangle a rasterized layer actually wrote into, inclusive on
+// both ends. Everything outside it is transparent, so the composite pass can
+// skip it instead of walking the whole canvas for a layer that covers a
+// corner of it.
+struct LayerBounds {
+  int x0 = 0, y0 = 0, x1 = -1, y1 = -1;
+  bool empty() const { return x1 < x0 || y1 < y0; }
+};
+
 // Resamples [src] into a dstW×dstH buffer honouring framing ("fit" letterboxes,
 // "fill" covers and crops centred, "stretch" ignores aspect), then applies the
 // layer's position/scale/rotation. Output has the layer's footprint on the full
 // sequence canvas with its source alpha intact; opacity and blend mode are
 // applied once by blendComposite().
+//
+// [outBounds], when given, receives the footprint that was written.
 Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
                      const RenderContext& ctx, const std::string& framing,
-                     RgbaSurface* out);
+                     RgbaSurface* out, LayerBounds* outBounds = nullptr);
 
-// Alpha-over / blend [top] onto [base] in place using top.blend.
+// Alpha-over / blend [top] onto [base] in place using top.blend. [bounds], when
+// given, restricts the pass to the rows and columns [top] actually covers —
+// everything else in it is transparent and would be skipped pixel by pixel.
 void blendComposite(RgbaSurface* base, const RgbaSurface& top, double opacity,
-                    const std::string& blendMode);
+                    const std::string& blendMode,
+                    const LayerBounds* bounds = nullptr);
 
 // --- Transitions ------------------------------------------------------------
 

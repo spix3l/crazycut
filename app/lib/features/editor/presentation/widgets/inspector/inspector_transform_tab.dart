@@ -12,7 +12,7 @@ import '../../../../../models/rational.dart';
 import '../../../../../state/editor_controller.dart';
 import '../../../../../state/timeline_edits.dart';
 import 'clip_animation_edge_control.dart';
-import 'inspector_effects_tab.dart' show KeyframeDiamond;
+import 'inspector_effects_tab.dart' show KeyframeDiamond, showKeyframeMenu;
 
 /// Clip animation and built-in transform (FX-9), grouped by consequence rather
 /// than presented as one undifferentiated list of controls.
@@ -523,60 +523,16 @@ class _TransformRowState extends State<_TransformRow> {
     return KeyEventResult.ignored;
   }
 
-  void _keyframeMenu(Offset position) {
-    final times =
-        _param().keyframes.map(ParamValue.timeOf).toList()
-          ..sort((a, b) => a.compareTo(b));
-    final before = times.where((time) => time < _localTime).toList();
-    final after = times.where((time) => time > _localTime).toList();
-    final previous = before.isEmpty ? null : before.last;
-    final next = after.isEmpty ? null : after.first;
-    showCcMenu(context, position, [
-      CcMenuItem(
-        'Previous keyframe',
-        icon: LucideIcons.chevronLeft,
-        onTap:
-            previous == null
-                ? null
-                : () =>
-                    widget.controller.seekTo(widget.clip.start.plus(previous)),
-      ),
-      CcMenuItem(
-        'Next keyframe',
-        icon: LucideIcons.chevronRight,
-        onTap:
-            next == null
-                ? null
-                : () => widget.controller.seekTo(widget.clip.start.plus(next)),
-      ),
-      CcMenuItem(
-        'Delete keyframe',
-        icon: LucideIcons.trash2,
-        separatorBefore: true,
-        onTap:
-            !_keyAtPlayhead
-                ? null
-                : () => widget.controller.removeKeyframe(
-                  widget.clip.id,
-                  '__transform',
-                  widget.paramId,
-                  _localTime,
-                ),
-      ),
-      CcMenuItem(
-        'Clear all keyframes',
-        danger: true,
-        onTap:
-            !_animated
-                ? null
-                : () => widget.controller.clearKeyframes(
-                  widget.clip.id,
-                  '__transform',
-                  widget.paramId,
-                ),
-      ),
-    ]);
-  }
+  void _keyframeMenu(Offset position) => showKeyframeMenu(
+    context,
+    position,
+    controller: widget.controller,
+    clip: widget.clip,
+    effectInstanceId: '__transform',
+    paramId: widget.paramId,
+    param: _param(),
+    localTime: _localTime,
+  );
 
   @override
   Widget build(BuildContext context) {

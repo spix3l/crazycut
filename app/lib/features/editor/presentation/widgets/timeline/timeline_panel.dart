@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 
+import 'package:collection/collection.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' hide Clip;
@@ -16,6 +17,10 @@ import '../../../../../state/timeline_edits.dart';
 import '../../models/editor_models.dart';
 import 'timeline_clip_tile.dart';
 import 'track_header.dart';
+
+/// How far from a keyframe diamond a click still counts as hitting it. The
+/// diamonds are small on purpose; the target around them is not.
+const double _kKeyframeHitPx = 7;
 
 /// Bottom half of the editor: tool strip, ruler, track headers, lanes and the
 /// playhead. The panel turns pixels into times and hands every mutation to the
@@ -1038,9 +1043,121 @@ class _TimelinePanelState extends State<TimelinePanel> {
               width: 7,
             ),
           ),
+          // Last in the stack so a click lands on a keyframe rather than on
+          // the clip body underneath it. Only tap gestures are claimed here,
+          // so dragging across the ribbon still moves the clip.
+          ..._keyframeRibbon(track, clip),
         ],
       ),
     );
+  }
+
+  /// The row of diamonds marking where a clip is keyed (KEY-5), or nothing at
+  /// all when it has no keyframes.
+  List<Widget> _keyframeRibbon(Track track, Clip clip) {
+    if (!track.isVideo ||
+        track.height < kKeyframeRibbonMinTrackHeight ||
+        track.hidden) {
+      return const [];
+    }
+    final markers = c.clipKeyframeMarkers(clip);
+    if (markers.isEmpty) return const [];
+    final local = c.playhead.minus(clip.start);
+    ClipKeyframeMarker? nearest(double dx) {
+      ClipKeyframeMarker? best;
+      var bestDistance = _kKeyframeHitPx;
+      for (final marker in markers) {
+        final distance = (marker.time.seconds * pxPerSec - dx).abs();
+        if (distance <= bestDistance) {
+          bestDistance = distance;
+          best = marker;
+        }
+      }
+      return best;
+    }
+
+    return [
+      Positioned(
+        left: 0,
+        right: 0,
+        top: 0,
+        height: kKeyframeRibbonHeight,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            supportedDevices: _editPointerDevices,
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (d) {
+              final marker = nearest(d.localPosition.dx);
+              _onClipTap(clip);
+              if (marker != null) c.seekTo(clip.start.plus(marker.time));
+            },
+            onSecondaryTapDown: (d) {
+              final marker = nearest(d.localPosition.dx);
+              if (marker == null) {
+                _clipMenu(context, d.globalPosition, clip);
+                return;
+              }
+              _keyframeMarkerMenu(d.globalPosition, clip, marker);
+            },
+            child: CustomPaint(
+              painter: KeyframeRibbonPainter(
+                seconds: [for (final m in markers) m.time.seconds],
+                generated: [for (final m in markers) m.allGenerated],
+                pxPerSec: pxPerSec,
+                highlightSeconds:
+                    markers
+                        .firstWhereOrNull(
+                          (m) =>
+                              (m.time - local).micros.abs() <=
+                              c.frameDuration.micros ~/ 2,
+                        )
+                        ?.time
+                        .seconds,
+              ),
+            ),
+          ),
+        ),
+      ),
+    ];
+  }
+
+  /// Right-click on one of those diamonds: jump to it, delete it, or — when a
+  /// preset wrote it — say why it cannot be deleted on its own.
+  void _keyframeMarkerMenu(Offset at, Clip clip, ClipKeyframeMarker marker) {
+    if (!c.selection.contains(clip.id)) c.selectClip(clip.id);
+    final params = marker.keys.map((k) => k.label).toSet().toList()..sort();
+    final deletable = marker.keys.where((k) => !k.generated).length;
+    showCcMenu(context, at, [
+      CcMenuItem(
+        params.length == 1 ? params.first : '${params.length} parameters',
+        onTap: null,
+      ),
+      CcMenuItem(
+        'Go to keyframe',
+        icon: LucideIcons.crosshair,
+        onTap: () => c.seekTo(clip.start.plus(marker.time)),
+      ),
+      CcMenuItem(
+        marker.allGenerated
+            ? 'From clip animation — clear the preset'
+            : deletable == 1
+                ? 'Delete keyframe'
+                : 'Delete $deletable keyframes here',
+        icon: LucideIcons.trash2,
+        separatorBefore: true,
+        danger: !marker.allGenerated,
+        onTap:
+            marker.allGenerated
+                ? null
+                : () => c.removeKeyframesAt(clip.id, marker.time),
+      ),
+      CcMenuItem(
+        'Clear all keyframes on clip',
+        danger: true,
+        onTap: () => c.clearAllKeyframes(clip.id),
+      ),
+    ]);
   }
 
   bool _touches(Transition t, String trackId) =>
