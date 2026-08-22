@@ -1,6 +1,8 @@
 #include "bindings/crazycut.h"
 
 #include <cstdlib>
+#include <cstring>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -10,7 +12,10 @@
 #include "media/prepare.h"
 #include "media/probe.h"
 #include "model/project.h"
+#include "audio/decode.h"
+#include "audio/mixer.h"
 #include "playback/player.h"
+#include "playback/sequence_player.h"
 #include "render/effects.h"
 #include "render/renderer.h"
 
@@ -325,5 +330,176 @@ int32_t cc_effect_catalog(cc_engine* engine, const char** out_json) {
   *out_json = engine->jsonBuffer.c_str();
   return 0;
 }
+
+// --- Sequence audio (M3) ----------------------------------------------------
+
+namespace {
+
+// Builds the asset id → path map every audio entry point takes.
+std::map<std::string, std::string> pathMap(int32_t count, const char** keys,
+                                           const char** paths) {
+  std::map<std::string, std::string> out;
+  for (int32_t i = 0; i < count; ++i) {
+    if (keys && paths && keys[i] && paths[i]) out[keys[i]] = paths[i];
+  }
+  return out;
+}
+
+}  // namespace
+
+int32_t cc_mix_audio(cc_engine* engine, double start_sec, double seconds,
+                     int32_t media_count, const char** utf8_keys,
+                     const char** utf8_paths, float** out_samples,
+                     int32_t* out_frames) {
+  if (!engine || !out_samples || !out_frames || seconds < 0 ||
+      media_count < 0) {
+    cc::setLastError("cc_mix_audio: invalid argument");
+    return static_cast<int32_t>(cc::Error::InvalidArgument);
+  }
+  try {
+    const auto& doc = engine->project.document();
+    cc::AudioBuffer buffer;
+    const cc::Error err = cc::mixTimeline(
+        doc, pathMap(media_count, utf8_keys, utf8_paths), start_sec, seconds,
+        cc::kMixSampleRate, cc::masterFromDocument(doc), &buffer);
+    if (err != cc::Error::None) return static_cast<int32_t>(err);
+
+    const size_t bytes = buffer.samples.size() * sizeof(float);
+    auto* copy = static_cast<float*>(std::malloc(bytes ? bytes : 1));
+    if (!copy) {
+      cc::setLastError("cc_mix_audio: out of memory");
+      return static_cast<int32_t>(cc::Error::InternalError);
+    }
+    if (bytes) std::memcpy(copy, buffer.samples.data(), bytes);
+    *out_samples = copy;
+    *out_frames = static_cast<int32_t>(buffer.frames());
+    return 0;
+  } catch (const std::exception& e) {
+    cc::setLastError(std::string("cc_mix_audio: ") + e.what());
+    return static_cast<int32_t>(cc::Error::InternalError);
+  }
+}
+
+int32_t cc_analyze_loudness(cc_engine* engine, double start_sec, double seconds,
+                            int32_t media_count, const char** utf8_keys,
+                            const char** utf8_paths, double* out_lufs,
+                            double* out_peak_db, double* out_true_peak_db) {
+  if (!engine || seconds <= 0 || media_count < 0) {
+    cc::setLastError("cc_analyze_loudness: invalid argument");
+    return static_cast<int32_t>(cc::Error::InvalidArgument);
+  }
+  try {
+    const auto& doc = engine->project.document();
+    cc::AudioBuffer buffer;
+    const cc::Error err = cc::mixTimeline(
+        doc, pathMap(media_count, utf8_keys, utf8_paths), start_sec, seconds,
+        cc::kMixSampleRate, cc::masterFromDocument(doc), &buffer);
+    if (err != cc::Error::None) return static_cast<int32_t>(err);
+    if (out_lufs) *out_lufs = cc::integratedLufs(buffer);
+    if (out_peak_db) *out_peak_db = cc::peakDb(buffer);
+    if (out_true_peak_db) *out_true_peak_db = cc::truePeakDb(buffer);
+    return 0;
+  } catch (const std::exception& e) {
+    cc::setLastError(std::string("cc_analyze_loudness: ") + e.what());
+    return static_cast<int32_t>(cc::Error::InternalError);
+  }
+}
+
+int32_t cc_scan_audio_peak(cc_engine* engine, const char* utf8_path,
+                           double source_in_sec, double seconds,
+                           double* out_peak) {
+  if (!engine || !utf8_path || !out_peak || seconds <= 0) {
+    cc::setLastError("cc_scan_audio_peak: invalid argument");
+    return static_cast<int32_t>(cc::Error::InvalidArgument);
+  }
+  float peak = 0.f;
+  const cc::Error err = cc::scanPeak(utf8_path, source_in_sec, seconds,
+                                     cc::kMixSampleRate, &peak);
+  if (err != cc::Error::None) return static_cast<int32_t>(err);
+  *out_peak = peak;
+  return 0;
+}
+
+struct cc_seq_player {
+  cc::SequencePlayer player;
+};
+
+cc_seq_player* cc_seq_player_create(void) {
+  return new (std::nothrow) cc_seq_player();
+}
+
+void cc_seq_player_destroy(cc_seq_player* player) { delete player; }
+
+int32_t cc_seq_player_set_document(cc_seq_player* player, const char* utf8_json,
+                                   int32_t media_count, const char** utf8_keys,
+                                   const char** utf8_paths) {
+  if (!player || !utf8_json || media_count < 0) {
+    cc::setLastError("cc_seq_player_set_document: invalid argument");
+    return static_cast<int32_t>(cc::Error::InvalidArgument);
+  }
+  try {
+    player->player.setDocument(nlohmann::json::parse(utf8_json),
+                               pathMap(media_count, utf8_keys, utf8_paths));
+    return 0;
+  } catch (const std::exception& e) {
+    cc::setLastError(std::string("cc_seq_player_set_document: ") + e.what());
+    return static_cast<int32_t>(cc::Error::InvalidArgument);
+  }
+}
+
+int32_t cc_seq_player_start(cc_seq_player* player, double position_sec) {
+  if (!player) return static_cast<int32_t>(cc::Error::InvalidArgument);
+  return static_cast<int32_t>(player->player.start(position_sec));
+}
+
+void cc_seq_player_stop(cc_seq_player* player) {
+  if (player) player->player.stop();
+}
+
+void cc_seq_player_seek(cc_seq_player* player, double position_sec) {
+  if (player) player->player.seek(position_sec);
+}
+
+double cc_seq_player_position(cc_seq_player* player) {
+  return player ? player->player.position() : 0.0;
+}
+
+int32_t cc_seq_player_is_running(cc_seq_player* player) {
+  return player && player->player.running() ? 1 : 0;
+}
+
+void cc_seq_player_set_rate(cc_seq_player* player, double rate) {
+  if (player) player->player.setRate(rate);
+}
+
+void cc_seq_player_levels(cc_seq_player* player, float* out_peak_l,
+                          float* out_peak_r) {
+  if (player) player->player.levels(out_peak_l, out_peak_r);
+  else {
+    if (out_peak_l) *out_peak_l = 0.f;
+    if (out_peak_r) *out_peak_r = 0.f;
+  }
+}
+
+int32_t cc_audio_output_devices(cc_engine* engine, const char** out_names) {
+  if (!engine || !out_names) {
+    cc::setLastError("cc_audio_output_devices: invalid argument");
+    return static_cast<int32_t>(cc::Error::InvalidArgument);
+  }
+  std::string joined;
+  for (const auto& name : cc::SequencePlayer::outputDevices()) {
+    if (!joined.empty()) joined += "\n";
+    joined += name;
+  }
+  g_value_buffer = joined;
+  *out_names = g_value_buffer.c_str();
+  return 0;
+}
+
+void cc_seq_player_set_output_device(cc_seq_player* player,
+                                     const char* utf8_name) {
+  if (player) player->player.setOutputDevice(utf8_name ? utf8_name : "");
+}
+
 
 }

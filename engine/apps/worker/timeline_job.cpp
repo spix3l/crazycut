@@ -22,6 +22,7 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
+#include "audio/mixer.h"
 #include "core/time.h"
 #include "media/frame.h"
 #include "model/project.h"
@@ -50,6 +51,10 @@ struct AudioSettings {
   std::string codec = "aac";
   int bitrate = 320000;
   bool enabled = true;
+  // EXP-7: when set, the mix is normalized to this integrated loudness with
+  // the true peak kept under the ceiling.
+  std::optional<double> loudnessTargetLufs;
+  double truePeakCeilingDb = -1.5;
 };
 
 void fitEven(int* w, int* h) {
@@ -225,6 +230,12 @@ int runTimelineJob(const json& spec) {
     else {
       if (a.contains("codec")) as->codec = a["codec"].get<std::string>();
       if (a.contains("bitrate")) as->bitrate = a["bitrate"].get<int>();
+      if (a.contains("loudnessLufs") && a["loudnessLufs"].is_number()) {
+        as->loudnessTargetLufs = a["loudnessLufs"].get<double>();
+      }
+      if (a.contains("truePeakDb") && a["truePeakDb"].is_number()) {
+        as->truePeakCeilingDb = a["truePeakDb"].get<double>();
+      }
     }
   }
   const bool faststart = spec.value("faststart", true);
@@ -323,140 +334,34 @@ int runTimelineJob(const json& spec) {
     }
 
     // --- Audio: pre-mix the whole sequence ---------------------------------
-    std::vector<float> mixL, mixR;
-    int mixChannels = 2;
+    // Preview and export share cc::mixTimeline, so the file carries exactly
+    // the balance, fades and crossfades the monitor played (arch §1).
+    AudioBuffer mix;
     if (as.has_value()) {
-      // Collect audio-bearing clips from every audio track AND the audio half
-      // of video clips (linked A/V).
-      std::vector<AudioClipSpan> spans;
-      for (const auto& track : document.value("tracks", json::array())) {
-        if (!track.is_object()) continue;
-        const bool audioTrack = track.value("kind", "") == "audio";
-        if (track.value("mute", false)) continue;
-        for (const auto& c : document.value("clips", json::array())) {
-          if (!c.is_object() || c.value("trackId", "") != track.value("id", ""))
-            continue;
-          if (c.value("mute", false)) continue;
-          const std::string mid = c.value("mediaId", "");
-          if (mid.empty()) continue;
-          const auto mit = media.find(mid);
-          if (mit == media.end()) continue;
-          // Only decode once per asset: video-track clips only contribute
-          // audio when their media actually has an audio stream — decode()
-          // answers that cheaply by returning silence for missing streams.
-          AudioClipSpan span;
-          span.clip = &c;
-          span.path = mit->second;
-          const auto start = parseJsonTime(c.at("start"));
-          const auto dur = parseJsonTime(c.at("duration"));
-          if (!start || !dur) continue;
-          span.start = *start;
-          span.duration = *dur;
-          if (c.contains("sourceIn")) {
-            if (const auto si = parseJsonTime(c["sourceIn"])) span.sourceInSec = si->toSeconds();
-          }
-          if (c.contains("speed") && c["speed"].is_object()) {
-            span.speed = static_cast<double>(c["speed"].value("num", 1)) /
-                         std::max(1, c["speed"].value("den", 1));
-          }
-          span.volume = std::clamp(c.value("volume", 1.0), 0.0, 4.0);
-          span.pan = std::clamp(c.value("pan", 0.0), -1.0, 1.0);
-          if (c.contains("fadeIn") && c["fadeIn"].is_object()) {
-            if (const auto fd = parseJsonTime(c["fadeIn"]["duration"]))
-              span.fadeInSec = fd->toSeconds();
-          }
-          if (c.contains("fadeOut") && c["fadeOut"].is_object()) {
-            if (const auto fd = parseJsonTime(c["fadeOut"]["duration"]))
-              span.fadeOutSec = fd->toSeconds();
-          }
-          (void)audioTrack;
-          spans.push_back(std::move(span));
-        }
-      }
+      const Error mixErr =
+          mixTimeline(document, media, 0.0, seqDuration.toSeconds(),
+                      static_cast<int>(kMixRate), masterFromDocument(document),
+                      &mix);
+      if (mixErr != Error::None) throw std::runtime_error("audio mix failed");
 
-      const size_t totalSamples =
-          static_cast<size_t>(std::ceil(seqDuration.toSeconds() * kMixRate));
-      mixL.assign(totalSamples, 0.f);
-      mixR.assign(totalSamples, 0.f);
-
-      for (auto& span : spans) {
-        const double durSec = span.duration.toSeconds();
-        const double srcSec = durSec * span.speed;
-        std::vector<float> pcm;
-        pcm.reserve(static_cast<size_t>(srcSec * kMixRate) * 2 + 4096);
-        if (!decodeToStereo(span.path, span.sourceInSec, srcSec, &pcm)) continue;
-        const size_t frames = pcm.size() / 2;
-        const size_t offset =
-            static_cast<size_t>(std::max(0.0, span.start.toSeconds()) * kMixRate);
-        const double clipDur = durSec;
-        const double panL = span.pan <= 0 ? 1.0 : 1.0 - span.pan;
-        const double panR = span.pan >= 0 ? 1.0 : 1.0 + span.pan;
-        for (size_t i = 0; i < frames; ++i) {
-          const size_t o = offset + i;
-          if (o >= totalSamples) break;
-          const double pos = static_cast<double>(i) / kMixRate;
-          const double gain =
-              span.volume * fadeGain(pos, clipDur, span.fadeInSec, span.fadeOutSec);
-          mixL[o] += static_cast<float>(pcm[i * 2] * gain * panL);
-          mixR[o] += static_cast<float>(pcm[i * 2 + 1] * gain * panR);
-        }
-      }
-
-      // Constant-power crossfades inside transition overlaps (TRA-8): find
-      // overlapping A/B pairs on the same track and re-weight their windows.
-      for (const auto& tr : document.value("transitions", json::array())) {
-        if (!tr.is_object()) continue;
-        const std::string aId = tr.value("aClipId", "");
-        const std::string bId = tr.value("bClipId", "");
-        const json *aClip = nullptr, *bClip = nullptr;
-        for (const auto& c : document.value("clips", json::array())) {
-          if (!c.is_object()) continue;
-          if (c.value("id", "") == aId) aClip = &c;
-          if (c.value("id", "") == bId) bClip = &c;
-        }
-        if (!aClip || !bClip) continue;
-        const auto aS = parseJsonTime(aClip->at("start"));
-        const auto aD = parseJsonTime(aClip->at("duration"));
-        const auto bS = parseJsonTime(bClip->at("start"));
-        const auto bD = parseJsonTime(bClip->at("duration"));
-        if (!aS || !aD || !bS || !bD) continue;
-        const double ovStart = std::max(aS->toSeconds(), bS->toSeconds());
-        const double ovEnd = std::min(aS->toSeconds() + aD->toSeconds(),
-                                      bS->toSeconds() + bD->toSeconds());
-        if (ovEnd <= ovStart) continue;
-        const size_t s0 = static_cast<size_t>(ovStart * kMixRate);
-        const size_t s1 = std::min(totalSamples,
-                                   static_cast<size_t>(ovEnd * kMixRate));
-        // Weight window per clip: A fades out linearly across its own tail,
-        // B fades in across its head — constant-power when both present.
-        auto weightFor = [&](const json* clip, size_t idx) {
-          const auto cs = parseJsonTime(clip->at("start"));
-          const auto cd = parseJsonTime(clip->at("duration"));
-          const double t = static_cast<double>(idx) / kMixRate;
-          const double local = t - cs->toSeconds();
-          const double dur = cd->toSeconds();
-          double wA = 1.0, wB = 0.0;
-          // Fraction through the overlap region measured inside THIS clip:
-          double frac = (t - ovStart) / std::max(1e-9, ovEnd - ovStart);
-          frac = std::clamp(frac, 0.0, 1.0);
-          if (clip == aClip) return 1.0 - frac;
-          return frac;
-          (void)wA; (void)wB; (void)local; (void)dur;
-        };
-        for (size_t idx = s0; idx < s1; ++idx) {
-          const double wa = weightFor(aClip, idx);
-          const double wb = weightFor(bClip, idx);
-          const double denom = wa + wb;
-          if (denom <= 1e-9) continue;
-          const double norm = 1.0 / denom;
-          // Re-apply weights relative to each other (both were summed flat):
-          // scale each side toward its share of unity power.
-          const double pa = wa * norm;
-          const double pb = wb * norm;
-          const double eqA = pa / std::max(pa, pb);
-          const double eqB = pb / std::max(pa, pb);
-          mixL[idx] = static_cast<float>(mixL[idx] * (eqA + eqB));
-          mixR[idx] = static_cast<float>(mixR[idx] * (eqA + eqB));
+      if (as->loudnessTargetLufs.has_value()) {
+        // EXP-7 / AUD-12: measure, then apply one corrective gain — the
+        // "two-pass loudnorm" shape without a second encode.
+        const double measured = integratedLufs(mix);
+        if (measured > -70.0) {
+          double gain =
+              std::pow(10.0, (*as->loudnessTargetLufs - measured) / 20.0);
+          // Respect the true-peak ceiling rather than clipping into it.
+          const double tp = truePeakDb(mix);
+          if (tp > -120.0) {
+            const double headroom =
+                std::pow(10.0, (as->truePeakCeilingDb - tp) / 20.0);
+            gain = std::min(gain, headroom);
+          }
+          for (float& sample : mix.samples) {
+            sample = static_cast<float>(
+                std::clamp(sample * gain, -1.0, 1.0));
+          }
         }
       }
     }
@@ -516,14 +421,9 @@ int runTimelineJob(const json& spec) {
     // Feed mixed PCM into fifo and drain full frames (or all when draining).
     auto pushMixToFifo = [&]() {
       if (!as.has_value() || !aEnc) return;
-      // Interleave L/R then convert float → encoder format via swresample-free
-      // path: AAC takes FLTP; build planar buffers directly.
-      const size_t total = mixL.size();
-      std::vector<float> inter(total * 2);
-      for (size_t i = 0; i < total; ++i) {
-        inter[i * 2] = mixL[i];
-        inter[i * 2 + 1] = mixR[i];
-      }
+      // The mixer already hands back interleaved stereo float.
+      const size_t total = mix.frames();
+      const std::vector<float>& inter = mix.samples;
       // Convert interleaved FLT → planar encoder format.
       SwrContext* cvt = nullptr;
       AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
@@ -537,10 +437,10 @@ int runTimelineJob(const json& spec) {
       std::vector<uint8_t> planar(static_cast<size_t>(maxOut) * 2 * sizeof(float));
       uint8_t* planes[2] = {planar.data(),
                             planar.data() + static_cast<size_t>(maxOut) * sizeof(float)};
-      const int converted = swr_convert(cvt, planes, maxOut,
-                                        const_cast<const uint8_t**>(
-                                            reinterpret_cast<const uint8_t**>(&inter)),
-                                        static_cast<int>(total));
+      const uint8_t* srcPlanes[1] = {
+          reinterpret_cast<const uint8_t*>(inter.data())};
+      const int converted =
+          swr_convert(cvt, planes, maxOut, srcPlanes, static_cast<int>(total));
       swr_free(&cvt);
       if (converted <= 0) return;
       const float* chL = reinterpret_cast<const float*>(planes[0]);

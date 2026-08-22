@@ -116,6 +116,11 @@ mixin TimelineEdits on ChangeNotifier {
 
   // --- Transactions ---------------------------------------------------------
 
+  /// Runs [body] as one undoable edit. Exposed for sibling mixins (audio,
+  /// export) so every mutation still lands on the same command stack.
+  T runEdit<T>(String label, T Function(EditTransaction tx) body) =>
+      _run(label, body);
+
   T _run<T>(String label, T Function(EditTransaction tx) body) {
     final open = _openTx;
     final tx = open ?? EditTransaction(doc, label);
@@ -1659,6 +1664,10 @@ mixin TimelineEdits on ChangeNotifier {
 
   Track addTrack(String kind) =>
       _run('Add track', (tx) => _createTrack(tx, kind));
+
+  /// Adds a track inside an open transaction (used when another operation
+  /// needs somewhere to put a clip).
+  Track addTrackIn(EditTransaction tx, String kind) => _createTrack(tx, kind);
 
   /// Removes a track and its clips. The last track of a kind stays, since the
   /// document needs somewhere to put media (§10.5).

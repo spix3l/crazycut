@@ -753,12 +753,20 @@ class CcMenu extends StatelessWidget {
 /// Opens a [CcMenu] at a global position (right-click menus).
 void showCcMenu(BuildContext context, Offset globalPosition, List<CcMenuItem> items) {
   final overlay = Overlay.of(context);
-  final size = MediaQuery.of(context).size;
+  final overlayBox = overlay.context.findRenderObject() as RenderBox?;
+  if (overlayBox == null) return;
   late OverlayEntry entry;
   void close() => entry.remove();
-  final estimatedHeight = items.length * 28.0 + 10;
-  final dx = (globalPosition.dx).clamp(0.0, size.width - 220);
-  final dy = (globalPosition.dy).clamp(0.0, size.height - estimatedHeight - 8);
+  const menuWidth = 210.0;
+  const edgeMargin = 20.0;
+  final separatorHeight = items.where((item) => item.separatorBefore).length * 9.0;
+  final estimatedHeight = items.length * 28.0 + separatorHeight + 10;
+  final requested = overlayBox.globalToLocal(globalPosition);
+  final dx = requested.dx.clamp(edgeMargin, overlayBox.size.width - menuWidth - edgeMargin);
+  final dy = requested.dy.clamp(
+    edgeMargin,
+    overlayBox.size.height - estimatedHeight - edgeMargin,
+  );
   entry = OverlayEntry(
     builder: (context) => Stack(
       children: [
@@ -774,6 +782,17 @@ void showCcMenu(BuildContext context, Offset globalPosition, List<CcMenuItem> it
     ),
   );
   overlay.insert(entry);
+}
+
+/// Opens a [CcMenu] from the lower-left corner of [anchorContext].
+///
+/// Use this for button-triggered menus. Pointer-triggered context menus should
+/// continue to call [showCcMenu] with the pointer's global position.
+void showCcMenuBelow(BuildContext anchorContext, List<CcMenuItem> items) {
+  final anchor = anchorContext.findRenderObject() as RenderBox?;
+  if (anchor == null || !anchor.attached) return;
+  final position = anchor.localToGlobal(Offset(0, anchor.size.height + 4));
+  showCcMenu(anchorContext, position, items);
 }
 
 /// Hover tooltip. Material's `Tooltip` is off-limits here, and the timeline
@@ -796,7 +815,6 @@ class CcTooltip extends StatefulWidget {
 }
 
 class _CcTooltipState extends State<CcTooltip> {
-  final _link = LayerLink();
   OverlayEntry? _entry;
   Timer? _timer;
 
@@ -814,12 +832,42 @@ class _CcTooltipState extends State<CcTooltip> {
 
   void _show() {
     if (_entry != null || !mounted || widget.message.isEmpty) return;
+    final target = context.findRenderObject() as RenderBox?;
+    final overlay = Overlay.of(context);
+    final overlayBox = overlay.context.findRenderObject() as RenderBox?;
+    if (target == null || overlayBox == null || !target.attached) return;
+
+    const screenMargin = 8.0;
+    const gap = 6.0;
+    const horizontalPadding = 16.0;
+    const verticalPadding = 10.0;
+    final maxBubbleWidth = overlayBox.size.width < 276
+        ? overlayBox.size.width - screenMargin * 2
+        : 260.0;
+    final textPainter = TextPainter(
+      text: TextSpan(text: widget.message, style: CcType.nano),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout(maxWidth: maxBubbleWidth - horizontalPadding);
+    final bubbleWidth = textPainter.width + horizontalPadding;
+    final bubbleHeight = textPainter.height + verticalPadding;
+    final targetOrigin = target.localToGlobal(Offset.zero, ancestor: overlayBox);
+    final targetRect = targetOrigin & target.size;
+    final left = (targetRect.center.dx - bubbleWidth / 2).clamp(
+      screenMargin,
+      overlayBox.size.width - bubbleWidth - screenMargin,
+    );
+    final above = targetRect.top - bubbleHeight - gap;
+    final top = (above >= screenMargin ? above : targetRect.bottom + gap).clamp(
+      screenMargin,
+      overlayBox.size.height - bubbleHeight - screenMargin,
+    );
+
     _entry = OverlayEntry(
-      builder: (context) => CompositedTransformFollower(
-        link: _link,
-        targetAnchor: Alignment.topCenter,
-        followerAnchor: Alignment.bottomCenter,
-        offset: const Offset(0, -6),
+      builder: (context) => Positioned(
+        left: left,
+        top: top,
+        width: bubbleWidth,
         child: IgnorePointer(
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
@@ -833,7 +881,7 @@ class _CcTooltipState extends State<CcTooltip> {
         ),
       ),
     );
-    Overlay.of(context).insert(_entry!);
+    overlay.insert(_entry!);
   }
 
   void _remove() {
@@ -844,13 +892,10 @@ class _CcTooltipState extends State<CcTooltip> {
 
   @override
   Widget build(BuildContext context) {
-    return CompositedTransformTarget(
-      link: _link,
-      child: MouseRegion(
-        onEnter: (_) => _schedule(),
-        onExit: (_) => _remove(),
-        child: widget.child,
-      ),
+    return MouseRegion(
+      onEnter: (_) => _schedule(),
+      onExit: (_) => _remove(),
+      child: widget.child,
     );
   }
 }

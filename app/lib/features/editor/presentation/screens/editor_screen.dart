@@ -20,6 +20,7 @@ import '../models/editor_models.dart';
 import '../widgets/editor_toolbar.dart';
 import '../widgets/inspector/inspector_panel.dart';
 import '../widgets/media_pool.dart';
+import '../widgets/mixer_panel.dart';
 import '../widgets/monitor_panel.dart';
 import '../widgets/timeline/timeline_panel.dart';
 
@@ -51,6 +52,9 @@ class _EditorScreenState extends State<EditorScreen> {
   bool _snap = true;
   bool _dropActive = false;
   bool _fullscreen = false;
+
+  /// The mixer replaces the inspector column when open (AUD-10).
+  bool _mixer = false;
   double _pxPerSec = kPixelsPerSecond;
   double _lanesWidth = 800;
 
@@ -269,6 +273,8 @@ class _EditorScreenState extends State<EditorScreen> {
                       onRename: () => _renameProject(c),
                       offlineCount: c.offlineAssets.length,
                       onRelink: () => _relinkOffline(c),
+                      mixerOpen: _mixer,
+                      onToggleMixer: () => setState(() => _mixer = !_mixer),
                     ),
                     Expanded(
                       flex: 560,
@@ -286,7 +292,16 @@ class _EditorScreenState extends State<EditorScreen> {
                               onFullscreen: () => setState(() => _fullscreen = true),
                             ),
                           ),
-                          InspectorPanel(controller: c),
+                          if (_mixer)
+                            SizedBox(
+                              width: 300,
+                              child: MixerPanel(
+                                controller: c,
+                                onClose: () => setState(() => _mixer = false),
+                              ),
+                            )
+                          else
+                            InspectorPanel(controller: c),
                         ],
                       ),
                     ),

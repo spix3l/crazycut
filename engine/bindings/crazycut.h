@@ -9,7 +9,7 @@
 #define CC_EXPORT __attribute__((visibility("default")))
 #endif
 
-#define CC_ABI_VERSION 2
+#define CC_ABI_VERSION 3
 
 #ifdef __cplusplus
 extern "C" {
@@ -100,6 +100,57 @@ CC_EXPORT int32_t cc_playback_reached_end(cc_playback* playback);
 CC_EXPORT const uint8_t* cc_playback_lock_frame(cc_playback* playback,
                                                 int32_t* out_w, int32_t* out_h);
 CC_EXPORT void cc_playback_unlock_frame(cc_playback* playback);
+
+// --- Sequence audio (M3) ----------------------------------------------------
+//
+// One mixdown path serves monitoring, analysis and export, so preview loudness
+// equals delivered loudness (docs/03-features/audio.md).
+
+// Mixes [seconds] of the installed project snapshot starting at [start_sec]
+// into interleaved stereo float32 at 48 kHz. Frees with cc_buffer_free.
+// out_frames receives the frame count (samples per channel).
+CC_EXPORT int32_t cc_mix_audio(cc_engine* engine, double start_sec,
+                               double seconds, int32_t media_count,
+                               const char** utf8_keys, const char** utf8_paths,
+                               float** out_samples, int32_t* out_frames);
+
+// Integrated loudness (LUFS), sample peak and true peak (dBFS/dBTP) of a mix
+// window — "Analyze sequence loudness" (AUD-12).
+CC_EXPORT int32_t cc_analyze_loudness(cc_engine* engine, double start_sec,
+                                      double seconds, int32_t media_count,
+                                      const char** utf8_keys,
+                                      const char** utf8_paths,
+                                      double* out_lufs, double* out_peak_db,
+                                      double* out_true_peak_db);
+
+// Peak of one asset's audio over a source range, for normalize (AUD-5).
+CC_EXPORT int32_t cc_scan_audio_peak(cc_engine* engine, const char* utf8_path,
+                                     double source_in_sec, double seconds,
+                                     double* out_peak);
+
+// Realtime monitoring of the sequence mix.
+typedef struct cc_seq_player cc_seq_player;
+
+CC_EXPORT cc_seq_player* cc_seq_player_create(void);
+CC_EXPORT void cc_seq_player_destroy(cc_seq_player* player);
+// Installs the document (JSON) plus the asset id → path map it mixes from.
+CC_EXPORT int32_t cc_seq_player_set_document(cc_seq_player* player,
+                                             const char* utf8_json,
+                                             int32_t media_count,
+                                             const char** utf8_keys,
+                                             const char** utf8_paths);
+CC_EXPORT int32_t cc_seq_player_start(cc_seq_player* player, double position_sec);
+CC_EXPORT void cc_seq_player_stop(cc_seq_player* player);
+CC_EXPORT void cc_seq_player_seek(cc_seq_player* player, double position_sec);
+CC_EXPORT double cc_seq_player_position(cc_seq_player* player);
+CC_EXPORT int32_t cc_seq_player_is_running(cc_seq_player* player);
+CC_EXPORT void cc_seq_player_set_rate(cc_seq_player* player, double rate);
+CC_EXPORT void cc_seq_player_levels(cc_seq_player* player, float* out_peak_l,
+                                    float* out_peak_r);
+// Newline-separated device names, default first (AUD-14). Do not free.
+CC_EXPORT int32_t cc_audio_output_devices(cc_engine* engine, const char** out_names);
+CC_EXPORT void cc_seq_player_set_output_device(cc_seq_player* player,
+                                               const char* utf8_name);
 
 #ifdef __cplusplus
 }

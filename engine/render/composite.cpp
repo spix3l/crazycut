@@ -12,6 +12,28 @@ using json = nlohmann::json;
 
 double clampd(double v, double lo, double hi) { return std::min(std::max(v, lo), hi); }
 
+float clampf(float v, float lo, float hi) { return std::min(std::max(v, lo), hi); }
+
+uint8_t quantize(float c) {
+  return static_cast<uint8_t>(std::lround(clampf(c, 0.f, 1.f) * 255.f));
+}
+
+// Straight-alpha "over" for one pixel with a normal blend.
+void blendPixelOver(uint8_t* base, const uint8_t* top, float sa) {
+  const float ba = base[3] / 255.f;
+  const float oa = sa + ba * (1.f - sa);
+  if (oa <= 0.f) {
+    base[0] = base[1] = base[2] = base[3] = 0;
+    return;
+  }
+  const float inv = 1.f / oa;
+  const float keep = ba * (1.f - sa);
+  for (int ch = 0; ch < 3; ++ch) {
+    base[ch] = quantize((top[ch] / 255.f * sa + base[ch] / 255.f * keep) * inv);
+  }
+  base[3] = static_cast<uint8_t>(std::lround(oa * 255.f));
+}
+
 double paramNum(const json& transform, const char* key, double fallback) {
   const auto it = transform.find(key);
   if (it == transform.end() || it->is_null()) return fallback;
@@ -108,6 +130,52 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
   const double cosr = std::cos(rad), sinr = std::sin(rad);
 
   const int halfW = dw / 2, halfH = dh / 2;
+  const double kx = totalScale * stretchX;
+  const double ky = totalScale * stretchY;
+  const float opacityF = static_cast<float>(layer.opacity);
+
+  // Nearest-neighbour sampling. Bilinear would be nicer; nearest keeps
+  // determinism trivially and is what golden tests assert on. Preview scale
+  // hides the difference.
+  if (layer.rotationDeg == 0.0) {
+    // Unrotated is the overwhelmingly common case (and every frame of ordinary
+    // playback). The source column for a canvas column is then the same on
+    // every row, so it is computed once for the whole width instead of once
+    // per pixel — same arithmetic, ~H times less of it.
+    std::vector<int> columns(W);
+    for (int px = 0; px < W; ++px) {
+      const double ux = (px + 0.5 - cx) + (halfW - axp);
+      int sx = static_cast<int>(std::floor(ux / kx));
+      if (sx < 0 || sx >= src.width) {
+        sx = -1;
+      } else if (layer.flipH) {
+        sx = src.width - 1 - sx;
+      }
+      columns[px] = sx;
+    }
+    for (int py = 0; py < H; ++py) {
+      const double uy = (py + 0.5 - cy) + (halfH - ayp);
+      int sy = static_cast<int>(std::floor(uy / ky));
+      if (sy < 0 || sy >= src.height) continue;
+      if (layer.flipV) sy = src.height - 1 - sy;
+      const uint8_t* row =
+          src.rgba.data() + static_cast<size_t>(sy) * src.width * 4;
+      uint8_t* q = out->rgba.data() + static_cast<size_t>(py) * W * 4;
+      for (int px = 0; px < W; ++px, q += 4) {
+        const int sx = columns[px];
+        if (sx < 0) continue;
+        const uint8_t* p = row + static_cast<size_t>(sx) * 4;
+        const float a = p[3] / 255.f * opacityF;
+        if (a <= 0.f) continue;
+        q[0] = p[0];
+        q[1] = p[1];
+        q[2] = p[2];
+        q[3] = static_cast<uint8_t>(std::lround(a * 255.f));
+      }
+    }
+    return Error::None;
+  }
+
   for (int py = 0; py < H; ++py) {
     for (int px = 0; px < W; ++px) {
       // Canvas point relative to centre.
@@ -116,8 +184,8 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
       // Inverse-rotate to find source pixel.
       const double ux = rx * cosr + ry * sinr + (halfW - axp);
       const double uy = -rx * sinr + ry * cosr + (halfH - ayp);
-      double sxF = ux / (totalScale * stretchX);
-      double syF = uy / (totalScale * stretchY);
+      double sxF = ux / kx;
+      double syF = uy / ky;
       int sx = static_cast<int>(std::floor(sxF));
       int sy = static_cast<int>(std::floor(syF));
       bool inside = sx >= 0 && sy >= 0 && sx < src.width && sy < src.height;
@@ -127,9 +195,7 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
       if (layer.flipV) sy = src.height - 1 - sy;
       const uint8_t* p =
           src.rgba.data() + (static_cast<size_t>(sy) * src.width + sx) * 4;
-      // Bilinear would be nicer; nearest keeps determinism trivially and is
-      // what golden tests assert on. Preview scale hides the difference.
-      const float a = p[3] / 255.f * static_cast<float>(layer.opacity);
+      const float a = p[3] / 255.f * opacityF;
       if (a <= 0.f) continue;
       q[0] = p[0];
       q[1] = p[1];
@@ -146,6 +212,26 @@ void blendComposite(RgbaSurface* base, const RgbaSurface& top, double opacity,
   const size_t n = std::min(base->rgba.size(), top.rgba.size());
   const float gOpacity = static_cast<float>(clampd(opacity, 0.0, 1.0));
   const bool normal = blendMode.empty() || blendMode == "normal";
+
+  // Compositing every visible track over the canvas is the single hottest loop
+  // in the renderer, so the ordinary case — opaque source, normal blend — gets
+  // a straight copy. It is bit-identical to the general path below (alpha 1
+  // makes the over-operator collapse to "take the source").
+  if (normal && gOpacity >= 1.0f) {
+    for (size_t i = 0; i < n; i += 4) {
+      const uint8_t sa = top.rgba[i + 3];
+      if (sa == 0) continue;
+      if (sa == 255) {
+        base->rgba[i] = top.rgba[i];
+        base->rgba[i + 1] = top.rgba[i + 1];
+        base->rgba[i + 2] = top.rgba[i + 2];
+        base->rgba[i + 3] = 255;
+        continue;
+      }
+      blendPixelOver(&base->rgba[i], &top.rgba[i], sa / 255.f);
+    }
+    return;
+  }
 
   for (size_t i = 0; i < n; i += 4) {
     float sr = top.rgba[i] / 255.f, sg = top.rgba[i + 1] / 255.f,
@@ -190,13 +276,11 @@ void blendComposite(RgbaSurface* base, const RgbaSurface& top, double opacity,
       base->rgba[i] = base->rgba[i + 1] = base->rgba[i + 2] = base->rgba[i + 3] = 0;
       continue;
     }
-    for (int ch = 0; ch < 3; ++ch) {
-      const float c = (ch == 0 ? sr : ch == 1 ? sg : sb);
-      const float bc = (ch == 0 ? br : ch == 1 ? bg : bb);
-      const float outC = (c * sa + bc * ba * (1.f - sa)) / oa;
-      base->rgba[i + ch] =
-          static_cast<uint8_t>(std::lround(clampd(outC, 0.f, 1.f) * 255.f));
-    }
+    const float inv = 1.f / oa;
+    const float keep = ba * (1.f - sa);
+    base->rgba[i] = quantize((sr * sa + br * keep) * inv);
+    base->rgba[i + 1] = quantize((sg * sa + bg * keep) * inv);
+    base->rgba[i + 2] = quantize((sb * sa + bb * keep) * inv);
     base->rgba[i + 3] = static_cast<uint8_t>(std::lround(oa * 255.f));
   }
 }

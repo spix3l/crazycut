@@ -25,6 +25,7 @@ class TimelineClipTile extends StatelessWidget {
     this.peaks = const [],
     this.tileAt,
     this.dimmed = false,
+    this.onFadeDrag,
   });
 
   final Clip clip;
@@ -43,6 +44,9 @@ class TimelineClipTile extends StatelessWidget {
 
   /// Locked or hidden tracks draw at reduced contrast.
   final bool dimmed;
+
+  /// Corner fade drag: `(isFadeIn, deltaSeconds)`.
+  final void Function(bool fadeIn, double deltaSeconds)? onFadeDrag;
 
   bool get _isAudio => audio || asset?.type == 'audio';
   bool get _offline => asset?.offline ?? false;
@@ -100,13 +104,29 @@ class TimelineClipTile extends StatelessWidget {
                 width: clip.fadeIn.duration.seconds * pxPerSec,
                 height: height,
                 fromLeft: true,
+                curve: clip.fadeIn.curve,
               ),
             if (!clip.fadeOut.duration.isZero)
               _FadeTriangle(
                 width: clip.fadeOut.duration.seconds * pxPerSec,
                 height: height,
                 fromLeft: false,
+                curve: clip.fadeOut.curve,
               ),
+            // Corner grips: drag to set a fade (AUD-2). Only on clips that
+            // actually carry sound, so a silent b-roll tile stays clean.
+            if (onFadeDrag != null && (asset?.hasAudio ?? false)) ...[
+              _FadeHandle(
+                fromLeft: true,
+                active: !clip.fadeIn.duration.isZero,
+                onDelta: (dx) => onFadeDrag!(true, dx / pxPerSec),
+              ),
+              _FadeHandle(
+                fromLeft: false,
+                active: !clip.fadeOut.duration.isZero,
+                onDelta: (dx) => onFadeDrag!(false, -dx / pxPerSec),
+              ),
+            ],
           ],
         ),
       ),
@@ -258,13 +278,21 @@ class _NamePlate extends StatelessWidget {
   }
 }
 
-/// The classic fade wedge drawn over a clip's head or tail.
+/// The fade wedge over a clip's head or tail. It traces the actual gain curve
+/// (AUD-2), so an exponential fade looks different from a linear one — the
+/// drawing and the mixer read the same curve name.
 class _FadeTriangle extends StatelessWidget {
-  const _FadeTriangle({required this.width, required this.height, required this.fromLeft});
+  const _FadeTriangle({
+    required this.width,
+    required this.height,
+    required this.fromLeft,
+    this.curve = 'linear',
+  });
 
   final double width;
   final double height;
   final bool fromLeft;
+  final String curve;
 
   @override
   Widget build(BuildContext context) {
@@ -272,34 +300,83 @@ class _FadeTriangle extends StatelessWidget {
       alignment: fromLeft ? Alignment.centerLeft : Alignment.centerRight,
       child: CustomPaint(
         size: Size(width.clamp(0, 400), height),
-        painter: _FadePainter(fromLeft: fromLeft),
+        painter: _FadePainter(fromLeft: fromLeft, curve: curve),
       ),
     );
   }
 }
 
 class _FadePainter extends CustomPainter {
-  const _FadePainter({required this.fromLeft});
+  const _FadePainter({required this.fromLeft, required this.curve});
 
   final bool fromLeft;
+  final String curve;
+
+  /// Same shapes the mixer applies: p, p², and smoothstep.
+  static double _gain(double p, String curve) => switch (curve) {
+        'exponential' => p * p,
+        'scurve' => p * p * (3 - 2 * p),
+        _ => p,
+      };
 
   @override
   void paint(Canvas canvas, Size size) {
-    final path = Path();
-    if (fromLeft) {
-      path.moveTo(0, 0);
-      path.lineTo(size.width, 0);
-      path.lineTo(0, size.height);
-    } else {
-      path.moveTo(size.width, 0);
-      path.lineTo(0, 0);
-      path.lineTo(size.width, size.height);
+    const steps = 24;
+    final path = Path()..moveTo(fromLeft ? 0 : size.width, 0);
+    for (var i = 0; i <= steps; i++) {
+      final t = i / steps;
+      final gain = _gain(t, curve);
+      final x = fromLeft ? size.width * t : size.width * (1 - t);
+      path.lineTo(x, size.height * (1 - gain));
     }
-    canvas.drawPath(path..close, Paint()..color = const Color(0x55000000));
+    path.lineTo(fromLeft ? 0 : size.width, size.height);
+    canvas.drawPath(path..close(), Paint()..color = const Color(0x55000000));
   }
 
   @override
-  bool shouldRepaint(_FadePainter oldDelegate) => oldDelegate.fromLeft != fromLeft;
+  bool shouldRepaint(_FadePainter oldDelegate) =>
+      oldDelegate.fromLeft != fromLeft || oldDelegate.curve != curve;
+}
+
+/// Draggable corner grip. Sits inside the trim zone's inner edge so trimming
+/// and fading do not fight over the same pixels (UX note in the audio spec).
+class _FadeHandle extends StatelessWidget {
+  const _FadeHandle({
+    required this.fromLeft,
+    required this.active,
+    required this.onDelta,
+  });
+
+  final bool fromLeft;
+  final bool active;
+  final ValueChanged<double> onDelta;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: fromLeft ? Alignment.topLeft : Alignment.topRight,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragUpdate: (d) => onDelta(d.delta.dx),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.resizeLeftRight,
+          child: Container(
+            width: 12,
+            height: 12,
+            alignment: Alignment.center,
+            child: Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: active ? CcColors.accent : const Color(0x66FFFFFF),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Bar waveform. With real [peaks] it renders the slice the clip uses; without

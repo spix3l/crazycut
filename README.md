@@ -26,8 +26,11 @@ fixtures/   generated test media + golden references
 brew install cmake ffmpeg
 flutter --version   # 3.24+ stable required
 
-# Build engine + run tests
-cmake -S engine -B engine/build -DCMAKE_BUILD_TYPE=Debug
+# Build engine + run tests.
+# Use RelWithDebInfo, not Debug: the compositor is a per-pixel CPU pipeline and
+# an unoptimized build renders preview frames roughly ten times slower, which
+# is the difference between realtime playback and a slideshow.
+cmake -S engine -B engine/build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build engine/build -j
 ctest --test-dir engine/build --output-on-failure
 

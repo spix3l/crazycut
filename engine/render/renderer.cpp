@@ -57,12 +57,14 @@ RgbaSurface offlineSlate(int w, int h) {
 Error loadMediaFrame(const std::string& path, double sourceSeconds,
                      const RenderContext& ctx, RgbaSurface* out) {
   // Images decode through the same ffmpeg path; extractFrameRgba handles both.
-  DecodedFrame frame;
+  // The frame buffer is reused across calls: extractFrameRgba resizes it, so
+  // a steady stream of same-sized frames never reallocates.
+  thread_local DecodedFrame frame;
   Error err = extractFrameRgba(path, sourceSeconds, ctx.sequenceWidth, &frame);
   if (err != Error::None) return err;
   out->width = frame.width;
   out->height = frame.height;
-  out->rgba = std::move(frame.rgba);
+  out->rgba.assign(frame.rgba.begin(), frame.rgba.end());
   return Error::None;
 }
 
@@ -233,18 +235,23 @@ Error renderFrame(const json& document, const RationalTime& time, int width,
     // Render this clip fully (transform + effects + blend onto canvas).
     auto renderSide = [&](const json& side, RgbaSurface* canvas) -> Error {
       RationalTime local{};
-      RgbaSurface surf;
+      // Scratch surfaces live across frames: at sequence resolution these are
+      // multi-megabyte buffers, and allocating them per clip per frame cost
+      // more than the decode did. Reused within one thread, never held past
+      // the call.
+      thread_local RgbaSurface surfScratch;
+      thread_local RgbaSurface renderedScratch;
+      RgbaSurface* surf = &surfScratch;
       CompositedLayer layer;
-      Error err = loadSide(side, &local, &surf, &layer);
+      Error err = loadSide(side, &local, surf, &layer);
       if (err != Error::None) return err;
       std::string framing = "fit";
       if (side.contains("transform") && side["transform"].is_object()) {
         framing = side["transform"].value("framing", "fit");
       }
-      RgbaSurface rendered;
-      err = rasterizeLayer(surf, layer, ctx, framing, &rendered);
+      err = rasterizeLayer(*surf, layer, ctx, framing, &renderedScratch);
       if (err != Error::None) return err;
-      blendComposite(canvas, rendered, layer.opacity, layer.blend);
+      blendComposite(canvas, renderedScratch, layer.opacity, layer.blend);
       return Error::None;
     };
 

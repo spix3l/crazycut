@@ -25,6 +25,8 @@ class EditorToolbar extends StatelessWidget {
     this.onRename,
     this.offlineCount = 0,
     this.onRelink,
+    this.mixerOpen = false,
+    this.onToggleMixer,
   });
 
   static const _tools = [
@@ -50,6 +52,8 @@ class EditorToolbar extends StatelessWidget {
   /// Missing-media count; non-zero surfaces the relink affordance (IMP-15).
   final int offlineCount;
   final VoidCallback? onRelink;
+  final bool mixerOpen;
+  final VoidCallback? onToggleMixer;
 
   String get _saveLabel => switch (saveState) {
         SaveState.saved => 'Saved',
@@ -180,6 +184,16 @@ class EditorToolbar extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 10),
+                CcTooltip(
+                  message: 'Mixer',
+                  child: CcIconButton(
+                    icon: LucideIcons.sliders,
+                    active: mixerOpen,
+                    outlined: true,
+                    onPressed: onToggleMixer,
+                  ),
+                ),
+                const SizedBox(width: 11),
                 CcTooltip(
                   message: 'Snapping (hold ⌃ to bypass)',
                   child: CcIconButton(

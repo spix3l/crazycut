@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -14,6 +15,12 @@ class TextRasterizer {
   TextRasterizer._();
   static final TextRasterizer instance = TextRasterizer._();
 
+  /// Rasters keyed by style+content. Preview re-renders the same text on every
+  /// frame, and rasterizing through the text stack each time was one of the
+  /// costs that kept playback from running in real time.
+  static const int _cacheLimit = 32;
+  final Map<String, RasterizedText> _cache = {};
+
   Future<RasterizedText?> render(
     TextContent text, {
     required int canvasWidth,
@@ -21,6 +28,19 @@ class TextRasterizer {
   }) async {
     final content = text.content;
     if (content.isEmpty) return null;
+
+    final key = jsonEncode({
+      'text': text.toJson(),
+      'w': canvasWidth,
+      'h': sequenceHeight,
+    });
+    final cached = _cache[key];
+    if (cached != null) {
+      // Refresh recency.
+      _cache.remove(key);
+      _cache[key] = cached;
+      return cached;
+    }
 
     final scale = sequenceHeight <= 0 ? 1.0 : sequenceHeight / 1080.0;
     const supersample = 2.0;
@@ -114,12 +134,18 @@ class TextRasterizer {
     image.dispose();
     picture.dispose();
     if (byteData == null) return null;
-    return RasterizedText(
+    final raster = RasterizedText(
       bytes: byteData.buffer.asUint8List(),
       width: width,
       height: height,
     );
+    _cache[key] = raster;
+    if (_cache.length > _cacheLimit) _cache.remove(_cache.keys.first);
+    return raster;
   }
+
+  /// Drops cached rasters (used when the sequence format changes).
+  void clearCache() => _cache.clear();
 
   FontWeight _weight(String w) => switch (w) {
         'w400' => FontWeight.w400,

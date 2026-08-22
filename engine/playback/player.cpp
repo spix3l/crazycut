@@ -139,6 +139,13 @@ struct PlaybackSession::Impl {
   PacketQueue aPackets;
   std::atomic<bool> demuxFlushSent{false};
 
+  // Seeking used to reposition the format context and flush both codecs from
+  // whichever thread called seek(), while the demux and decode threads were
+  // using them — a data race that crashed inside libavcodec. Now each ffmpeg
+  // object has exactly one owning thread: `format` belongs to demuxMain,
+  // `vDec` to videoMain, `aDec` to audioMain, and seek() only posts a request.
+  std::atomic<double> seekRequest{-1.0};
+
   mutable std::mutex clockMutex;
   bool audioClockValid = false;
   double basePosition = 0;
@@ -228,6 +235,24 @@ struct PlaybackSession::Impl {
         aPackets.clear();
         demuxFlushSent.store(false);
       }
+      // Handled before the pause check: seeking while paused must still move
+      // the read position so the next resume plays from there.
+      const double wanted = seekRequest.exchange(-1.0);
+      if (wanted >= 0.0) {
+        const int streamIdx = vIdx >= 0 ? vIdx : aIdx;
+        const AVStream* stream = vIdx >= 0 ? vStream : aStream;
+        if (stream) {
+          const int64_t target =
+              static_cast<int64_t>(wanted / av_q2d(stream->time_base));
+          avformat_seek_file(format, streamIdx, INT64_MIN, target, target, 0);
+        } else {
+          av_seek_frame(format, -1, static_cast<int64_t>(wanted * AV_TIME_BASE),
+                        AVSEEK_FLAG_BACKWARD);
+        }
+        vPackets.clear();
+        aPackets.clear();
+        demuxFlushSent.store(false);
+      }
       if (paused.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         continue;
@@ -272,6 +297,7 @@ struct PlaybackSession::Impl {
       if (generation.load() != lastGen) {
         lastGen = generation.load();
         audioEof.store(false);
+        if (aDec) avcodec_flush_buffers(aDec);  // this thread owns aDec
       }
       AVPacket* pkt = aPackets.tryPop();
       if (!pkt) {
@@ -342,6 +368,7 @@ struct PlaybackSession::Impl {
         lastGen = generation.load();
         haveNext = false;
         videoEof.store(false);
+        if (vDec) avcodec_flush_buffers(vDec);  // this thread owns vDec
         std::lock_guard<std::mutex> lock(frameMutex);
         latestFrame.reset();
       }
@@ -522,25 +549,13 @@ Error PlaybackSession::seek(double seconds) {
   seconds = std::max(0.0, seconds);
 
   const bool wasPaused = p->paused.exchange(true);
+  // Order matters: post the position first, then bump the generation. The
+  // worker threads react to the generation change by flushing their own codec,
+  // and demuxMain performs the actual file seek.
+  p->seekRequest.store(seconds);
   p->generation.fetch_add(1);
   p->ring.clear();
 
-  if (p->vDec) {
-    avcodec_flush_buffers(p->vDec);
-    if (p->vIdx >= 0 && p->vStream) {
-      const int64_t target =
-          static_cast<int64_t>(seconds / av_q2d(p->vStream->time_base));
-      avformat_seek_file(p->format, p->vIdx, INT64_MIN, target, target, 0);
-    }
-  }
-  if (p->aDec) {
-    avcodec_flush_buffers(p->aDec);
-    if (p->aIdx >= 0 && p->aStream) {
-      const int64_t target =
-          static_cast<int64_t>(seconds / av_q2d(p->aStream->time_base));
-      avformat_seek_file(p->format, p->aIdx, INT64_MIN, target, target, 0);
-    }
-  }
   {
     std::lock_guard<std::mutex> lock(p->frameMutex);
     p->latestFrame.reset();

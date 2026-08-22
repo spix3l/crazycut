@@ -782,6 +782,18 @@ class _TimelinePanelState extends State<TimelinePanel> {
               tileAt: asset == null || asset.type != 'video' || !track.isVideo
                   ? null
                   : (seconds) => c.filmstripTile(asset, seconds),
+              onFadeDrag: locked
+                  ? null
+                  : (fadeIn, deltaSeconds) {
+                      final current = fadeIn
+                          ? clip.fadeIn.duration
+                          : clip.fadeOut.duration;
+                      c.setClipFade(
+                        clip.id,
+                        fadeIn: fadeIn,
+                        duration: current.plus(Rt.fromSeconds(deltaSeconds)),
+                      );
+                    },
             ),
           ),
           Positioned(

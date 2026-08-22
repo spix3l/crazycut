@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart' show showModalBottomSheet, TextField, InputDecoration;
 import 'package:flutter/widgets.dart' hide Clip;
@@ -64,17 +65,22 @@ class _MonitorPanelState extends State<MonitorPanel> {
                   aspectRatio: c.doc.settings.width / c.doc.settings.height,
                   child: GestureDetector(
                     onDoubleTap: () => _editTextUnderPlayhead(context),
-                    child: switch ((empty, c.previewFrame)) {
-                      (true, _) =>
-                        const _Placeholder(message: 'Nothing on the timeline yet'),
-                      (false, final bytes?) when c.previewFrameSize != null =>
-                        _FramePreview(
-                          bytes: bytes,
-                          width: c.previewFrameSize!.$1,
-                          height: c.previewFrameSize!.$2,
-                        ),
-                      _ => const _Placeholder(message: 'No frame under the playhead'),
-                    },
+                    child: _PreviewSizeReporter(
+                      controller: c,
+                      child: switch ((empty, c.previewFrame)) {
+                        (true, _) => const _Placeholder(
+                            message: 'Nothing on the timeline yet'),
+                        (false, final bytes?)
+                            when c.previewFrameSize != null =>
+                          _FramePreview(
+                            bytes: bytes,
+                            width: c.previewFrameSize!.$1,
+                            height: c.previewFrameSize!.$2,
+                          ),
+                        _ => const _Placeholder(
+                            message: 'No frame under the playhead'),
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -172,6 +178,33 @@ class _Placeholder extends StatelessWidget {
           Text(message, style: CcType.style(size: 13, color: CcColors.textTertiary)),
         ],
       ),
+    );
+  }
+}
+
+/// Tells the controller how many device pixels the monitor actually paints
+/// into, so frames are rendered at display resolution rather than a fixed
+/// low-res size and then upscaled.
+class _PreviewSizeReporter extends StatelessWidget {
+  const _PreviewSizeReporter({required this.controller, required this.child});
+
+  final EditorController controller;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final pixels = (constraints.maxWidth * dpr).round();
+        if (pixels > 0) {
+          // Deferred: setPreviewWidth can kick off a render and notify.
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => controller.setPreviewWidth(pixels),
+          );
+        }
+        return child;
+      },
     );
   }
 }
@@ -283,7 +316,7 @@ class _TransportBar extends StatelessWidget {
             ),
             Align(
               alignment: Alignment.centerRight,
-              child: _MasterMeter(active: c.playing && !empty),
+              child: _MasterMeter(levels: c.playing && !empty ? c.audioLevels : (0, 0)),
             ),
           ],
         ),
@@ -292,14 +325,20 @@ class _TransportBar extends StatelessWidget {
   }
 }
 
-/// Eight-bar output meter; flat when nothing is playing. Real levels arrive
-/// with the mixer in M3.
+/// Master output meter, always visible in the transport bar (AUD-10). Levels
+/// are the peaks the audio device last played, so a silent project shows a
+/// flat meter rather than a decorative animation.
 class _MasterMeter extends StatelessWidget {
-  const _MasterMeter({required this.active});
+  const _MasterMeter({required this.levels});
 
-  static const List<double> _levels = [10, 18, 26, 20, 14, 22, 30, 16];
+  final (double, double) levels;
 
-  final bool active;
+  /// dB scale: a linear bar wastes its length on levels nobody mixes at.
+  static double _norm(double amplitude) {
+    if (amplitude <= 0) return 0;
+    final db = 20 * (math.log(amplitude) / math.ln10);
+    return ((db + 60) / 60).clamp(0.0, 1.0);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -309,13 +348,17 @@ class _MasterMeter extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          for (var i = 0; i < _levels.length; i++) ...[
-            if (i > 0) const SizedBox(width: 2),
+          for (final level in [levels.$1, levels.$2]) ...[
+            const SizedBox(width: 3),
             Container(
-              width: 4,
-              height: active ? _levels[i] : 3.0,
+              width: 6,
+              height: 3 + 27 * _norm(level),
               decoration: BoxDecoration(
-                color: active ? CcColors.success : CcColors.borderStrong,
+                color: level > 0.95
+                    ? CcColors.error
+                    : level > 0.7
+                        ? CcColors.warning
+                        : CcColors.success,
                 borderRadius: BorderRadius.circular(1),
               ),
             ),

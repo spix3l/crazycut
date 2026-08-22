@@ -105,7 +105,7 @@ class CrazyCutEngine {
   late final ffi.DynamicLibrary _lib;
   late final CrazyCutNativeBindings _native = CrazyCutNativeBindings(_lib);
 
-  static const int expectedAbiVersion = 2;
+  static const int expectedAbiVersion = 3;
 
   ffi.Pointer<cc_engine>? _handle;
 
@@ -305,6 +305,7 @@ class CrazyCutEngine {
           texKeys[j] = texNativeKeys.last;
           final size = textureSizes[key];
           final buf = calloc<ffi.Uint8>(bytes.length);
+          buf.asTypedList(bytes.length).setAll(0, bytes);
           final texRef = texArray[j];
           texRef.bytes = buf;
           texRef.width = size?.$1 ?? 0;
@@ -331,8 +332,11 @@ class CrazyCutEngine {
         );
         if (code != 0) throw EngineException(code, _takeLastError());
         // Dimensions are implied: caller knows width*height*4.
-        final bytes = Uint8List.fromList(
-            outBuf.value.asTypedList(width * height * 4));
+        // setRange copies through memmove; Uint8List.fromList walks element by
+        // element, which costs tens of milliseconds a frame in a JIT build.
+        final length = width * height * 4;
+        final view = outBuf.value.asTypedList(length);
+        final bytes = Uint8List(length)..setRange(0, length, view);
         _native.cc_buffer_free(outBuf.value);
         return RawFrame(width, height, bytes);
       } finally {
@@ -369,6 +373,219 @@ class CrazyCutEngine {
     } finally {
       calloc.free(out);
     }
+  }
+
+  // --- Sequence audio (M3) --------------------------------------------------
+
+  /// Mixes [seconds] of the installed snapshot from [startSec] into
+  /// interleaved stereo float32 at 48 kHz.
+  Float32List mixAudio({
+    required double startSec,
+    required double seconds,
+    required Map<String, String> mediaPaths,
+  }) {
+    final keys = calloc<ffi.Pointer<ffi.Char>>(mediaPaths.length);
+    final paths = calloc<ffi.Pointer<ffi.Char>>(mediaPaths.length);
+    final outSamples = calloc<ffi.Pointer<ffi.Float>>();
+    final outFrames = calloc<ffi.Int32>();
+    var i = 0;
+    try {
+      for (final entry in mediaPaths.entries) {
+        keys[i] = entry.key.toNativeUtf8().cast<ffi.Char>();
+        paths[i] = entry.value.toNativeUtf8().cast<ffi.Char>();
+        i++;
+      }
+      final code = _native.cc_mix_audio(_engine, startSec, seconds,
+          mediaPaths.length, keys, paths, outSamples, outFrames);
+      if (code != 0) throw EngineException(code, _takeLastError());
+      final count = outFrames.value * 2;
+      final view = outSamples.value.asTypedList(count);
+      final copy = Float32List(count)..setRange(0, count, view);
+      _native.cc_buffer_free(outSamples.value.cast<ffi.Uint8>());
+      return copy;
+    } finally {
+      for (var k = 0; k < i; k++) {
+        calloc.free(keys[k]);
+        calloc.free(paths[k]);
+      }
+      calloc.free(keys);
+      calloc.free(paths);
+      calloc.free(outSamples);
+      calloc.free(outFrames);
+    }
+  }
+
+  /// Integrated loudness and peaks of a mix window (AUD-12).
+  LoudnessReport analyzeLoudness({
+    required double startSec,
+    required double seconds,
+    required Map<String, String> mediaPaths,
+  }) {
+    final keys = calloc<ffi.Pointer<ffi.Char>>(mediaPaths.length);
+    final paths = calloc<ffi.Pointer<ffi.Char>>(mediaPaths.length);
+    final lufs = calloc<ffi.Double>();
+    final peak = calloc<ffi.Double>();
+    final truePeak = calloc<ffi.Double>();
+    var i = 0;
+    try {
+      for (final entry in mediaPaths.entries) {
+        keys[i] = entry.key.toNativeUtf8().cast<ffi.Char>();
+        paths[i] = entry.value.toNativeUtf8().cast<ffi.Char>();
+        i++;
+      }
+      final code = _native.cc_analyze_loudness(_engine, startSec, seconds,
+          mediaPaths.length, keys, paths, lufs, peak, truePeak);
+      if (code != 0) throw EngineException(code, _takeLastError());
+      return LoudnessReport(
+        lufs: lufs.value,
+        peakDb: peak.value,
+        truePeakDb: truePeak.value,
+      );
+    } finally {
+      for (var k = 0; k < i; k++) {
+        calloc.free(keys[k]);
+        calloc.free(paths[k]);
+      }
+      calloc.free(keys);
+      calloc.free(paths);
+      calloc.free(lufs);
+      calloc.free(peak);
+      calloc.free(truePeak);
+    }
+  }
+
+  /// Peak sample of an asset's audio over a source range (AUD-5 normalize).
+  double scanAudioPeak(String path,
+      {double sourceInSec = 0, required double seconds}) {
+    final pathPtr = path.toNativeUtf8();
+    final out = calloc<ffi.Double>();
+    try {
+      final code = _native.cc_scan_audio_peak(
+          _engine, pathPtr.cast<ffi.Char>(), sourceInSec, seconds, out);
+      if (code != 0) throw EngineException(code, _takeLastError());
+      return out.value;
+    } finally {
+      calloc.free(pathPtr);
+      calloc.free(out);
+    }
+  }
+
+  /// Output devices, default first (AUD-14).
+  List<String> audioOutputDevices() {
+    final out = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final code = _native.cc_audio_output_devices(_engine, out);
+      if (code != 0) return const [];
+      final joined = out.value.cast<Utf8>().toDartString();
+      if (joined.isEmpty) return const [];
+      return joined.split('\n');
+    } finally {
+      calloc.free(out);
+    }
+  }
+
+  /// Realtime monitoring of the sequence mix; one per open project.
+  SequenceAudioPlayer createSequencePlayer() =>
+      SequenceAudioPlayer._(_native, _native.cc_seq_player_create());
+}
+
+class LoudnessReport {
+  const LoudnessReport({
+    required this.lufs,
+    required this.peakDb,
+    required this.truePeakDb,
+  });
+
+  final double lufs;
+  final double peakDb;
+  final double truePeakDb;
+}
+
+/// Thin owner of a native `cc_seq_player`.
+class SequenceAudioPlayer {
+  SequenceAudioPlayer._(this._native, this._handle);
+
+  final CrazyCutNativeBindings _native;
+  ffi.Pointer<cc_seq_player> _handle;
+
+  bool get _alive => _handle != ffi.nullptr;
+
+  /// Installs the document and asset paths the mixer reads.
+  void setDocument(String projectJson, Map<String, String> mediaPaths) {
+    if (!_alive) return;
+    final jsonPtr = projectJson.toNativeUtf8();
+    final keys = calloc<ffi.Pointer<ffi.Char>>(mediaPaths.length);
+    final paths = calloc<ffi.Pointer<ffi.Char>>(mediaPaths.length);
+    var i = 0;
+    try {
+      for (final entry in mediaPaths.entries) {
+        keys[i] = entry.key.toNativeUtf8().cast<ffi.Char>();
+        paths[i] = entry.value.toNativeUtf8().cast<ffi.Char>();
+        i++;
+      }
+      _native.cc_seq_player_set_document(
+          _handle, jsonPtr.cast<ffi.Char>(), mediaPaths.length, keys, paths);
+    } finally {
+      for (var k = 0; k < i; k++) {
+        calloc.free(keys[k]);
+        calloc.free(paths[k]);
+      }
+      calloc.free(keys);
+      calloc.free(paths);
+      calloc.free(jsonPtr);
+    }
+  }
+
+  void start(double positionSec) {
+    if (_alive) _native.cc_seq_player_start(_handle, positionSec);
+  }
+
+  void stop() {
+    if (_alive) _native.cc_seq_player_stop(_handle);
+  }
+
+  void seek(double positionSec) {
+    if (_alive) _native.cc_seq_player_seek(_handle, positionSec);
+  }
+
+  double get position =>
+      _alive ? _native.cc_seq_player_position(_handle) : 0;
+
+  bool get running =>
+      _alive && _native.cc_seq_player_is_running(_handle) != 0;
+
+  set rate(double value) {
+    if (_alive) _native.cc_seq_player_set_rate(_handle, value);
+  }
+
+  /// Peak levels of the last buffer sent to the device, for the meters.
+  (double, double) get levels {
+    if (!_alive) return (0, 0);
+    final l = calloc<ffi.Float>();
+    final r = calloc<ffi.Float>();
+    try {
+      _native.cc_seq_player_levels(_handle, l, r);
+      return (l.value, r.value);
+    } finally {
+      calloc.free(l);
+      calloc.free(r);
+    }
+  }
+
+  set outputDevice(String name) {
+    if (!_alive) return;
+    final ptr = name.toNativeUtf8();
+    try {
+      _native.cc_seq_player_set_output_device(_handle, ptr.cast<ffi.Char>());
+    } finally {
+      calloc.free(ptr);
+    }
+  }
+
+  void dispose() {
+    if (!_alive) return;
+    _native.cc_seq_player_destroy(_handle);
+    _handle = ffi.nullptr;
   }
 }
 

@@ -42,10 +42,12 @@ class EffectsTab extends StatelessWidget {
             ),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
-            child: CcButton(
-              label: 'Add effect',
-              icon: LucideIcons.plus,
-              onPressed: () => _openGallery(context),
+            child: Builder(
+              builder: (buttonContext) => CcButton(
+                label: 'Add effect',
+                icon: LucideIcons.plus,
+                onPressed: () => _openGallery(buttonContext),
+              ),
             ),
           ),
         ],
@@ -56,7 +58,7 @@ class EffectsTab extends StatelessWidget {
   void _openGallery(BuildContext context) async {
     final catalog = await c.effectCatalogOrFallback();
     if (!context.mounted) return;
-    showCcMenu(context, Offset(30, 120), [
+    showCcMenuBelow(context, [
       for (final category in _grouped(catalog).entries)
         ...[
           CcMenuItem(category.key, onTap: null),

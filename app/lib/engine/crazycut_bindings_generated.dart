@@ -31,6 +31,82 @@ class CrazyCutNativeBindings {
       _lookup<ffi.NativeFunction<ffi.Int32 Function()>>('cc_abi_version');
   late final _cc_abi_version = _cc_abi_versionPtr.asFunction<int Function()>();
 
+  int cc_analyze_loudness(
+    ffi.Pointer<cc_engine> engine,
+    double start_sec,
+    double seconds,
+    int media_count,
+    ffi.Pointer<ffi.Pointer<ffi.Char>> utf8_keys,
+    ffi.Pointer<ffi.Pointer<ffi.Char>> utf8_paths,
+    ffi.Pointer<ffi.Double> out_lufs,
+    ffi.Pointer<ffi.Double> out_peak_db,
+    ffi.Pointer<ffi.Double> out_true_peak_db,
+  ) {
+    return _cc_analyze_loudness(
+      engine,
+      start_sec,
+      seconds,
+      media_count,
+      utf8_keys,
+      utf8_paths,
+      out_lufs,
+      out_peak_db,
+      out_true_peak_db,
+    );
+  }
+
+  late final _cc_analyze_loudnessPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<cc_engine>,
+            ffi.Double,
+            ffi.Double,
+            ffi.Int32,
+            ffi.Pointer<ffi.Pointer<ffi.Char>>,
+            ffi.Pointer<ffi.Pointer<ffi.Char>>,
+            ffi.Pointer<ffi.Double>,
+            ffi.Pointer<ffi.Double>,
+            ffi.Pointer<ffi.Double>,
+          )
+        >
+      >('cc_analyze_loudness');
+  late final _cc_analyze_loudness = _cc_analyze_loudnessPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<cc_engine>,
+          double,
+          double,
+          int,
+          ffi.Pointer<ffi.Pointer<ffi.Char>>,
+          ffi.Pointer<ffi.Pointer<ffi.Char>>,
+          ffi.Pointer<ffi.Double>,
+          ffi.Pointer<ffi.Double>,
+          ffi.Pointer<ffi.Double>,
+        )
+      >();
+
+  int cc_audio_output_devices(
+    ffi.Pointer<cc_engine> engine,
+    ffi.Pointer<ffi.Pointer<ffi.Char>> out_names,
+  ) {
+    return _cc_audio_output_devices(engine, out_names);
+  }
+
+  late final _cc_audio_output_devicesPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<cc_engine>,
+            ffi.Pointer<ffi.Pointer<ffi.Char>>,
+          )
+        >
+      >('cc_audio_output_devices');
+  late final _cc_audio_output_devices = _cc_audio_output_devicesPtr
+      .asFunction<
+        int Function(ffi.Pointer<cc_engine>, ffi.Pointer<ffi.Pointer<ffi.Char>>)
+      >();
+
   void cc_buffer_free(ffi.Pointer<ffi.Uint8> buffer) {
     return _cc_buffer_free(buffer);
   }
@@ -277,6 +353,57 @@ class CrazyCutNativeBindings {
       );
   late final _cc_last_error = _cc_last_errorPtr
       .asFunction<ffi.Pointer<ffi.Char> Function()>();
+
+  int cc_mix_audio(
+    ffi.Pointer<cc_engine> engine,
+    double start_sec,
+    double seconds,
+    int media_count,
+    ffi.Pointer<ffi.Pointer<ffi.Char>> utf8_keys,
+    ffi.Pointer<ffi.Pointer<ffi.Char>> utf8_paths,
+    ffi.Pointer<ffi.Pointer<ffi.Float>> out_samples,
+    ffi.Pointer<ffi.Int32> out_frames,
+  ) {
+    return _cc_mix_audio(
+      engine,
+      start_sec,
+      seconds,
+      media_count,
+      utf8_keys,
+      utf8_paths,
+      out_samples,
+      out_frames,
+    );
+  }
+
+  late final _cc_mix_audioPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<cc_engine>,
+            ffi.Double,
+            ffi.Double,
+            ffi.Int32,
+            ffi.Pointer<ffi.Pointer<ffi.Char>>,
+            ffi.Pointer<ffi.Pointer<ffi.Char>>,
+            ffi.Pointer<ffi.Pointer<ffi.Float>>,
+            ffi.Pointer<ffi.Int32>,
+          )
+        >
+      >('cc_mix_audio');
+  late final _cc_mix_audio = _cc_mix_audioPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<cc_engine>,
+          double,
+          double,
+          int,
+          ffi.Pointer<ffi.Pointer<ffi.Char>>,
+          ffi.Pointer<ffi.Pointer<ffi.Char>>,
+          ffi.Pointer<ffi.Pointer<ffi.Float>>,
+          ffi.Pointer<ffi.Int32>,
+        )
+      >();
 
   ffi.Pointer<cc_playback> cc_playback_create(ffi.Pointer<ffi.Char> utf8_path) {
     return _cc_playback_create(utf8_path);
@@ -601,9 +728,233 @@ class CrazyCutNativeBindings {
           ffi.Pointer<ffi.Pointer<ffi.Uint8>>,
         )
       >();
+
+  int cc_scan_audio_peak(
+    ffi.Pointer<cc_engine> engine,
+    ffi.Pointer<ffi.Char> utf8_path,
+    double source_in_sec,
+    double seconds,
+    ffi.Pointer<ffi.Double> out_peak,
+  ) {
+    return _cc_scan_audio_peak(
+      engine,
+      utf8_path,
+      source_in_sec,
+      seconds,
+      out_peak,
+    );
+  }
+
+  late final _cc_scan_audio_peakPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<cc_engine>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Double,
+            ffi.Double,
+            ffi.Pointer<ffi.Double>,
+          )
+        >
+      >('cc_scan_audio_peak');
+  late final _cc_scan_audio_peak = _cc_scan_audio_peakPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<cc_engine>,
+          ffi.Pointer<ffi.Char>,
+          double,
+          double,
+          ffi.Pointer<ffi.Double>,
+        )
+      >();
+
+  ffi.Pointer<cc_seq_player> cc_seq_player_create() {
+    return _cc_seq_player_create();
+  }
+
+  late final _cc_seq_player_createPtr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<cc_seq_player> Function()>>(
+        'cc_seq_player_create',
+      );
+  late final _cc_seq_player_create = _cc_seq_player_createPtr
+      .asFunction<ffi.Pointer<cc_seq_player> Function()>();
+
+  void cc_seq_player_destroy(ffi.Pointer<cc_seq_player> player) {
+    return _cc_seq_player_destroy(player);
+  }
+
+  late final _cc_seq_player_destroyPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Void Function(ffi.Pointer<cc_seq_player>)>
+      >('cc_seq_player_destroy');
+  late final _cc_seq_player_destroy = _cc_seq_player_destroyPtr
+      .asFunction<void Function(ffi.Pointer<cc_seq_player>)>();
+
+  int cc_seq_player_is_running(ffi.Pointer<cc_seq_player> player) {
+    return _cc_seq_player_is_running(player);
+  }
+
+  late final _cc_seq_player_is_runningPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<cc_seq_player>)>
+      >('cc_seq_player_is_running');
+  late final _cc_seq_player_is_running = _cc_seq_player_is_runningPtr
+      .asFunction<int Function(ffi.Pointer<cc_seq_player>)>();
+
+  void cc_seq_player_levels(
+    ffi.Pointer<cc_seq_player> player,
+    ffi.Pointer<ffi.Float> out_peak_l,
+    ffi.Pointer<ffi.Float> out_peak_r,
+  ) {
+    return _cc_seq_player_levels(player, out_peak_l, out_peak_r);
+  }
+
+  late final _cc_seq_player_levelsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Pointer<cc_seq_player>,
+            ffi.Pointer<ffi.Float>,
+            ffi.Pointer<ffi.Float>,
+          )
+        >
+      >('cc_seq_player_levels');
+  late final _cc_seq_player_levels = _cc_seq_player_levelsPtr
+      .asFunction<
+        void Function(
+          ffi.Pointer<cc_seq_player>,
+          ffi.Pointer<ffi.Float>,
+          ffi.Pointer<ffi.Float>,
+        )
+      >();
+
+  double cc_seq_player_position(ffi.Pointer<cc_seq_player> player) {
+    return _cc_seq_player_position(player);
+  }
+
+  late final _cc_seq_player_positionPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Double Function(ffi.Pointer<cc_seq_player>)>
+      >('cc_seq_player_position');
+  late final _cc_seq_player_position = _cc_seq_player_positionPtr
+      .asFunction<double Function(ffi.Pointer<cc_seq_player>)>();
+
+  void cc_seq_player_seek(
+    ffi.Pointer<cc_seq_player> player,
+    double position_sec,
+  ) {
+    return _cc_seq_player_seek(player, position_sec);
+  }
+
+  late final _cc_seq_player_seekPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(ffi.Pointer<cc_seq_player>, ffi.Double)
+        >
+      >('cc_seq_player_seek');
+  late final _cc_seq_player_seek = _cc_seq_player_seekPtr
+      .asFunction<void Function(ffi.Pointer<cc_seq_player>, double)>();
+
+  int cc_seq_player_set_document(
+    ffi.Pointer<cc_seq_player> player,
+    ffi.Pointer<ffi.Char> utf8_json,
+    int media_count,
+    ffi.Pointer<ffi.Pointer<ffi.Char>> utf8_keys,
+    ffi.Pointer<ffi.Pointer<ffi.Char>> utf8_paths,
+  ) {
+    return _cc_seq_player_set_document(
+      player,
+      utf8_json,
+      media_count,
+      utf8_keys,
+      utf8_paths,
+    );
+  }
+
+  late final _cc_seq_player_set_documentPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<cc_seq_player>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+            ffi.Pointer<ffi.Pointer<ffi.Char>>,
+            ffi.Pointer<ffi.Pointer<ffi.Char>>,
+          )
+        >
+      >('cc_seq_player_set_document');
+  late final _cc_seq_player_set_document = _cc_seq_player_set_documentPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<cc_seq_player>,
+          ffi.Pointer<ffi.Char>,
+          int,
+          ffi.Pointer<ffi.Pointer<ffi.Char>>,
+          ffi.Pointer<ffi.Pointer<ffi.Char>>,
+        )
+      >();
+
+  void cc_seq_player_set_output_device(
+    ffi.Pointer<cc_seq_player> player,
+    ffi.Pointer<ffi.Char> utf8_name,
+  ) {
+    return _cc_seq_player_set_output_device(player, utf8_name);
+  }
+
+  late final _cc_seq_player_set_output_devicePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(ffi.Pointer<cc_seq_player>, ffi.Pointer<ffi.Char>)
+        >
+      >('cc_seq_player_set_output_device');
+  late final _cc_seq_player_set_output_device =
+      _cc_seq_player_set_output_devicePtr
+          .asFunction<
+            void Function(ffi.Pointer<cc_seq_player>, ffi.Pointer<ffi.Char>)
+          >();
+
+  void cc_seq_player_set_rate(ffi.Pointer<cc_seq_player> player, double rate) {
+    return _cc_seq_player_set_rate(player, rate);
+  }
+
+  late final _cc_seq_player_set_ratePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(ffi.Pointer<cc_seq_player>, ffi.Double)
+        >
+      >('cc_seq_player_set_rate');
+  late final _cc_seq_player_set_rate = _cc_seq_player_set_ratePtr
+      .asFunction<void Function(ffi.Pointer<cc_seq_player>, double)>();
+
+  int cc_seq_player_start(
+    ffi.Pointer<cc_seq_player> player,
+    double position_sec,
+  ) {
+    return _cc_seq_player_start(player, position_sec);
+  }
+
+  late final _cc_seq_player_startPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<cc_seq_player>, ffi.Double)
+        >
+      >('cc_seq_player_start');
+  late final _cc_seq_player_start = _cc_seq_player_startPtr
+      .asFunction<int Function(ffi.Pointer<cc_seq_player>, double)>();
+
+  void cc_seq_player_stop(ffi.Pointer<cc_seq_player> player) {
+    return _cc_seq_player_stop(player);
+  }
+
+  late final _cc_seq_player_stopPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Void Function(ffi.Pointer<cc_seq_player>)>
+      >('cc_seq_player_stop');
+  late final _cc_seq_player_stop = _cc_seq_player_stopPtr
+      .asFunction<void Function(ffi.Pointer<cc_seq_player>)>();
 }
 
-const int CC_ABI_VERSION = 2;
+const int CC_ABI_VERSION = 3;
 
 final class cc_engine extends ffi.Opaque {}
 
@@ -628,3 +979,5 @@ final class cc_rgba_texture extends ffi.Struct {
     ..ref.width = width
     ..ref.height = height;
 }
+
+final class cc_seq_player extends ffi.Opaque {}

@@ -48,6 +48,28 @@ Map<String, dynamic> _unknown(Map<String, dynamic> json, Set<String> known) => {
         if (!known.contains(entry.key)) entry.key: entry.value,
     };
 
+/// Master output bus (AUD-10/11). The limiter is on by default: it exists to
+/// stop an accidental over reaching the file, not to shape the mix.
+class MasterBus {
+  MasterBus({this.gain = 1.0, this.limiter = true, this.ceilingDb = -1.0});
+
+  double gain;
+  bool limiter;
+  double ceilingDb;
+
+  MasterBus copy() =>
+      MasterBus(gain: gain, limiter: limiter, ceilingDb: ceilingDb);
+
+  Map<String, dynamic> toJson() =>
+      {'gain': gain, 'limiter': limiter, 'ceilingDb': ceilingDb};
+
+  static MasterBus fromJson(Map<String, dynamic>? j) => MasterBus(
+        gain: (j?['gain'] as num?)?.toDouble() ?? 1.0,
+        limiter: (j?['limiter'] as bool?) ?? true,
+        ceilingDb: (j?['ceilingDb'] as num?)?.toDouble() ?? -1.0,
+      );
+}
+
 class SequenceSettings {
   SequenceSettings({
     required this.width,
@@ -55,13 +77,17 @@ class SequenceSettings {
     required this.fps,
     this.audioSampleRate = 48000,
     this.background = '#000000',
-  });
+    MasterBus? master,
+  }) : master = master ?? MasterBus();
 
   int width;
   int height;
   String fps;
   int audioSampleRate;
   String background;
+
+  /// Master bus: output fader and the safety limiter (AUD-10/11).
+  MasterBus master;
 
   double get fpsValue => Rt.fpsFromString(fps);
 
@@ -77,6 +103,7 @@ class SequenceSettings {
         fps: fps,
         audioSampleRate: audioSampleRate,
         background: background,
+        master: master.copy(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -85,6 +112,7 @@ class SequenceSettings {
         'fps': fps,
         'audioSampleRate': audioSampleRate,
         'background': background,
+        'master': master.toJson(),
       };
 
   static SequenceSettings fromJson(Map<String, dynamic> j) => SequenceSettings(
@@ -93,6 +121,7 @@ class SequenceSettings {
         fps: j['fps'] as String,
         audioSampleRate: (j['audioSampleRate'] as num?)?.toInt() ?? 48000,
         background: (j['background'] as String?) ?? '#000000',
+        master: MasterBus.fromJson(j['master'] as Map<String, dynamic>?),
       );
 }
 
@@ -246,6 +275,8 @@ class Track {
     this.lock = false,
     this.hidden = false,
     this.height = 72,
+    this.gain = 1.0,
+    this.pan = 0.0,
     Map<String, dynamic>? extra,
   }) : extra = extra ?? {};
 
@@ -258,6 +289,11 @@ class Track {
   bool lock;
   bool hidden;
   int height;
+
+  /// Mixer strip state (AUD-10): linear fader and balance. Video tracks carry
+  /// them too so a linked A/V clip's audio follows its own track.
+  double gain;
+  double pan;
   final Map<String, dynamic> extra;
 
   bool get isVideo => kind == 'video';
@@ -275,6 +311,8 @@ class Track {
         'lock': lock,
         'hidden': hidden,
         'height': height,
+        'gain': gain,
+        'pan': pan,
       };
 
   static Track fromJson(Map<String, dynamic> j) => Track(
@@ -287,8 +325,11 @@ class Track {
         lock: (j['lock'] as bool?) ?? false,
         hidden: (j['hidden'] as bool?) ?? false,
         height: (j['height'] as num?)?.toInt() ?? 72,
+        gain: (j['gain'] as num?)?.toDouble() ?? 1.0,
+        pan: (j['pan'] as num?)?.toDouble() ?? 0.0,
         extra: _unknown(j, {
-          'id', 'kind', 'name', 'index', 'mute', 'solo', 'lock', 'hidden', 'height',
+          'id', 'kind', 'name', 'index', 'mute', 'solo', 'lock', 'hidden',
+          'height', 'gain', 'pan',
         }),
       );
 }

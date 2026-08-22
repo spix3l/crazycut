@@ -1,6 +1,8 @@
 #include "media/frame.h"
 
 #include <cmath>
+#include <list>
+#include <memory>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -18,13 +20,27 @@ namespace cc {
 
 namespace {
 
+// An open decoder plus the state that makes repeated, mostly-forward reads
+// cheap: the frame we last handed out and the scaler configured for it.
+// Sessions live in a small per-thread LRU (see acquireDecoder) so scrubbing and
+// playback reuse one open file instead of reopening it for every frame.
 struct DecoderSession {
+  std::string path;
   AVFormatContext* format = nullptr;
   AVCodecContext* codec = nullptr;
   int streamIndex = -1;
   AVStream* stream = nullptr;
 
+  AVFrame* held = nullptr;      // last decoded frame, owned here
+  bool heldValid = false;
+  double heldPtsSec = -1.0;
+
+  SwsContext* sws = nullptr;
+  int swsSrcW = 0, swsSrcH = 0, swsSrcFmt = -1, swsDstW = 0, swsDstH = 0;
+
   ~DecoderSession() {
+    if (sws) sws_freeContext(sws);
+    if (held) av_frame_free(&held);
     if (codec) avcodec_free_context(&codec);
     if (format) avformat_close_input(&format);
   }
@@ -56,6 +72,38 @@ Error openVideoDecoder(const std::string& path, DecoderSession* session) {
     setLastError("decoder open failed");
     return Error::MediaDecodeFailed;
   }
+  return Error::None;
+}
+
+// Up to this many files stay open per thread; a timeline rarely composites
+// more than a handful of sources at one instant.
+constexpr size_t kMaxCachedDecoders = 6;
+
+std::list<std::unique_ptr<DecoderSession>>& decoderCache() {
+  // Thread-local so preview (UI thread) and export workers never contend.
+  thread_local std::list<std::unique_ptr<DecoderSession>> cache;
+  return cache;
+}
+
+// Returns an open session for [path], reusing a cached one when possible.
+// The returned pointer stays valid until the next acquireDecoder call on this
+// thread evicts it.
+Error acquireDecoder(const std::string& path, DecoderSession** out) {
+  auto& cache = decoderCache();
+  for (auto it = cache.begin(); it != cache.end(); ++it) {
+    if ((*it)->path == path) {
+      cache.splice(cache.begin(), cache, it);  // most recently used
+      *out = cache.front().get();
+      return Error::None;
+    }
+  }
+  auto session = std::make_unique<DecoderSession>();
+  session->path = path;
+  const Error err = openVideoDecoder(path, session.get());
+  if (err != Error::None) return err;
+  cache.push_front(std::move(session));
+  while (cache.size() > kMaxCachedDecoders) cache.pop_back();
+  *out = cache.front().get();
   return Error::None;
 }
 
@@ -110,66 +158,102 @@ void rotateRgba(std::vector<uint8_t>* data, int* width, int* height, int degrees
   }
 }
 
-Error decodeFrameNear(DecoderSession* s, double seconds, AVFrame** outFrame) {
-  AVRational tb = s->stream->time_base;
-  const double frameDur = s->stream->avg_frame_rate.num > 0
-                              ? av_q2d(av_inv_q(s->stream->avg_frame_rate))
-                              : 1.0 / 30.0;
+double frameDurationOf(const DecoderSession* s) {
+  if (s->stream->avg_frame_rate.num > 0)
+    return av_q2d(av_inv_q(s->stream->avg_frame_rate));
+  return 1.0 / 30.0;
+}
 
-  const int64_t targetTs = static_cast<int64_t>(seconds / av_q2d(tb));
-  if (seconds > 0.5) {
-    if (avformat_seek_file(s->format, s->streamIndex, INT64_MIN, targetTs, targetTs, 0) < 0) {
-      av_seek_frame(s->format, -1, 0, AVSEEK_FLAG_BACKWARD);
-    }
-  } else {
-    av_seek_frame(s->format, -1, 0, AVSEEK_FLAG_BACKWARD);
-  }
-  avcodec_flush_buffers(s->codec);
-
+// Pulls frames until one covers [seconds]. Never seeks; the caller decides
+// when a seek is needed. Leaves the result in s->held.
+Error decodeForwardTo(DecoderSession* s, double seconds, double epsilon) {
   AVPacket* pkt = av_packet_alloc();
-  AVFrame* frame = av_frame_alloc();
-  Error result = Error::MediaDecodeFailed;
-  int framesSinceSeek = 0;
-  const double epsilon = frameDur * 0.5;
+  if (!s->held) s->held = av_frame_alloc();
+  const AVRational tb = s->stream->time_base;
+  int decoded = 0;
+  bool flushed = false;
 
   while (true) {
-    bool decodedAny = false;
-    while (avcodec_receive_frame(s->codec, frame) == 0) {
-      decodedAny = true;
-      ++framesSinceSeek;
-      double ptsSec = -1.0;
-      if (frame->pts != AV_NOPTS_VALUE) {
-        ptsSec = static_cast<double>(frame->pts) * av_q2d(tb);
-      }
-      if (ptsSec < 0 || ptsSec >= seconds - epsilon || framesSinceSeek > 600) {
-        *outFrame = frame;
+    int ret = 0;
+    // receive_frame unrefs the destination itself, so s->held always holds the
+    // most recent frame we decoded.
+    while ((ret = avcodec_receive_frame(s->codec, s->held)) == 0) {
+      ++decoded;
+      s->heldValid = true;
+      s->heldPtsSec = s->held->pts != AV_NOPTS_VALUE
+                          ? static_cast<double>(s->held->pts) * av_q2d(tb)
+                          : -1.0;
+      if (s->heldPtsSec < 0 || s->heldPtsSec >= seconds - epsilon ||
+          decoded > 600) {
         av_packet_free(&pkt);
         return Error::None;
       }
-      av_frame_unref(frame);
     }
+    if (ret == AVERROR_EOF) break;
 
-    int ret = av_read_frame(s->format, pkt);
-    if (ret < 0) {
-      if (decodedAny || framesSinceSeek > 0) {
-        avcodec_send_packet(s->codec, nullptr);
+    if (av_read_frame(s->format, pkt) < 0) {
+      if (!flushed) {
+        avcodec_send_packet(s->codec, nullptr);  // drain
+        flushed = true;
         continue;
       }
       break;
     }
-    if (pkt->stream_index == s->streamIndex) {
-      if (avcodec_send_packet(s->codec, pkt) < 0) {
-        result = Error::MediaDecodeFailed;
-        break;
-      }
+    if (pkt->stream_index == s->streamIndex &&
+        avcodec_send_packet(s->codec, pkt) < 0) {
+      av_packet_unref(pkt);
+      av_packet_free(&pkt);
+      setLastError("decoder rejected packet");
+      return Error::MediaDecodeFailed;
     }
     av_packet_unref(pkt);
   }
 
-  av_frame_free(&frame);
   av_packet_free(&pkt);
+  // Past the end of the file: the last frame we decoded is the best answer.
+  if (s->heldValid) return Error::None;
   setLastError("no decodable frame found near requested time");
-  return result;
+  return Error::MediaDecodeFailed;
+}
+
+// Positions the session on the frame covering [seconds] and returns it as a
+// borrowed pointer owned by the session.
+Error decodeFrameNear(DecoderSession* s, double seconds, AVFrame** outFrame) {
+  const double frameDur = frameDurationOf(s);
+  const double epsilon = frameDur * 0.5;
+
+  // Same frame as last time (common while parking on a playhead).
+  if (s->heldValid && s->heldPtsSec >= 0 && seconds >= s->heldPtsSec - epsilon &&
+      seconds < s->heldPtsSec + frameDur - epsilon) {
+    *outFrame = s->held;
+    return Error::None;
+  }
+
+  // Slightly ahead: decoding forward beats a seek + keyframe re-decode, and it
+  // is what playback and small scrubs do almost every frame.
+  const bool forwardOk = s->heldValid && s->heldPtsSec >= 0 &&
+                         seconds > s->heldPtsSec &&
+                         seconds - s->heldPtsSec <= 2.0;
+  if (!forwardOk) {
+    const AVRational tb = s->stream->time_base;
+    const int64_t targetTs = static_cast<int64_t>(seconds / av_q2d(tb));
+    if (seconds > 0.5) {
+      if (avformat_seek_file(s->format, s->streamIndex, INT64_MIN, targetTs,
+                             targetTs, 0) < 0) {
+        av_seek_frame(s->format, -1, 0, AVSEEK_FLAG_BACKWARD);
+      }
+    } else {
+      av_seek_frame(s->format, -1, 0, AVSEEK_FLAG_BACKWARD);
+    }
+    avcodec_flush_buffers(s->codec);
+    s->heldValid = false;
+    s->heldPtsSec = -1.0;
+  }
+
+  const Error err = decodeForwardTo(s, seconds, epsilon);
+  if (err != Error::None) return err;
+  *outFrame = s->held;
+  return Error::None;
 }
 
 }  // namespace
@@ -182,12 +266,12 @@ Error extractFrameRgba(const std::string& path, double seconds, int targetWidth,
   }
   seconds = std::max(0.0, seconds);
 
-  DecoderSession session;
-  Error err = openVideoDecoder(path, &session);
+  DecoderSession* session = nullptr;
+  Error err = acquireDecoder(path, &session);
   if (err != Error::None) return err;
 
-  AVFrame* frame = nullptr;
-  err = decodeFrameNear(&session, seconds, &frame);
+  AVFrame* frame = nullptr;  // borrowed from the session
+  err = decodeFrameNear(session, seconds, &frame);
   if (err != Error::None) return err;
 
   const int srcW = frame->width;
@@ -197,32 +281,64 @@ Error extractFrameRgba(const std::string& path, double seconds, int targetWidth,
   int dstH = static_cast<int>(std::llround(static_cast<double>(srcH) * dstW / srcW));
   dstH -= dstH % 2;
   if (dstW <= 0 || dstH <= 0) {
-    av_frame_free(&frame);
     setLastError("degenerate output size");
     return Error::InvalidArgument;
   }
 
-  SwsContext* sws = sws_getContext(srcW, srcH, static_cast<AVPixelFormat>(frame->format),
-                                   dstW, dstH, AV_PIX_FMT_RGBA, SWS_BILINEAR, nullptr,
-                                   nullptr, nullptr);
-  if (!sws) {
-    av_frame_free(&frame);
-    setLastError("sws_getContext failed");
-    return Error::InternalError;
+  // Deprecated JPEG-range formats are the same layout as their plain variants;
+  // naming them explicitly and flagging full range keeps swscale quiet and the
+  // levels correct.
+  AVPixelFormat srcFmt = static_cast<AVPixelFormat>(frame->format);
+  bool fullRange = frame->color_range == AVCOL_RANGE_JPEG;
+  switch (srcFmt) {
+    case AV_PIX_FMT_YUVJ420P: srcFmt = AV_PIX_FMT_YUV420P; fullRange = true; break;
+    case AV_PIX_FMT_YUVJ422P: srcFmt = AV_PIX_FMT_YUV422P; fullRange = true; break;
+    case AV_PIX_FMT_YUVJ444P: srcFmt = AV_PIX_FMT_YUV444P; fullRange = true; break;
+    case AV_PIX_FMT_YUVJ440P: srcFmt = AV_PIX_FMT_YUV440P; fullRange = true; break;
+    default: break;
   }
 
-  outFrame->rgba.assign(static_cast<size_t>(dstW) * dstH * 4, 0);
+  // Building a scaler is expensive; keep the one configured for this geometry.
+  if (!session->sws || session->swsSrcW != srcW || session->swsSrcH != srcH ||
+      session->swsSrcFmt != srcFmt || session->swsDstW != dstW ||
+      session->swsDstH != dstH) {
+    if (session->sws) sws_freeContext(session->sws);
+    // Bicubic pays for itself when shrinking (bilinear visibly softens); on an
+    // upscale it costs several ms a frame for no visible gain.
+    const int flags = dstW < srcW ? SWS_BICUBIC : SWS_BILINEAR;
+    session->sws = sws_getContext(srcW, srcH, srcFmt, dstW, dstH,
+                                  AV_PIX_FMT_RGBA, flags, nullptr, nullptr,
+                                  nullptr);
+    if (!session->sws) {
+      setLastError("sws_getContext failed");
+      return Error::InternalError;
+    }
+    session->swsSrcW = srcW;
+    session->swsSrcH = srcH;
+    session->swsSrcFmt = srcFmt;
+    session->swsDstW = dstW;
+    session->swsDstH = dstH;
+
+    const int* coeffs = sws_getCoefficients(frame->colorspace == AVCOL_SPC_UNSPECIFIED
+                                                ? SWS_CS_ITU709
+                                                : frame->colorspace);
+    sws_setColorspaceDetails(session->sws, coeffs, fullRange ? 1 : 0,
+                             sws_getCoefficients(SWS_CS_DEFAULT), 1, 0, 1 << 16,
+                             1 << 16);
+  }
+
+  // resize, not assign: sws_scale writes every byte, so pre-zeroing the buffer
+  // is a wasted pass over several megabytes each frame.
+  outFrame->rgba.resize(static_cast<size_t>(dstW) * dstH * 4);
   uint8_t* dstData[4] = {outFrame->rgba.data(), nullptr, nullptr, nullptr};
   int dstLinesize[4] = {dstW * 4, 0, 0, 0};
-  sws_scale(sws, frame->data, frame->linesize, 0, srcH, dstData, dstLinesize);
-  sws_freeContext(sws);
-
-  const int rotation = displayRotationFor(session.stream);
-  av_frame_free(&frame);
+  sws_scale(session->sws, frame->data, frame->linesize, 0, srcH, dstData,
+            dstLinesize);
 
   outFrame->width = dstW;
   outFrame->height = dstH;
-  rotateRgba(&outFrame->rgba, &outFrame->width, &outFrame->height, rotation);
+  rotateRgba(&outFrame->rgba, &outFrame->width, &outFrame->height,
+             displayRotationFor(session->stream));
   return Error::None;
 }
 
@@ -244,7 +360,10 @@ Error extractThumbnailJpeg(const std::string& path, double seconds, int width,
   AVCodecContext* enc = avcodec_alloc_context3(encoder);
   enc->width = frame.width;
   enc->height = frame.height;
-  enc->pix_fmt = AV_PIX_FMT_YUVJ420P;
+  // YUV420P + explicit JPEG range, rather than the deprecated YUVJ420P alias
+  // that makes swscale warn on every thumbnail.
+  enc->pix_fmt = AV_PIX_FMT_YUV420P;
+  enc->color_range = AVCOL_RANGE_JPEG;
   enc->time_base = AVRational{1, 1};
   av_opt_set_int(enc->priv_data, "qscale", 3, 0);
   if (avcodec_open2(enc, encoder, nullptr) < 0) {
@@ -255,6 +374,7 @@ Error extractThumbnailJpeg(const std::string& path, double seconds, int width,
 
   AVFrame* yuv = av_frame_alloc();
   yuv->format = enc->pix_fmt;
+  yuv->color_range = enc->color_range;
   yuv->width = enc->width;
   yuv->height = enc->height;
   av_frame_get_buffer(yuv, 32);
@@ -262,6 +382,9 @@ Error extractThumbnailJpeg(const std::string& path, double seconds, int width,
   SwsContext* sws = sws_getContext(frame.width, frame.height, AV_PIX_FMT_RGBA, yuv->width,
                                    yuv->height, enc->pix_fmt, SWS_BILINEAR, nullptr, nullptr,
                                    nullptr);
+  sws_setColorspaceDetails(sws, sws_getCoefficients(SWS_CS_DEFAULT), 1,
+                           sws_getCoefficients(SWS_CS_DEFAULT), 1, 0, 1 << 16,
+                           1 << 16);
   uint8_t* srcData[4] = {const_cast<uint8_t*>(frame.rgba.data()), nullptr, nullptr, nullptr};
   int srcLinesize[4] = {frame.width * 4, 0, 0, 0};
   sws_scale(sws, srcData, srcLinesize, 0, frame.height, yuv->data, yuv->linesize);

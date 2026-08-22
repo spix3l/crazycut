@@ -36,7 +36,10 @@ add_library(crazycut_core STATIC
   media/probe.cpp
   media/prepare.cpp
   media/frame.cpp
+  audio/decode.cpp
+  audio/mixer.cpp
   playback/player.cpp
+  playback/sequence_player.cpp
   render/effects.cpp
   render/composite.cpp
   render/renderer.cpp
@@ -64,7 +67,7 @@ if(CC_BUILD_TESTS)
   )
   set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(googletest)
-  add_executable(cc_tests tests/time_test.cpp tests/project_test.cpp tests/keyframes_test.cpp tests/prepare_test.cpp tests/probe_test.cpp tests/playback_test.cpp tests/golden_test.cpp)
+  add_executable(cc_tests tests/time_test.cpp tests/project_test.cpp tests/keyframes_test.cpp tests/prepare_test.cpp tests/probe_test.cpp tests/playback_test.cpp tests/golden_test.cpp tests/audio_test.cpp)
   target_compile_definitions(cc_tests PRIVATE CC_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
   target_link_libraries(cc_tests PRIVATE crazycut_core GTest::gtest_main)
   include(GoogleTest)

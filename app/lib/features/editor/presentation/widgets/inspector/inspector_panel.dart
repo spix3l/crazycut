@@ -10,6 +10,7 @@ import 'inspector_effects_tab.dart';
 import 'inspector_rows.dart';
 import 'inspector_text_tab.dart';
 import 'inspector_transform_tab.dart';
+import 'inspector_audio_tab.dart';
 import 'inspector_tabs.dart';
 
 /// Right rail. Binds to the current selection: sequence facts when nothing is
