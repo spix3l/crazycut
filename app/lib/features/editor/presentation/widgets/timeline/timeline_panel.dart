@@ -211,6 +211,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
   void _clipMenu(BuildContext context, Offset position, Clip clip) {
     if (!c.selection.contains(clip.id)) c.selectClip(clip.id);
     final linked = clip.linkedGroup != null;
+    final isImage = c.doc.assetById(clip.mediaId)?.type == 'image';
     showCcMenu(context, position, [
       CcMenuItem('Split at playhead', shortcut: 'S', onTap: c.splitAtPlayhead),
       CcMenuItem('Copy', shortcut: '⌘C', onTap: c.copySelection),
@@ -226,6 +227,18 @@ class _TimelinePanelState extends State<TimelinePanel> {
         clip.mute ? 'Unmute clip' : 'Mute clip',
         onTap: () => c.setClipAudio(clip.id, mute: !clip.mute),
       ),
+      if (isImage)
+        for (final preset in TimelineEdits.kImagePresets.entries)
+          CcMenuItem(
+            'Animate: ${preset.key}',
+            separatorBefore: preset.key == TimelineEdits.kImagePresets.keys.first,
+            onTap: () => c.applyImagePreset(clip.id, preset.value),
+          ),
+      if (isImage)
+        CcMenuItem(
+          'Clear image animation',
+          onTap: () => c.clearImageAnimation(clip.id),
+        ),
     ]);
   }
 

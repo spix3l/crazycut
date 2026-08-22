@@ -1858,6 +1858,17 @@ mixin TimelineEdits on ChangeNotifier {
     'Typewriter': 'typewriter',
   };
 
+  /// Image motion shortcuts (TXT-9). They bake ordinary transform keyframes,
+  /// so applying a preset is only a faster way to author editable animation.
+  static const Map<String, String> kImagePresets = {
+    'Zoom in': 'zoomIn',
+    'Zoom out': 'zoomOut',
+    'Pan left': 'panLeft',
+    'Pan right': 'panRight',
+    'Pan up': 'panUp',
+    'Pan down': 'panDown',
+  };
+
   /// TXT-1: a text clip at the playhead on the topmost unlocked video track
   /// (or [trackId]), default 5 s, pushed clear of neighbours and selected.
   List<String> addTextClip({String? trackId, Rt? at, Rt? duration}) {
@@ -2024,6 +2035,71 @@ mixin TimelineEdits on ChangeNotifier {
           return;
       }
       clip.transform = tr;
+    });
+  }
+
+  /// TXT-9: generates a full-clip Ken Burns move for an image clip. Only the
+  /// chosen preset's parameters are replaced; unrelated transform data stays.
+  void applyImagePreset(String clipId, String preset) {
+    final clip = _editableClip(clipId);
+    final asset = clip == null ? null : doc.assetById(clip.mediaId);
+    if (clip == null || asset?.type != 'image') return;
+
+    final end = quantiseToFrame(clip.duration).clampTo(Rt.zero(), clip.duration);
+    final horizontalOffset = doc.settings.width * 0.05;
+    final verticalOffset = doc.settings.height * 0.05;
+
+    void keys(ParamValue pv, double from, double to) {
+      pv.keyframes
+        ..clear()
+        ..addAll([
+          {'t': Rt.zero().toString(), 'v': from, 'interp': 'easeInOut'},
+          {'t': end.toString(), 'v': to, 'interp': 'linear'},
+        ]);
+    }
+
+    _run('Animate image', (tx) {
+      tx.clip(clipId);
+      final transform = clip.transform?.copy() ?? ClipTransform();
+      switch (preset) {
+        case 'zoomIn':
+          keys(transform.scale, 100, 115);
+        case 'zoomOut':
+          keys(transform.scale, 115, 100);
+        case 'panLeft':
+          keys(transform.scale, 115, 115);
+          keys(transform.x, horizontalOffset, -horizontalOffset);
+        case 'panRight':
+          keys(transform.scale, 115, 115);
+          keys(transform.x, -horizontalOffset, horizontalOffset);
+        case 'panUp':
+          keys(transform.scale, 115, 115);
+          keys(transform.y, verticalOffset, -verticalOffset);
+        case 'panDown':
+          keys(transform.scale, 115, 115);
+          keys(transform.y, -verticalOffset, verticalOffset);
+        default:
+          return;
+      }
+      clip.transform = transform;
+    });
+  }
+
+  /// Clears image position/scale motion, retaining each final value as static.
+  /// Independent rotation and opacity animation intentionally survives.
+  void clearImageAnimation(String clipId) {
+    final clip = _editableClip(clipId);
+    final asset = clip == null ? null : doc.assetById(clip.mediaId);
+    if (clip == null || asset?.type != 'image' || clip.transform == null) return;
+    final params = [clip.transform!.x, clip.transform!.y, clip.transform!.scale];
+    if (!params.any((param) => param.animated)) return;
+    _run('Clear image animation', (tx) {
+      tx.clip(clipId);
+      for (final param in params) {
+        if (!param.animated) continue;
+        param.static = param.evaluate(clip.duration);
+        param.keyframes.clear();
+      }
     });
   }
 
@@ -2603,6 +2679,12 @@ mixin TimelineEdits on ChangeNotifier {
         'v': pv.static,
         'interp': 'linear',
       });
+      // At clip start the seed is itself the requested key. A duplicate zero
+      // key would violate the strictly-increasing model invariant.
+      if (time.micros.abs() <= frameDuration.micros ~/ 2) {
+        pv.sortKeys();
+        return;
+      }
     }
     pv.keyframes.add({'t': time.toString(), 'v': value, 'interp': 'linear'});
     pv.sortKeys();
@@ -2744,25 +2826,51 @@ mixin TimelineEdits on ChangeNotifier {
     });
   }
 
-  /// Sets a transform param's static value (slider drags). Keyframes are
-  /// untouched — evaluation ignores static while keyframes exist.
-  void setTransformParam(String clipId, String paramId, double value) {
-    setClipTransform(clipId, (t) {
-      switch (paramId) {
-        case 'x':
-          t.x.static = value;
-        case 'y':
-          t.y.static = value;
-        case 'scale':
-          t.scale.static = value;
-        case 'rotation':
-          t.rotation.static = value;
-        case 'anchor':
-          t.anchor.static = {'x': value, 'y': 0.0};
-        case 'opacity':
-          t.opacity.static = value;
+  /// Static parameters stay static; animated parameters create or replace a
+  /// key at [at], so the value visible under the playhead is what changes.
+  void setTransformParam(
+    String clipId,
+    String paramId,
+    double value, {
+    Rt? at,
+  }) {
+    final clip = _editableClip(clipId);
+    if (clip == null) return;
+    _run('Transform', (tx) {
+      tx.clip(clipId);
+      clip.transform ??= ClipTransform();
+      final param = switch (paramId) {
+        'x' => clip.transform!.x,
+        'y' => clip.transform!.y,
+        'scale' => clip.transform!.scale,
+        'rotation' => clip.transform!.rotation,
+        'anchor' => clip.transform!.anchor,
+        'opacity' => clip.transform!.opacity,
+        _ => null,
+      };
+      if (param == null) return;
+      final keyValue = paramId == 'anchor' ? {'x': value, 'y': 0.0} : value;
+      if (!param.animated) {
+        param.static = keyValue;
+        return;
       }
-      return t;
+      final time = (at ?? playhead.minus(clip.start))
+          .clampTo(Rt.zero(), clip.duration);
+      final hit = param.keyframes.indexWhere(
+        (key) =>
+            (ParamValue.timeOf(key) - time).micros.abs() <=
+            frameDuration.micros ~/ 2,
+      );
+      if (hit >= 0) {
+        param.keyframes[hit]['v'] = keyValue;
+      } else {
+        param.keyframes.add({
+          't': time.toString(),
+          'v': keyValue,
+          'interp': 'linear',
+        });
+      }
+      param.sortKeys();
     });
   }
 

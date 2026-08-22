@@ -143,10 +143,17 @@ Error probeFile(const std::string& path, std::string* outJson) {
     j["video"] = v;
 
     const std::string fmtName = format->iformat ? format->iformat->name : "";
-    isImage = durationSeconds <= 0.15 &&
-              (fmtName.find("image2") != std::string::npos ||
-               video->codecpar->codec_id == AV_CODEC_ID_PNG ||
-               video->codecpar->codec_id == AV_CODEC_ID_MJPEG);
+    // Pipe demuxers do not all contain "image2" (for example jpeg_pipe and
+    // webp_pipe). Treat the static-image codecs accepted by the app as stills
+    // explicitly. GIF is intentionally a still in v1, even when the source
+    // contains multiple frames; animated-image playback is not part of the
+    // image clip contract.
+    isImage = fmtName.find("image2") != std::string::npos ||
+              fmtName.find("_pipe") != std::string::npos ||
+              video->codecpar->codec_id == AV_CODEC_ID_PNG ||
+              video->codecpar->codec_id == AV_CODEC_ID_MJPEG ||
+              video->codecpar->codec_id == AV_CODEC_ID_WEBP ||
+              video->codecpar->codec_id == AV_CODEC_ID_GIF;
   } else {
     j["video"] = nullptr;
   }

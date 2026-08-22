@@ -37,7 +37,7 @@ class EditorToolbar extends StatelessWidget {
   static const _tools = [
     (LucideIcons.mousePointer2, 'Select (V)'),
     (LucideIcons.scissors, 'Blade (B)'),
-    (LucideIcons.type, 'Text (T) — M2'),
+    (LucideIcons.type, 'Text (T)'),
   ];
 
   final int selectedTool;
@@ -63,11 +63,11 @@ class EditorToolbar extends StatelessWidget {
   final VoidCallback? onDiagnostics;
 
   String get _saveLabel => switch (saveState) {
-        SaveState.saved => 'Saved',
-        SaveState.saving => 'Saving…',
-        SaveState.dirty => 'Unsaved changes',
-        SaveState.failed => 'Save failed',
-      };
+    SaveState.saved => 'Saved',
+    SaveState.saving => 'Saving…',
+    SaveState.dirty => 'Unsaved changes',
+    SaveState.failed => 'Save failed',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -130,14 +130,22 @@ class EditorToolbar extends StatelessWidget {
                       // collect media (PRJ-14) and diagnostics live here
                       // because there is no menu bar in this shell.
                       onTap: () => showCcMenuBelow(context, [
-                        CcMenuItem('Rename project…',
-                            icon: LucideIcons.pencil, onTap: onRename),
-                        CcMenuItem('Collect media to project folder…',
-                            icon: LucideIcons.folderInput,
-                            separatorBefore: true,
-                            onTap: onCollectMedia),
-                        CcMenuItem('Save diagnostics…',
-                            icon: LucideIcons.lifeBuoy, onTap: onDiagnostics),
+                        CcMenuItem(
+                          'Rename project…',
+                          icon: LucideIcons.pencil,
+                          onTap: onRename,
+                        ),
+                        CcMenuItem(
+                          'Collect media to project folder…',
+                          icon: LucideIcons.folderInput,
+                          separatorBefore: true,
+                          onTap: onCollectMedia,
+                        ),
+                        CcMenuItem(
+                          'Save diagnostics…',
+                          icon: LucideIcons.lifeBuoy,
+                          onTap: onDiagnostics,
+                        ),
                       ]),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -147,8 +155,11 @@ class EditorToolbar extends StatelessWidget {
                             style: CcType.style(size: 12, weight: CcType.medium),
                           ),
                           const SizedBox(width: 4),
-                          const CcIcon(LucideIcons.chevronDown,
-                              size: 12, color: CcColors.textTertiary),
+                          const CcIcon(
+                            LucideIcons.chevronDown,
+                            size: 12,
+                            color: CcColors.textTertiary,
+                          ),
                         ],
                       ),
                     ),
@@ -245,7 +256,6 @@ class EditorToolbar extends StatelessWidget {
   }
 }
 
-
 /// Export button with the queue's progress ring (EXP-9): while jobs run it
 /// shows how far along they are without opening the panel.
 class _ExportButton extends StatefulWidget {
@@ -288,9 +298,7 @@ class _ExportButtonState extends State<_ExportButton> {
         onPressed: widget.onPressed,
       );
     }
-    final running = _service.jobs
-        .where((j) => j.state == ExportState.running)
-        .toList();
+    final running = _service.jobs.where((j) => j.state == ExportState.running).toList();
     final progress = running.isEmpty
         ? 0.0
         : running.map((j) => j.progress).reduce((a, b) => a + b) / running.length;
@@ -311,9 +319,7 @@ class _ExportButtonState extends State<_ExportButton> {
               SizedBox(
                 width: 14,
                 height: 14,
-                child: CustomPaint(
-                  painter: _RingPainter(progress: progress),
-                ),
+                child: CustomPaint(painter: _RingPainter(progress: progress)),
               ),
               const SizedBox(width: 8),
               Text(
@@ -350,11 +356,15 @@ class _RingPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..color = CcColors.onAccent;
     canvas.drawArc(rect.deflate(1), 0, math.pi * 2, false, track);
-    canvas.drawArc(rect.deflate(1), -math.pi / 2,
-        math.pi * 2 * progress.clamp(0, 1), false, arc);
+    canvas.drawArc(
+      rect.deflate(1),
+      -math.pi / 2,
+      math.pi * 2 * progress.clamp(0, 1),
+      false,
+      arc,
+    );
   }
 
   @override
-  bool shouldRepaint(_RingPainter oldDelegate) =>
-      oldDelegate.progress != progress;
+  bool shouldRepaint(_RingPainter oldDelegate) => oldDelegate.progress != progress;
 }

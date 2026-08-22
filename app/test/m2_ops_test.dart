@@ -527,6 +527,109 @@ void main() {
     });
   });
 
+  group('image animation (TXT-8/9)', () {
+    Edits imageHarness() {
+      final e = harness();
+      e.doc.media.add(MediaAsset(
+        id: 'image-1',
+        name: 'poster.webp',
+        path: '/tmp/poster.webp',
+        type: 'image',
+        duration: Rt.zero(),
+        hasAudio: false,
+      ));
+      return e;
+    }
+
+    test('zoom preset spans the clip with editable ease-in-out keys', () {
+      final e = imageHarness();
+      final id = e.placeAsset('image-1').single;
+
+      e.applyImagePreset(id, 'zoomIn');
+
+      final scale = e.clipById(id)!.transform!.scale;
+      expect(scale.keyframes, hasLength(2));
+      expect(scale.keyframes.first['t'], Rt.zero().toString());
+      expect(scale.keyframes.first['v'], 100.0);
+      expect(scale.keyframes.first['interp'], 'easeInOut');
+      expect(scale.keyframes.last['t'], s(5).toString());
+      expect(scale.keyframes.last['v'], 115.0);
+
+      e.undo();
+      expect(e.clipById(id)!.transform, isNull);
+      e.redo();
+      expect(e.clipById(id)!.transform!.scale.keyframes, hasLength(2));
+    });
+
+    test('pan presets use sequence-relative offsets and preserve other axes', () {
+      final e = imageHarness();
+      final id = e.placeAsset('image-1').single;
+      e.setTransformParam(id, 'rotation', 12);
+      e.setTransformParam(id, 'y', 24);
+
+      e.applyImagePreset(id, 'panLeft');
+
+      final transform = e.clipById(id)!.transform!;
+      expect(transform.x.keyframes.first['v'], 96.0);
+      expect(transform.x.keyframes.last['v'], -96.0);
+      expect(transform.scale.keyframes.map((k) => k['v']), [115.0, 115.0]);
+      expect(transform.y.static, 24.0);
+      expect(transform.y.keyframes, isEmpty);
+      expect(transform.rotation.static, 12.0);
+    });
+
+    test('animated slider edit writes a key at the clip-local playhead', () {
+      final e = imageHarness();
+      final id = e.placeAsset('image-1').single;
+      e.applyImagePreset(id, 'zoomIn');
+
+      e.setTransformParam(id, 'scale', 132, at: s(2));
+
+      final scale = e.clipById(id)!.transform!.scale;
+      expect(scale.keyframes, hasLength(3));
+      final key = scale.keyframes.singleWhere((k) => k['t'] == s(2).toString());
+      expect(key['v'], 132.0);
+      expect(scale.static, 100.0);
+
+      e.setTransformParam(id, 'scale', 140, at: s(2));
+      expect(scale.keyframes, hasLength(3));
+      expect(
+        scale.keyframes.singleWhere((k) => k['t'] == s(2).toString())['v'],
+        140.0,
+      );
+    });
+
+    test('clear image animation keeps final motion values and other keys', () {
+      final e = imageHarness();
+      final id = e.placeAsset('image-1').single;
+      e.applyImagePreset(id, 'panDown');
+      e.toggleKeyframe(id, '__transform', 'opacity', Rt.zero());
+      e.setKeyframeValue(id, '__transform', 'opacity', s(5), 40.0);
+
+      e.clearImageAnimation(id);
+
+      final transform = e.clipById(id)!.transform!;
+      expect(transform.y.keyframes, isEmpty);
+      expect(transform.y.static, 54.0);
+      expect(transform.scale.keyframes, isEmpty);
+      expect(transform.scale.static, 115.0);
+      expect(transform.opacity.keyframes, hasLength(2));
+
+      e.undo();
+      expect(e.clipById(id)!.transform!.y.keyframes, hasLength(2));
+    });
+
+    test('image presets ignore video clips', () {
+      final e = harness();
+      addClip(e, id: 'video', start: 0, duration: 5);
+
+      e.applyImagePreset('video', 'zoomIn');
+
+      expect(e.clipById('video')!.transform, isNull);
+      expect(e.history.depth, 0);
+    });
+  });
+
   group('effects (FX-1..4, FX-14)', () {
     test('addEffect writes catalog defaults as static params', () {
       final e = harness(assetSeconds: 30);

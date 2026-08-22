@@ -54,7 +54,11 @@ class _InspectorPanelState extends State<InspectorPanel> {
               children: [
                 if (selected != null) ...[
                   CcIcon(
-                    asset?.type == 'audio' ? LucideIcons.audioWaveform : LucideIcons.video,
+                    asset?.type == 'audio'
+                        ? LucideIcons.audioWaveform
+                        : asset?.type == 'image'
+                            ? LucideIcons.image
+                            : LucideIcons.video,
                     size: 14,
                     color: CcColors.videoPlate2,
                   ),

@@ -253,8 +253,8 @@ class _ParamRowState extends State<_ParamRow> {
               width: 22,
               child: Center(
                 child: KeyframeDiamond(
-                  lit: isAnimated ||
-                      _keyAtPlayhead(),
+                  animated: isAnimated,
+                  atCurrentTime: _keyAtPlayhead(),
                   onTap: () => widget.controller.toggleKeyframe(
                     widget.clip.id,
                     widget.instanceId,
@@ -329,25 +329,57 @@ class _ParamRowState extends State<_ParamRow> {
 
 /// The ◆ toggle (KEY-4).
 class KeyframeDiamond extends StatelessWidget {
-  const KeyframeDiamond({super.key, required this.lit, this.onTap});
+  const KeyframeDiamond({
+    super.key,
+    required this.animated,
+    required this.atCurrentTime,
+    this.onTap,
+    this.onContextMenu,
+  });
 
-  final bool lit;
+  final bool animated;
+  final bool atCurrentTime;
   final VoidCallback? onTap;
+  final ValueChanged<Offset>? onContextMenu;
 
   @override
   Widget build(BuildContext context) {
-    return CcTappable(
-      onTap: onTap,
-      child: Transform.rotate(
-        angle: 3.14159 / 4,
-        child: Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(
-            color: lit ? CcColors.accent : CcColors.elevated2,
-            border: Border.all(
-                color: lit ? CcColors.accent : CcColors.borderStrong),
-            borderRadius: BorderRadius.circular(1.5),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onSecondaryTapDown: onContextMenu == null
+          ? null
+          : (details) => onContextMenu!(details.globalPosition),
+      child: CcTooltip(
+        message: atCurrentTime
+            ? 'Keyframe at playhead · right-click for options'
+            : animated
+                ? 'Animated · click to add a keyframe here'
+                : 'Add keyframe at playhead',
+        child: CcTappable(
+          onTap: onTap,
+          child: SizedBox(
+            width: 22,
+            height: 22,
+            child: Center(
+              child: Transform.rotate(
+                angle: 3.14159 / 4,
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: atCurrentTime
+                        ? CcColors.accent
+                        : CcColors.elevated2,
+                    border: Border.all(
+                      color: animated || atCurrentTime
+                          ? CcColors.accent
+                          : CcColors.borderStrong,
+                    ),
+                    borderRadius: BorderRadius.circular(1.5),
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ),

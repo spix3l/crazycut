@@ -568,6 +568,30 @@ void main() {
       expect(e.clipById('a')!.start, s(4));
       expect(e.doc.clipsOn(video).first.start, Rt.zero());
     });
+
+    test('image placement creates a five-second unlinked visual clip', () {
+      final e = harness();
+      e.doc.media.add(MediaAsset(
+        id: 'image-1',
+        name: 'poster.webp',
+        path: '/tmp/poster.webp',
+        type: 'image',
+        duration: Rt.zero(),
+        hasAudio: false,
+      ));
+
+      final created = e.placeAsset('image-1');
+
+      expect(created, hasLength(1));
+      final image = e.clipById(created.single)!;
+      expect(image.duration, s(5));
+      expect(image.linkedGroup, isNull);
+      expect(e.doc.trackById(image.trackId)!.isVideo, isTrue);
+      expect(e.doc.clipsOn(e.doc.audioTrack()!.id), isEmpty);
+
+      e.setClipTiming(image.id, duration: s(12));
+      expect(e.clipById(image.id)!.duration, s(12));
+    });
   });
 
   group('undo', () {

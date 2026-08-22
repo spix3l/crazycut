@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <string>
 
@@ -43,6 +44,26 @@ TEST(Probe, FailsCleanlyOnMissingFile) {
   std::string json;
   EXPECT_EQ(cc::probeFile("/nonexistent/nope.mp4", &json), cc::Error::MediaOpenFailed);
   EXPECT_STREQ("open failed: No such file or directory", cc::lastError());
+}
+
+TEST(Probe, ClassifiesPipeDemuxedStillAsImage) {
+  const auto path = std::filesystem::temp_directory_path() /
+                    "crazycut-probe-static-image.ppm";
+  {
+    std::ofstream image(path, std::ios::binary | std::ios::trunc);
+    ASSERT_TRUE(image.good());
+    image << "P6\n2 2\n255\n";
+    const unsigned char pixels[] = {
+        255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255,
+    };
+    image.write(reinterpret_cast<const char*>(pixels), sizeof(pixels));
+  }
+
+  std::string json;
+  EXPECT_EQ(cc::probeFile(path.string(), &json), cc::Error::None);
+  EXPECT_NE(json.find("\"type\":\"image\""), std::string::npos);
+  std::error_code ignored;
+  std::filesystem::remove(path, ignored);
 }
 
 TEST(Frame, ExtractsRgbaAtRequestedWidth) {
