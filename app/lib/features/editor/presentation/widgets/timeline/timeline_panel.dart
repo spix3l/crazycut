@@ -232,11 +232,31 @@ class _TimelinePanelState extends State<TimelinePanel> {
           CcMenuItem(
             'Animate: ${preset.key}',
             separatorBefore: preset.key == TimelineEdits.kImagePresets.keys.first,
+            checked: c.imageAnimPreset(clip, 'motion') == preset.value,
             onTap: () => c.applyImagePreset(clip.id, preset.value),
+          ),
+      if (isImage)
+        for (final preset in TimelineEdits.kImageEntryPresets.entries)
+          CcMenuItem(
+            'Appear: ${preset.key}',
+            separatorBefore:
+                preset.key == TimelineEdits.kImageEntryPresets.keys.first,
+            checked: c.imageAnimPreset(clip, 'in') == preset.value,
+            onTap: () => c.setImageEntryExit(clip.id, appear: preset.value),
+          ),
+      if (isImage)
+        for (final preset in TimelineEdits.kImageEntryPresets.entries)
+          CcMenuItem(
+            'Disappear: ${preset.key}',
+            separatorBefore:
+                preset.key == TimelineEdits.kImageEntryPresets.keys.first,
+            checked: c.imageAnimPreset(clip, 'out') == preset.value,
+            onTap: () => c.setImageEntryExit(clip.id, disappear: preset.value),
           ),
       if (isImage)
         CcMenuItem(
           'Clear image animation',
+          separatorBefore: true,
           onTap: () => c.clearImageAnimation(clip.id),
         ),
     ]);

@@ -96,41 +96,43 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
   out->height = H;
   out->rgba.assign(static_cast<size_t>(W) * H * 4, 0);
 
-  // --- Framing: base scale from source → sequence canvas -------------------
-  double baseScale;
+  // --- Framing: source px → canvas px, per axis -----------------------------
+  // kx/ky are the whole mapping: framing chooses how the source is fitted to
+  // the canvas, layer.scale then zooms that. "fit"/"fill" are uniform, so both
+  // axes share one factor; "stretch" ignores aspect and scales each axis onto
+  // the canvas independently.
+  //
+  // These must stay one multiplication deep. An earlier version folded
+  // layer.scale into a `totalScale` *and* into the per-axis stretch factors,
+  // which squared it: a stretched clip at 50% drew at 25%, and sized its
+  // destination rect from a third, different factor so it was mis-centred too.
+  // app/lib/state/canvas_geometry.dart mirrors this for the on-canvas gizmo.
   const double sx = static_cast<double>(W) / src.width;
   const double sy = static_cast<double>(H) / src.height;
+  double kx, ky;
   if (framing == "stretch") {
-    baseScale = 1.0;  // handled by separate x/y scales below
-  } else if (framing == "fill") {
-    baseScale = std::max(sx, sy);
-  } else {  // fit
-    baseScale = std::min(sx, sy);
+    kx = sx * layer.scale;
+    ky = sy * layer.scale;
+  } else {
+    const double base = framing == "fill" ? std::max(sx, sy) : std::min(sx, sy);
+    kx = ky = base * layer.scale;
   }
-  const double totalScale = baseScale * layer.scale;
 
   // Destination rect of the source when drawn at the anchor origin.
-  const int dw = std::max(1, static_cast<int>(std::lround(src.width * totalScale)));
-  const int dh = std::max(1, static_cast<int>(std::lround(src.height * totalScale)));
-  double stretchX = 1.0, stretchY = 1.0;
-  if (framing == "stretch") {
-    stretchX = sx * layer.scale;
-    stretchY = sy * layer.scale;
-  }
+  const int dw = std::max(1, static_cast<int>(std::lround(src.width * kx)));
+  const int dh = std::max(1, static_cast<int>(std::lround(src.height * ky)));
 
   // Centre the framed image on the canvas centre, then apply position offset.
   const double cx = W / 2.0 + layer.x;
   const double cy = H / 2.0 + layer.y;
   // Anchor is expressed in final-image px relative to the image top-left.
-  const double axp = layer.anchorX * totalScale;
-  const double ayp = layer.anchorY * totalScale;
+  const double axp = layer.anchorX * kx;
+  const double ayp = layer.anchorY * ky;
 
   const double rad = -layer.rotationDeg * M_PI / 180.0;  // screen Y grows downward
   const double cosr = std::cos(rad), sinr = std::sin(rad);
 
   const int halfW = dw / 2, halfH = dh / 2;
-  const double kx = totalScale * stretchX;
-  const double ky = totalScale * stretchY;
   // Nearest-neighbour sampling. Bilinear would be nicer; nearest keeps
   // determinism trivially and is what golden tests assert on. Preview scale
   // hides the difference.

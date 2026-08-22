@@ -8,6 +8,7 @@ import '../../../../core/design/tokens.dart';
 import '../../../../core/widgets/primitives.dart';
 import '../../../../core/widgets/rgba_frame.dart';
 import '../../../../state/editor_controller.dart';
+import 'canvas_gizmo.dart';
 
 /// Centre column: overlay toggles, the program monitor and the transport bar.
 class MonitorPanel extends StatefulWidget {
@@ -65,21 +66,30 @@ class _MonitorPanelState extends State<MonitorPanel> {
                   aspectRatio: c.doc.settings.width / c.doc.settings.height,
                   child: GestureDetector(
                     onDoubleTap: () => _editTextUnderPlayhead(context),
-                    child: _PreviewSizeReporter(
-                      controller: c,
-                      child: switch ((empty, c.previewFrame)) {
-                        (true, _) => const _Placeholder(
-                            message: 'Nothing on the timeline yet'),
-                        (false, final bytes?)
-                            when c.previewFrameSize != null =>
-                          _FramePreview(
-                            bytes: bytes,
-                            width: c.previewFrameSize!.$1,
-                            height: c.previewFrameSize!.$2,
-                          ),
-                        _ => const _Placeholder(
-                            message: 'No frame under the playhead'),
-                      },
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _PreviewSizeReporter(
+                          controller: c,
+                          child: switch ((empty, c.previewFrame)) {
+                            (true, _) => const _Placeholder(
+                                message: 'Nothing on the timeline yet'),
+                            (false, final bytes?)
+                                when c.previewFrameSize != null =>
+                              _FramePreview(
+                                bytes: bytes,
+                                width: c.previewFrameSize!.$1,
+                                height: c.previewFrameSize!.$2,
+                              ),
+                            _ => const _Placeholder(
+                                message: 'No frame under the playhead'),
+                          },
+                        ),
+                        // TXT-6: move/resize/rotate handles over the frame.
+                        // Layered above the preview but only claims pointers
+                        // that land on it, so the double-tap above survives.
+                        if (!empty) CanvasGizmo(controller: c),
+                      ],
                     ),
                   ),
                 ),

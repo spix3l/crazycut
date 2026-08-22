@@ -48,6 +48,7 @@ Per-clip effect stacks covering the creator basics: color correction, blur famil
 
 ### Transform (category: *Transform*)
 - **FX-9** Built-in transform on every visual clip (not an added effect): position X/Y, scale %, rotation °, anchor point, opacity 0–100%, flip H/V, fit/fill/stretch framing mode for mismatched aspect.
+  - Editable on the monitor as well as in the inspector — see TXT-6. `app/lib/state/canvas_geometry.dart` mirrors `rasterizeLayer()` so the handles land on the pixels; `app/test/canvas_gizmo_parity_test.dart` renders through the engine and asserts the two still agree.
 - **FX-10** Crop effect: left/right/top/bottom % or px, feather edge option, rounded corners (radius px) — rounded corners double as image styling favorite.
 - **FX-11** Drop shadow effect for images/text-on-image use: offset, blur, color, opacity.
 

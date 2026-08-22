@@ -250,30 +250,59 @@ class _NamePlate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: height,
-      color: color,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: Row(
-        children: [
-          CcIcon(icon, size: 9, color: const Color(0xDDFFFFFF)),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.clip,
-              softWrap: false,
-              style: CcType.style(size: 9, weight: CcType.medium, color: const Color(0xEEFFFFFF)),
-            ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        // At high zoom-out a clip can be narrower than the icon itself. Keep
+        // the name plate painted, but remove content before Row gets an
+        // impossible minimum width and reports a RenderFlex overflow.
+        final showIcon = width >= 12;
+        final showLabel = width >= 34;
+        final showLinked = linked && width >= 52;
+        final showMuted = muted && width >= 68;
+        final horizontalPadding = width >= 24 ? 6.0 : 0.0;
+        return Container(
+          height: height,
+          color: color,
+          padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+          child: Row(
+            children: [
+              if (showIcon)
+                CcIcon(icon, size: 9, color: const Color(0xDDFFFFFF)),
+              if (showLabel) ...[
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    softWrap: false,
+                    style: CcType.style(
+                      size: 9,
+                      weight: CcType.medium,
+                      color: const Color(0xEEFFFFFF),
+                    ),
+                  ),
+                ),
+              ],
+              if (showLinked)
+                const CcIcon(
+                  LucideIcons.link,
+                  size: 8,
+                  color: Color(0x99FFFFFF),
+                ),
+              if (showMuted) ...[
+                const SizedBox(width: 3),
+                const CcIcon(
+                  LucideIcons.volumeOff,
+                  size: 8,
+                  color: Color(0x99FFFFFF),
+                ),
+              ],
+            ],
           ),
-          if (linked) const CcIcon(LucideIcons.link, size: 8, color: Color(0x99FFFFFF)),
-          if (muted) ...[
-            const SizedBox(width: 3),
-            const CcIcon(LucideIcons.volumeOff, size: 8, color: Color(0x99FFFFFF)),
-          ],
-        ],
-      ),
+        );
+      },
     );
   }
 }

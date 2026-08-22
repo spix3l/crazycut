@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'package:crazycut_app/data/text_content.dart';
 
@@ -48,15 +49,14 @@ class TextRasterizer {
     final fontSize =
         (text.fontSize * scale * supersample).clamp(8.0, 512.0).toDouble();
     final fontWeight = _weight(text.fontWeight);
-    final fontFamily = text.fontFamily == 'default' ? null : text.fontFamily;
     final lineHeight = text.lineHeight <= 0 ? 1.2 : text.lineHeight;
 
     final tp = TextPainter(
       text: TextSpan(
         text: content,
-        style: TextStyle(
+        style: _fontStyle(
+          text,
           color: _color(text.color),
-          fontFamily: fontFamily,
           fontSize: fontSize,
           fontWeight: fontWeight,
           height: lineHeight,
@@ -103,9 +103,9 @@ class TextRasterizer {
       final shadowTp = TextPainter(
         text: TextSpan(
           text: content,
-          style: TextStyle(
+          style: _fontStyle(
+            text,
             color: sc.withValues(alpha: text.shadowOpacity),
-            fontFamily: fontFamily,
             fontSize: fontSize,
             fontWeight: fontWeight,
             height: lineHeight,
@@ -149,13 +149,13 @@ class TextRasterizer {
       final strokeTp = TextPainter(
         text: TextSpan(
           text: content,
-          style: TextStyle(
-            foreground: stroke,
-            fontFamily: fontFamily,
+          style: _fontStyle(
+            text,
             fontSize: fontSize,
             fontWeight: fontWeight,
             height: lineHeight,
             letterSpacing: text.letterSpacing * scale * supersample,
+            foreground: stroke,
           ),
         ),
         textAlign: _align(text.align),
@@ -186,6 +186,38 @@ class TextRasterizer {
 
   /// Drops cached rasters (used when the sequence format changes).
   void clearCache() => _cache.clear();
+
+  TextStyle _fontStyle(
+    TextContent text, {
+    Color? color,
+    required double fontSize,
+    required FontWeight fontWeight,
+    required double height,
+    required double letterSpacing,
+    Paint? foreground,
+  }) {
+    final base = text.fontFamily == 'default'
+        ? const TextStyle()
+        : _googleFont(text.fontFamily);
+    return base.copyWith(
+      color: color,
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      height: height,
+      letterSpacing: letterSpacing,
+      foreground: foreground,
+    );
+  }
+
+  TextStyle _googleFont(String family) {
+    try {
+      return GoogleFonts.getFont(family);
+    } on Exception {
+      // Preserve compatibility with projects that contain a custom/system
+      // family not present in the Google Fonts catalog.
+      return TextStyle(fontFamily: family);
+    }
+  }
 
   FontWeight _weight(String w) => switch (w) {
         'w400' => FontWeight.w400,

@@ -120,8 +120,13 @@ class _ImageAnimationSection extends StatelessWidget {
   final Clip clip;
   final ClipTransform transform;
 
-  bool get _hasMotion =>
-      transform.x.animated || transform.y.animated || transform.scale.animated;
+  bool get _hasAnimation =>
+      controller.imageAnimSpec(clip) != null ||
+      transform.x.animated ||
+      transform.y.animated ||
+      transform.scale.animated;
+
+  String? _motion() => controller.imageAnimPreset(clip, 'motion');
 
   @override
   Widget build(BuildContext context) {
@@ -132,7 +137,7 @@ class _ImageAnimationSection extends StatelessWidget {
         children: [
           CcSectionHeader(
             'ANIMATION',
-            trailing: _hasMotion
+            trailing: _hasAnimation
                 ? CcTappable(
                     onTap: () => controller.clearImageAnimation(clip.id),
                     child: Text('Clear', style: CcType.style(
@@ -148,25 +153,176 @@ class _ImageAnimationSection extends StatelessWidget {
             spacing: 6,
             runSpacing: 6,
             children: [
-              for (final preset in TimelineEdits.kImagePresets.keys)
-                CcTappable(
+              for (final entry in TimelineEdits.kImagePresets.entries)
+                _PresetChip(
+                  label: entry.key,
+                  selected: _motion() == entry.value,
+                  // Tapping the active motion turns it off, so the chips read
+                  // as a toggle row rather than a one-way door.
                   onTap: () => controller.applyImagePreset(
                     clip.id,
-                    TimelineEdits.kImagePresets[preset]!,
-                  ),
-                  child: Container(
-                    height: 27,
-                    padding: const EdgeInsets.symmetric(horizontal: 9),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: CcColors.elevated,
-                      borderRadius: CcRadius.brSm,
-                      border: Border.all(color: CcColors.border),
-                    ),
-                    child: Text(preset, style: CcType.style(size: 10)),
+                    _motion() == entry.value ? null : entry.value,
                   ),
                 ),
             ],
+          ),
+          const SizedBox(height: 4),
+          _EntryExitRow(controller: controller, clip: clip, side: 'in'),
+          _EntryExitRow(controller: controller, clip: clip, side: 'out'),
+        ],
+      ),
+    );
+  }
+}
+
+class _PresetChip extends StatelessWidget {
+  const _PresetChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return CcTappable(
+      onTap: onTap,
+      child: Container(
+        height: 27,
+        padding: const EdgeInsets.symmetric(horizontal: 9),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? CcColors.accentDim : CcColors.elevated,
+          borderRadius: CcRadius.brSm,
+          border: Border.all(
+            color: selected ? CcColors.accent : CcColors.border,
+          ),
+        ),
+        child: Text(label, style: CcType.style(size: 10)),
+      ),
+    );
+  }
+}
+
+/// One appear/disappear row: which animation plays, and for how long.
+class _EntryExitRow extends StatelessWidget {
+  const _EntryExitRow({
+    required this.controller,
+    required this.clip,
+    required this.side,
+  });
+
+  final EditorController controller;
+  final Clip clip;
+
+  /// 'in' (appear) or 'out' (disappear).
+  final String side;
+
+  static const double _maxSeconds = 2.0;
+
+  String? get _preset => controller.imageAnimPreset(clip, side);
+
+  String get _label => side == 'in' ? 'APPEAR' : 'DISAPPEAR';
+
+  String get _valueLabel {
+    final id = _preset;
+    if (id == null) return 'None';
+    return TimelineEdits.kImageEntryPresets.entries
+        .firstWhere(
+          (e) => e.value == id,
+          orElse: () => const MapEntry('None', ''),
+        )
+        .key;
+  }
+
+  void _pick(BuildContext context) {
+    final anchor = context.findRenderObject() as RenderBox?;
+    if (anchor == null || !anchor.attached) return;
+    showCcMenu(
+      context,
+      anchor.localToGlobal(Offset(0, anchor.size.height + 4)),
+      [
+        CcMenuItem(
+          'None',
+          checked: _preset == null,
+          onTap: () => _apply(''),
+        ),
+        for (final entry in TimelineEdits.kImageEntryPresets.entries)
+          CcMenuItem(
+            entry.key,
+            checked: _preset == entry.value,
+            separatorBefore: entry.value == 'fade',
+            onTap: () => _apply(entry.value),
+          ),
+      ],
+    );
+  }
+
+  void _apply(String value) => controller.setImageEntryExit(
+    clip.id,
+    appear: side == 'in' ? value : null,
+    disappear: side == 'out' ? value : null,
+  );
+
+  void _setSeconds(double seconds) => controller.setImageEntryExit(
+    clip.id,
+    appear: side == 'in' ? (_preset ?? '') : null,
+    disappear: side == 'out' ? (_preset ?? '') : null,
+    seconds: seconds,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final seconds = controller.imageAnimSeconds(clip, side);
+    final on = _preset != null;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 66,
+            child: Text(
+              _label,
+              style: CcType.style(size: 9, color: CcColors.textTertiary),
+            ),
+          ),
+          Expanded(
+            child: Builder(
+              builder: (anchorContext) => CcDropdown(
+                value: _valueLabel,
+                height: 26,
+                fontSize: 11,
+                bordered: true,
+                onTap: () => _pick(anchorContext),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 54,
+            child: CcSlider(
+              value: (seconds / _maxSeconds).clamp(0.0, 1.0),
+              onChanged: on
+                  ? (t) => _setSeconds(
+                      ((t * _maxSeconds) * 20).round() / 20,
+                    )
+                  : null,
+            ),
+          ),
+          SizedBox(
+            width: 34,
+            child: Text(
+              '${seconds.toStringAsFixed(2)}s',
+              textAlign: TextAlign.right,
+              style: CcType.style(
+                size: 10,
+                weight: CcType.medium,
+                color: on ? CcColors.textPrimary : CcColors.textTertiary,
+              ),
+            ),
           ),
         ],
       ),

@@ -25,6 +25,7 @@ Text clips and images live on any video track with free duration. A single keyfr
 - **TXT-4** Presets gallery (~20): Title, Subtitle, Lower third, Caption bar, Meme (Impact-style), Quote, Callout label… Each = style + default animation; fully editable after apply.
 - **TXT-5** Animation presets (in/out pairs, applied via keyframes so they remain editable): Fade, Pop (scale overshoot), Slide (4 directions), Rise (translate+fade), Typewriter (per-character reveal, static-effect implementation), Blink. Speed slider scales generated keyframe times.
 - **TXT-6** On-canvas editing: double-click text in preview → inline edit box matching final typography; drag moves position (writes transform position); corner handles scale; rotation handle rotates. Safe-area guides toggle helps keep captions platform-friendly.
+  - *Implemented for image and video clips* (`canvas_gizmo.dart`): drag to move, eight handles to resize, a knob to rotate, Alt to resize about the centre, Shift to snap rotation to 15°. Scale is uniform — `ClipTransform` and the engine's `CompositedLayer` carry one `scale`, so edge handles resize proportionally. The handle rect mirrors `rasterizeLayer()` via `state/canvas_geometry.dart`. Text clips are still inspector-only: their texture is a Dart raster with no asset dimensions to measure.
 - **TXT-7** Text renders through cached glyph atlases (CoreText/DirectWrite) composited as a texture — transform/effect/keyframe machinery identical to images (`01-architecture.md` §7).
 
 ### Acceptance criteria
@@ -38,6 +39,10 @@ Text clips and images live on any video track with free duration. A single keyfr
 
 - **TXT-8** Image assets import per IMP spec; dropped to timeline they become clips with free duration (default 5 s or fit-to-drop-span).
 - **TXT-9** Ken Burns convenience: context menu "Animate" offers zoom-in/zoom-out/pan presets that generate transform keyframes across the clip (editable afterwards like any keyframes).
+- **TXT-10** Appear/disappear animations for image clips: Fade, Pop, Slide (4 directions), Blur and Wipe (4 directions), each with its own duration, picked per side in the Transform inspector or the clip context menu.
+  - The whole animation is *generated* from a spec on the clip (`extra.imageAnim`: motion, in, out, resting pose, owned effect ids) and rebuilt from scratch on every change, which is what makes a preset removable and lets an entry land on the Ken Burns curve instead of clobbering it.
+  - Fade/Pop/Slide are transform keyframes; Blur and Wipe are managed `gaussianBlur`/`crop` instances with keyed params. Both are evaluated by the shared compositor, so preview and export agree and no engine change was needed.
+  - Only x/y/scale/opacity and the clip's own managed effects are ever rewritten — rotation, user effects and hand-authored keys on other params survive a rebuild and a clear.
 
 ---
 

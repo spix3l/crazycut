@@ -21,10 +21,16 @@ class TextTab extends StatelessWidget {
   static const _fonts = <String>[
     'default',
     'Inter',
+    'Roboto',
+    'Open Sans',
+    'Lato',
+    'Montserrat',
+    'Poppins',
     'Playfair Display',
-    'JetBrains Mono',
+    'Merriweather',
+    'Oswald',
     'Bebas Neue',
-    'Lora',
+    'JetBrains Mono',
     'Space Grotesk',
   ];
 
@@ -61,10 +67,10 @@ class TextTab extends StatelessWidget {
                     child: Container(
                       padding:
                           const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: CcColors.elevated,
-                        borderRadius: BorderRadius.circular(5),
-                        border: Border.all(color: CcColors.border),
+                      decoration: CcDeco.selectableTile(
+                        selected: text.animation ==
+                            TimelineEdits.kTextPresets[preset],
+                        radius: 5,
                       ),
                       child: Text(preset,
                           style: CcType.style(size: 11)),
@@ -79,30 +85,35 @@ class TextTab extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                  child: CcDropdown(
-                    value: text.fontFamily,
-                    bordered: true,
-                    onTap: () => showCcMenu(context, Offset(320, 200), [
-                      for (final f in _fonts)
-                        CcMenuItem(f,
-                            checked: f == text.fontFamily,
-                            onTap: () => c.setTextStyle(clip.id,
-                                (t) => t..fontFamily = f)),
-                    ]),
+                  child: Builder(
+                    builder: (anchorContext) => CcTappable(
+                      onTap: () => showCcMenuBelow(anchorContext, [
+                        for (final f in _fonts)
+                          CcMenuItem(f,
+                              checked: f == text.fontFamily,
+                              onTap: () => c.setTextStyle(clip.id,
+                                  (t) => t..fontFamily = f)),
+                      ]),
+                      child: CcDropdown(value: text.fontFamily, bordered: true),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
-                CcDropdown(
-                  value: text.fontWeight.substring(1),
-                  width: 56,
-                  bordered: true,
-                  onTap: () => showCcMenu(context, Offset(420, 200), [
-                    for (final w in _weights)
-                      CcMenuItem(w.substring(1),
-                          checked: w == text.fontWeight,
-                          onTap: () => c.setTextStyle(
-                              clip.id, (t) => t..fontWeight = w)),
-                  ]),
+                Builder(
+                  builder: (anchorContext) => CcTappable(
+                    onTap: () => showCcMenuBelow(anchorContext, [
+                      for (final w in _weights)
+                        CcMenuItem(w.substring(1),
+                            checked: w == text.fontWeight,
+                            onTap: () => c.setTextStyle(
+                                clip.id, (t) => t..fontWeight = w)),
+                    ]),
+                    child: CcDropdown(
+                      value: text.fontWeight.substring(1),
+                      width: 56,
+                      bordered: true,
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 8),
                 CcSegmented(

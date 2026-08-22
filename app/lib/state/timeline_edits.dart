@@ -1872,6 +1872,25 @@ mixin TimelineEdits on ChangeNotifier {
     'Pan down': 'panDown',
   };
 
+  /// Entry/exit animations for image clips (label -> id). Both directions
+  /// share one id namespace: an id means the same *look*, played forwards on
+  /// appear and backwards on disappear.
+  static const Map<String, String> kImageEntryPresets = {
+    'Fade': 'fade',
+    'Pop': 'pop',
+    'Slide left': 'slideLeft',
+    'Slide right': 'slideRight',
+    'Slide up': 'slideUp',
+    'Slide down': 'slideDown',
+    'Blur': 'blur',
+    'Wipe left': 'wipeLeft',
+    'Wipe right': 'wipeRight',
+    'Wipe up': 'wipeUp',
+    'Wipe down': 'wipeDown',
+  };
+
+  static const double kImageEntryDefaultSeconds = 0.4;
+
   /// TXT-1: a text clip at the playhead on the topmost unlocked video track
   /// (or [trackId]), default 5 s, pushed clear of neighbours and selected.
   List<String> addTextClip({String? trackId, Rt? at, Rt? duration}) {
@@ -1962,6 +1981,10 @@ mixin TimelineEdits on ChangeNotifier {
 
     _run('Apply text animation', (tx) {
       tx.clip(clipId);
+      // Keep the selected preset visible in the inspector. This is
+      // provenance only; baked keyframes remain the playback source of truth.
+      clip.text ??= TextContent();
+      clip.text!.animation = preset;
       final tr = clip.transform?.copy() ?? ClipTransform();
       switch (preset) {
         case 'fade':
@@ -2032,8 +2055,8 @@ mixin TimelineEdits on ChangeNotifier {
             ]);
           tr.opacity.sortKeys();
         case 'typewriter':
-          clip.text ??= TextContent();
-          clip.text!.animation = 'typewriter';
+          // Typewriter is evaluated from this provenance flag by the text
+          // rasterizer rather than transform keyframes.
         default:
           return;
       }
@@ -2041,19 +2064,352 @@ mixin TimelineEdits on ChangeNotifier {
     });
   }
 
-  /// TXT-9: generates a full-clip Ken Burns move for an image clip. Only the
-  /// chosen preset's parameters are replaced; unrelated transform data stays.
-  void applyImagePreset(String clipId, String preset) {
+  // --- Image animation (TXT-9 motion + entry/exit) ----------------------------
+  //
+  // The whole animation for an image clip is *generated* from a small spec kept
+  // on the clip, rather than merged into whatever keyframes happen to be there:
+  //
+  //   extra['imageAnim'] = {
+  //     'motion': 'zoomIn',                     // full-clip Ken Burns, or null
+  //     'in':  {'type': 'pop',  'seconds': 0.4},
+  //     'out': {'type': 'fade', 'seconds': 0.4},
+  //     'base': {'x': 0, 'y': 0, 'scale': 100, 'opacity': 100},
+  //     'fx':   ['<effect instance id>', ...],  // blur/wipe instances we own
+  //   }
+  //
+  // Regenerating from the spec is what makes a preset removable: turning one
+  // off rebuilds the curve without it instead of trying to unpick its keys.
+  // Only x/y/scale/opacity and the listed effect instances are ever touched —
+  // rotation, user effects and hand-authored keys on other params survive.
+
+  static const String _animKey = 'imageAnim';
+
+  /// The transform parameters a generated image animation may write.
+  static const List<String> _animParams = ['x', 'y', 'scale', 'opacity'];
+
+  /// The live animation spec for [clip], or null when it has none.
+  Map<String, dynamic>? imageAnimSpec(Clip clip) {
+    final raw = clip.extra[_animKey];
+    return raw is Map<String, dynamic> ? raw : null;
+  }
+
+  /// Preset id currently applied on a side ('motion', 'in' or 'out').
+  String? imageAnimPreset(Clip clip, String side) {
+    final spec = imageAnimSpec(clip);
+    if (spec == null) return null;
+    if (side == 'motion') return spec['motion'] as String?;
+    final entry = spec[side];
+    return entry is Map ? entry['type'] as String? : null;
+  }
+
+  double imageAnimSeconds(Clip clip, String side) {
+    final entry = imageAnimSpec(clip)?[side];
+    return entry is Map
+        ? ((entry['seconds'] as num?)?.toDouble() ??
+              kImageEntryDefaultSeconds)
+        : kImageEntryDefaultSeconds;
+  }
+
+  /// The pose a generated animation plays around, or the clip's plain
+  /// transform values when it has no generated animation. Direct manipulation
+  /// reads its starting values from here so a drag stays 1:1 with the pointer
+  /// even while an entry animation is offsetting the image on screen.
+  Map<String, double> imageAnimResting(Clip clip) =>
+      _restingValues(clip, imageAnimSpec(clip));
+
+  bool _isImageClip(Clip clip) =>
+      doc.assetById(clip.mediaId)?.type == 'image';
+
+  /// TXT-9: full-clip Ken Burns move. Pass null to drop the motion and keep
+  /// whatever entry/exit animation is set.
+  void applyImagePreset(String clipId, String? preset) {
     final clip = _editableClip(clipId);
-    final asset = clip == null ? null : doc.assetById(clip.mediaId);
-    if (clip == null || asset?.type != 'image') return;
+    if (clip == null || !_isImageClip(clip)) return;
+    _run('Animate image', (tx) {
+      tx.clip(clipId);
+      final spec = _ensureAnimSpec(clip);
+      spec['motion'] = kImagePresets.containsValue(preset) ? preset : null;
+      _writeImageAnimation(clip);
+    });
+  }
 
-    final end = quantiseToFrame(clip.duration).clampTo(Rt.zero(), clip.duration);
-    final horizontalOffset = doc.settings.width * 0.05;
-    final verticalOffset = doc.settings.height * 0.05;
+  /// Sets the appear and/or disappear animation. Passing `''` for a side
+  /// clears it; omitting a side leaves it alone.
+  void setImageEntryExit(
+    String clipId, {
+    String? appear,
+    String? disappear,
+    double? seconds,
+  }) {
+    final clip = _editableClip(clipId);
+    if (clip == null || !_isImageClip(clip)) return;
+    _run('Image animation', (tx) {
+      tx.clip(clipId);
+      final spec = _ensureAnimSpec(clip);
+      void side(String key, String? value) {
+        if (value == null) {
+          if (seconds != null && spec[key] is Map) {
+            (spec[key] as Map)['seconds'] = seconds;
+          }
+          return;
+        }
+        if (value.isEmpty || !kImageEntryPresets.containsValue(value)) {
+          spec[key] = null;
+          return;
+        }
+        spec[key] = <String, dynamic>{
+          'type': value,
+          'seconds':
+              seconds ??
+              ((spec[key] is Map ? (spec[key] as Map)['seconds'] : null)
+                      as num?)
+                  ?.toDouble() ??
+              kImageEntryDefaultSeconds,
+        };
+      }
 
-    void keys(ParamValue pv, double from, double to) {
-      pv.keyframes
+      side('in', appear);
+      side('out', disappear);
+      _writeImageAnimation(clip);
+    });
+  }
+
+  /// Drops every generated animation and leaves the clip at its resting pose.
+  void clearImageAnimation(String clipId) {
+    final clip = _editableClip(clipId);
+    if (clip == null || !_isImageClip(clip)) return;
+    final spec = imageAnimSpec(clip);
+    final transform = clip.transform;
+    if (transform == null) return;
+    final params = <String, ParamValue>{
+      'x': transform.x,
+      'y': transform.y,
+      'scale': transform.scale,
+      'opacity': transform.opacity,
+    };
+    // Only ever undo what a preset generated, so hand-authored keys on an
+    // untouched parameter (a manual opacity ramp, say) survive the clear.
+    final generated = spec == null
+        ? [
+            for (final e in params.entries)
+              if (e.key != 'opacity' && e.value.animated) e.key,
+          ]
+        : ((spec['params'] as List?) ?? const []).whereType<String>().toList();
+    if (generated.isEmpty && spec == null) return;
+    final base = _restingValues(clip, spec);
+    _run('Clear image animation', (tx) {
+      tx.clip(clipId);
+      _removeManagedEffects(clip, spec);
+      clip.extra.remove(_animKey);
+      for (final id in generated) {
+        final param = params[id];
+        if (param == null) continue;
+        param.keyframes.clear();
+        // Projects predating the spec have no resting pose recorded, so they
+        // keep the old contract: settle on the value the motion ended at.
+        param.static = spec == null ? param.evaluate(clip.duration) : base[id];
+      }
+    });
+  }
+
+  Map<String, dynamic> _ensureAnimSpec(Clip clip) {
+    final existing = imageAnimSpec(clip);
+    if (existing != null) return existing;
+    final spec = <String, dynamic>{
+      'motion': null,
+      'in': null,
+      'out': null,
+      'base': _restingValues(clip, null),
+      'fx': <String>[],
+    };
+    clip.extra[_animKey] = spec;
+    return spec;
+  }
+
+  /// The pose the clip rests at between its entry and exit. Taken from the
+  /// spec once one exists, so regenerating never drifts; otherwise read off
+  /// the clip's current (possibly hand-keyed) transform.
+  Map<String, double> _restingValues(Clip clip, Map<String, dynamic>? spec) {
+    final stored = spec?['base'];
+    if (stored is Map) {
+      return {
+        for (final key in _animParams)
+          key:
+              (stored[key] as num?)?.toDouble() ??
+              (key == 'scale' || key == 'opacity' ? 100.0 : 0.0),
+      };
+    }
+    final t = clip.transformOrDefault;
+    double at(ParamValue pv, double fallback) {
+      final v = pv.animated ? pv.evaluate(Rt.zero()) : pv.static;
+      return v is num ? v.toDouble() : fallback;
+    }
+
+    return {
+      'x': at(t.x, 0),
+      'y': at(t.y, 0),
+      'scale': at(t.scale, 100),
+      'opacity': at(t.opacity, 100),
+    };
+  }
+
+  /// Keeps the resting pose in sync when the gizmo or an inspector slider
+  /// moves a clip whose animation we generate — the animation then replays
+  /// around the new pose instead of snapping back to the old one.
+  void _syncAnimBase(Clip clip, String paramId, double value) {
+    final spec = imageAnimSpec(clip);
+    if (spec == null) return;
+    if (!_animParams.contains(paramId)) return;
+    final base = _restingValues(clip, spec)..[paramId] = value;
+    spec['base'] = base;
+    _writeImageAnimation(clip);
+  }
+
+  void _removeManagedEffects(Clip clip, Map<String, dynamic>? spec) {
+    final owned = (spec?['fx'] as List?)?.cast<dynamic>() ?? const [];
+    if (owned.isEmpty) return;
+    final ids = owned.whereType<String>().toSet();
+    clip.effects.removeWhere((e) => e is Map && ids.contains(e['id']));
+  }
+
+  /// Regenerates every generated keyframe and managed effect on [clip] from
+  /// its spec. Must run inside an open transaction.
+  void _writeImageAnimation(Clip clip) {
+    final spec = imageAnimSpec(clip);
+    if (spec == null) return;
+    _removeManagedEffects(clip, spec);
+    spec['fx'] = <String>[];
+
+    final base = _restingValues(clip, spec);
+    spec['base'] = base;
+    final transform = clip.transform ??= ClipTransform();
+    final params = <String, ParamValue>{
+      'x': transform.x,
+      'y': transform.y,
+      'scale': transform.scale,
+      'opacity': transform.opacity,
+    };
+
+    final duration = clip.duration;
+    Rt at(double seconds) => quantiseToFrame(
+      Rt.fromMicros((seconds * 1000000).round().clamp(0, duration.micros)),
+    );
+    final durSec = duration.seconds;
+    final inType = imageAnimPreset(clip, 'in');
+    final outType = imageAnimPreset(clip, 'out');
+    // Neither side may eat more than its half of the clip, or a short clip
+    // would animate in while it is still animating out.
+    final inSec = inType == null
+        ? 0.0
+        : imageAnimSeconds(clip, 'in').clamp(0.05, durSec / 2);
+    final outSec = outType == null
+        ? 0.0
+        : imageAnimSeconds(clip, 'out').clamp(0.05, durSec / 2);
+
+    // 1. The resting curve: the Ken Burns move if there is one, else flat.
+    final curves = <String, List<Map<String, dynamic>>>{
+      for (final key in params.keys) key: <Map<String, dynamic>>[],
+    };
+    _writeMotionCurve(spec['motion'] as String?, base, curves, at(durSec));
+
+    double valueAt(String key, double seconds) {
+      final keys = curves[key]!;
+      if (keys.isEmpty) return base[key]!;
+      final probe = ParamValue(
+        static: base[key],
+        keyframes: [for (final k in keys) {...k}],
+      );
+      final v = probe.evaluate(at(seconds));
+      return v is num ? v.toDouble() : base[key]!;
+    }
+
+    // 2. Entry and exit, layered onto that curve so a slide-in lands exactly
+    //    where the resting move wants the image to be.
+    final fx = <String, Map<String, List<Map<String, dynamic>>>>{};
+    if (inType != null) {
+      _writeEdgeAnimation(
+        type: inType,
+        entering: true,
+        edgeSec: inSec,
+        restSec: inSec,
+        clipSec: durSec,
+        base: base,
+        curves: curves,
+        valueAt: valueAt,
+        at: at,
+        fx: fx,
+      );
+    }
+    if (outType != null) {
+      _writeEdgeAnimation(
+        type: outType,
+        entering: false,
+        edgeSec: outSec,
+        restSec: durSec - outSec,
+        clipSec: durSec,
+        base: base,
+        curves: curves,
+        valueAt: valueAt,
+        at: at,
+        fx: fx,
+      );
+    }
+
+    // 3. Commit. A param with no generated keys goes back to a plain static so
+    //    the inspector shows it as un-animated.
+    final generated = <String>[];
+    for (final entry in params.entries) {
+      final keys = curves[entry.key]!;
+      entry.value.keyframes
+        ..clear()
+        ..addAll(keys);
+      entry.value.sortKeys();
+      if (keys.isEmpty) {
+        entry.value.static = base[entry.key];
+      } else {
+        generated.add(entry.key);
+      }
+    }
+    spec['params'] = generated;
+
+    // 4. Managed effects. Blur first so the wipe edge stays crisp.
+    for (final type in const ['gaussianBlur', 'crop']) {
+      final byParam = fx[type];
+      if (byParam == null || byParam.isEmpty) continue;
+      final instance = <String, dynamic>{
+        'id': generateId(),
+        'type': type,
+        'enabled': true,
+        'params': {
+          for (final entry in byParam.entries)
+            entry.key: ParamValue(
+              static: entry.value.first['v'],
+              keyframes: entry.value,
+            ).toJson(),
+        },
+      };
+      clip.effects.add(instance);
+      (spec['fx'] as List).add(instance['id']);
+    }
+  }
+
+  /// Ken Burns keys for the resting curve, matching the pre-existing presets:
+  /// a slow push or a 15%-oversized slow pan.
+  void _writeMotionCurve(
+    String? motion,
+    Map<String, double> base,
+    Map<String, List<Map<String, dynamic>>> curves,
+    Rt end,
+  ) {
+    if (motion == null) return;
+    final dx = doc.settings.width * 0.05;
+    final dy = doc.settings.height * 0.05;
+    final scale = base['scale']!;
+    // Multiply before dividing: `scale * 1.15` lands on 114.99999999999999
+    // for the default 100, which shows up in the inspector and in goldens.
+    double zoom(double percent) => scale * percent / 100;
+    void keys(String param, double from, double to) {
+      curves[param]!
         ..clear()
         ..addAll([
           {'t': Rt.zero().toString(), 'v': from, 'interp': 'easeInOut'},
@@ -2061,49 +2417,154 @@ mixin TimelineEdits on ChangeNotifier {
         ]);
     }
 
-    _run('Animate image', (tx) {
-      tx.clip(clipId);
-      final transform = clip.transform?.copy() ?? ClipTransform();
-      switch (preset) {
-        case 'zoomIn':
-          keys(transform.scale, 100, 115);
-        case 'zoomOut':
-          keys(transform.scale, 115, 100);
-        case 'panLeft':
-          keys(transform.scale, 115, 115);
-          keys(transform.x, horizontalOffset, -horizontalOffset);
-        case 'panRight':
-          keys(transform.scale, 115, 115);
-          keys(transform.x, -horizontalOffset, horizontalOffset);
-        case 'panUp':
-          keys(transform.scale, 115, 115);
-          keys(transform.y, verticalOffset, -verticalOffset);
-        case 'panDown':
-          keys(transform.scale, 115, 115);
-          keys(transform.y, -verticalOffset, verticalOffset);
-        default:
-          return;
-      }
-      clip.transform = transform;
-    });
+    switch (motion) {
+      case 'zoomIn':
+        keys('scale', scale, zoom(115));
+      case 'zoomOut':
+        keys('scale', zoom(115), scale);
+      case 'panLeft':
+        keys('scale', zoom(115), zoom(115));
+        keys('x', base['x']! + dx, base['x']! - dx);
+      case 'panRight':
+        keys('scale', zoom(115), zoom(115));
+        keys('x', base['x']! - dx, base['x']! + dx);
+      case 'panUp':
+        keys('scale', zoom(115), zoom(115));
+        keys('y', base['y']! + dy, base['y']! - dy);
+      case 'panDown':
+        keys('scale', zoom(115), zoom(115));
+        keys('y', base['y']! - dy, base['y']! + dy);
+    }
   }
 
-  /// Clears image position/scale motion, retaining each final value as static.
-  /// Independent rotation and opacity animation intentionally survives.
-  void clearImageAnimation(String clipId) {
-    final clip = _editableClip(clipId);
-    final asset = clip == null ? null : doc.assetById(clip.mediaId);
-    if (clip == null || asset?.type != 'image' || clip.transform == null) return;
-    final params = [clip.transform!.x, clip.transform!.y, clip.transform!.scale];
-    if (!params.any((param) => param.animated)) return;
-    _run('Clear image animation', (tx) {
-      tx.clip(clipId);
-      for (final param in params) {
-        if (!param.animated) continue;
-        param.static = param.evaluate(clip.duration);
-        param.keyframes.clear();
+  /// Writes one side of the animation.
+  ///
+  /// [entering] runs from the clip's head towards [restSec]; otherwise it runs
+  /// from [restSec] to the tail. Transform-based looks rewrite the head/tail of
+  /// the resting curve; blur and wipe instead accumulate keys in [fx] for a
+  /// managed effect instance, because the compositor has no such transform.
+  void _writeEdgeAnimation({
+    required String type,
+    required bool entering,
+    required double edgeSec,
+    required double restSec,
+    required double clipSec,
+    required Map<String, double> base,
+    required Map<String, List<Map<String, dynamic>>> curves,
+    required double Function(String, double) valueAt,
+    required Rt Function(double) at,
+    required Map<String, Map<String, List<Map<String, dynamic>>>> fx,
+  }) {
+    final edgeSecClamped = edgeSec.clamp(0.0, clipSec);
+    final startSec = entering ? 0.0 : restSec;
+    final endSec = entering ? restSec : clipSec;
+    // Easing rides on the LEFT key of a segment, so an entry eases out of its
+    // extreme and an exit eases into it.
+    final interp = entering ? 'easeOut' : 'easeIn';
+
+    /// Replaces the head (or tail) of a param's curve with [points], keeping
+    /// the resting value at the boundary.
+    void shape(String param, List<(double, double)> points) {
+      final keys = curves[param]!;
+      keys.removeWhere((k) {
+        final t = ParamValue.timeOf(k).seconds;
+        return entering ? t < endSec - 1e-9 : t > startSec + 1e-9;
+      });
+      for (final (seconds, value) in points) {
+        keys.removeWhere(
+          (k) => (ParamValue.timeOf(k).seconds - seconds).abs() < 1e-9,
+        );
+        keys.add({
+          't': at(seconds).toString(),
+          'v': value,
+          'interp': seconds < (entering ? endSec : clipSec) ? interp : 'linear',
+        });
       }
-    });
+      keys.sort(
+        (a, b) => ParamValue.timeOf(a).compareTo(ParamValue.timeOf(b)),
+      );
+    }
+
+    /// Fades opacity to zero at the outer edge. Every look uses it: an image
+    /// that only slides or blurs still pops at the boundary without it.
+    void fade() {
+      final rest = valueAt('opacity', entering ? endSec : startSec);
+      shape('opacity', [
+        if (entering) (0.0, 0.0) else (startSec, rest),
+        if (entering) (endSec, rest) else (clipSec, 0.0),
+      ]);
+    }
+
+    void effectKeys(String effect, String param, double from, double to) {
+      final byParam = fx.putIfAbsent(effect, () => {});
+      final keys = byParam.putIfAbsent(param, () => []);
+      keys.addAll([
+        {
+          't': at(startSec).toString(),
+          'v': entering ? from : to,
+          'interp': interp,
+        },
+        {
+          't': at(endSec).toString(),
+          'v': entering ? to : from,
+          'interp': 'linear',
+        },
+      ]);
+      keys.sort(
+        (a, b) => ParamValue.timeOf(a).compareTo(ParamValue.timeOf(b)),
+      );
+    }
+
+    switch (type) {
+      case 'fade':
+        fade();
+      case 'pop':
+        final rest = valueAt('scale', entering ? endSec : startSec);
+        if (entering) {
+          shape('scale', [
+            (0.0, rest * 0.7),
+            (edgeSecClamped * 0.75, rest * 1.06),
+            (endSec, rest),
+          ]);
+        } else {
+          shape('scale', [(startSec, rest), (clipSec, rest * 0.7)]);
+        }
+        fade();
+      case 'slideLeft' || 'slideRight' || 'slideUp' || 'slideDown':
+        final horizontal = type == 'slideLeft' || type == 'slideRight';
+        final param = horizontal ? 'x' : 'y';
+        final travel =
+            (horizontal ? doc.settings.width : doc.settings.height) * 0.25;
+        // The named direction is the way the image travels, so an entry starts
+        // on the opposite side from where it is headed.
+        final away = switch (type) {
+          'slideLeft' => entering ? travel : -travel,
+          'slideRight' => entering ? -travel : travel,
+          'slideUp' => entering ? travel : -travel,
+          _ => entering ? -travel : travel,
+        };
+        final rest = valueAt(param, entering ? endSec : startSec);
+        shape(param, [
+          if (entering) (0.0, rest + away) else (startSec, rest),
+          if (entering) (endSec, rest) else (clipSec, rest + away),
+        ]);
+        fade();
+      case 'blur':
+        effectKeys('gaussianBlur', 'radius', 24.0, 0.0);
+        fade();
+      case 'wipeLeft' || 'wipeRight' || 'wipeUp' || 'wipeDown':
+        // crop.<side> is the percentage eaten off that side, so 100 -> 0
+        // uncovers the image with the edge travelling that way.
+        final side = switch (type) {
+          'wipeLeft' => 'left',
+          'wipeRight' => 'right',
+          'wipeUp' => 'top',
+          _ => 'bottom',
+        };
+        effectKeys('crop', side, 100.0, 0.0);
+      default:
+        return;
+    }
   }
 
   // --- Effects (FX-1..4, FX-13/14) --------------------------------------------
@@ -2831,11 +3292,16 @@ mixin TimelineEdits on ChangeNotifier {
 
   /// Static parameters stay static; animated parameters create or replace a
   /// key at [at], so the value visible under the playhead is what changes.
+  ///
+  /// [rebase] is for direct manipulation (the on-canvas gizmo): on a clip with
+  /// a generated image animation it moves the resting pose instead of writing
+  /// a key that the next rebuild would discard.
   void setTransformParam(
     String clipId,
     String paramId,
     double value, {
     Rt? at,
+    bool rebase = false,
   }) {
     final clip = _editableClip(clipId);
     if (clip == null) return;
@@ -2852,6 +3318,15 @@ mixin TimelineEdits on ChangeNotifier {
         _ => null,
       };
       if (param == null) return;
+      // A direct-manipulation drag on a clip whose animation is generated is
+      // moving the *resting pose*: a raw keyframe here would be erased by the
+      // next rebuild, so move the pose and replay the animation around it.
+      if (rebase &&
+          imageAnimSpec(clip) != null &&
+          _animParams.contains(paramId)) {
+        _syncAnimBase(clip, paramId, value);
+        return;
+      }
       final keyValue = paramId == 'anchor' ? {'x': value, 'y': 0.0} : value;
       if (!param.animated) {
         param.static = keyValue;

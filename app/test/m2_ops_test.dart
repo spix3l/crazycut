@@ -475,6 +475,7 @@ void main() {
       expect(opacityKeys, hasLength(2));
       expect(opacityKeys[0]['v'], 0.0);
       expect(opacityKeys[1]['v'], 100.0);
+      expect(clip.text!.animation, 'pop');
 
       e.undo();
       final undone = e.clipById(id)!;
@@ -599,7 +600,7 @@ void main() {
       );
     });
 
-    test('clear image animation keeps final motion values and other keys', () {
+    test('clear image animation restores the resting pose and other keys', () {
       final e = imageHarness();
       final id = e.placeAsset('image-1').single;
       e.applyImagePreset(id, 'panDown');
@@ -609,10 +610,13 @@ void main() {
       e.clearImageAnimation(id);
 
       final transform = e.clipById(id)!.transform!;
+      // The pose the preset animated *around* — not wherever the move happened
+      // to end, which would leave the image drifted off-centre and oversized.
       expect(transform.y.keyframes, isEmpty);
-      expect(transform.y.static, 54.0);
+      expect(transform.y.static, 0.0);
       expect(transform.scale.keyframes, isEmpty);
-      expect(transform.scale.static, 115.0);
+      expect(transform.scale.static, 100.0);
+      // Opacity was hand-keyed, not generated, so clearing must not touch it.
       expect(transform.opacity.keyframes, hasLength(2));
 
       e.undo();

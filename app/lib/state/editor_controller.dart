@@ -173,6 +173,7 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   void dispose() {
     _disposed = true;
     _playTimer?.cancel();
+    _liveEditTimer?.cancel();
     _audio?.stop();
     _audio?.dispose();
     _audio = null;
@@ -640,6 +641,44 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     return null;
   }
 
+  /// Clip the on-canvas transform gizmo should target: the selection when it
+  /// is a rasterised visual clip under the playhead, otherwise the topmost one.
+  ///
+  /// Text clips are excluded — their texture is a Dart-side raster whose size
+  /// is unrelated to any media asset, so the gizmo cannot derive their rect.
+  Clip? gizmoClipUnderPlayhead() {
+    bool eligible(Clip c) {
+      if (c.text != null || c.mediaId.isEmpty) return false;
+      if (!(playhead >= c.start && playhead < c.end)) return false;
+      final track = doc.trackById(c.trackId);
+      if (track == null || !track.isVideo || track.hidden || track.lock) {
+        return false;
+      }
+      return gizmoSourceSize(c) != null;
+    }
+
+    for (final id in selection) {
+      final clip = doc.clipById(id);
+      if (clip != null && eligible(clip)) return clip;
+    }
+    final tracks = doc.videoTracks.where((t) => !t.hidden).toList().reversed;
+    for (final track in tracks) {
+      final hit = doc.clipsOn(track.id).firstWhereOrNull(eligible);
+      if (hit != null) return hit;
+    }
+    return null;
+  }
+
+  /// Natural pixel size of a clip's source, or null when the asset never got
+  /// probed (an offline or audio asset) and the gizmo has nothing to measure.
+  (int, int)? gizmoSourceSize(Clip clip) {
+    final asset = doc.assetById(clip.mediaId);
+    if (asset == null || asset.type == 'audio') return null;
+    final w = asset.width ?? 0;
+    final h = asset.height ?? 0;
+    return w > 0 && h > 0 ? (w, h) : null;
+  }
+
   /// Boots the render isolate and paints the first frame.
   Future<PreviewRenderer> _bootRenderer() async {
     final existing = _rendererBoot;
@@ -783,6 +822,43 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     // committed result, which endGesture() delivers.
     if (!inGesture) _syncEngineGraph();
     autosave.markDirty();
+  }
+
+  Timer? _liveEditTimer;
+  DateTime _lastLiveEdit = DateTime.fromMillisecondsSinceEpoch(0);
+  static const _liveEditInterval = Duration(milliseconds: 40);
+
+  /// Refreshes the monitor from an *uncommitted* gesture.
+  ///
+  /// [markDirty] deliberately withholds the snapshot until a gesture commits,
+  /// which is right for a timeline drag: the document churns every frame and
+  /// only the committed result matters. Direct manipulation on the monitor is
+  /// the exception — watching the image follow the pointer is the whole point
+  /// of it — so this pushes the in-progress document to the preview renderer,
+  /// and to nothing else: no history, no autosave, no audio graph.
+  void previewLiveEdit() {
+    if (!inGesture || _disposed) return;
+    final since = DateTime.now().difference(_lastLiveEdit);
+    if (since >= _liveEditInterval) {
+      _pushLivePreview();
+      return;
+    }
+    // Trailing edge: the last move of a drag must not be the one throttling
+    // drops, or the frame sits stale until the pointer comes up.
+    _liveEditTimer?.cancel();
+    _liveEditTimer = Timer(_liveEditInterval - since, _pushLivePreview);
+  }
+
+  void _pushLivePreview() {
+    _liveEditTimer?.cancel();
+    _liveEditTimer = null;
+    if (_disposed) return;
+    _lastLiveEdit = DateTime.now();
+    // Only the render isolate: the in-process engine serves audio and
+    // thumbnails, which an in-flight drag has nothing to say to.
+    _previewRevision++;
+    _renderer?.setSnapshot(doc.encode(touchModified: false));
+    unawaited(updatePreviewFrame());
   }
 
   void _syncEngineGraph() {
