@@ -5,6 +5,47 @@ import 'dart:typed_data';
 import 'package:crazycut_app/engine/engine.dart';
 import 'package:crazycut_app/models/rational.dart';
 
+/// Chooses the sequence time that should be visible when an asynchronous
+/// preview render is expected to finish. Parked/scrubbed frames stay exact;
+/// playback leads by the measured render cost, bounded to avoid wild jumps.
+Rt computePreviewRenderTime({
+  required Rt playhead,
+  required Rt rangeStart,
+  required Rt rangeEnd,
+  required Rt frameDuration,
+  required bool playing,
+  required double rate,
+  required int renderMicros,
+}) {
+  if (!playing || rate == 0) return playhead;
+  var lead = renderMicros;
+  if (lead < frameDuration.micros) lead = frameDuration.micros;
+  if (lead > 250000) lead = 250000;
+  var target = playhead.plus(Rt.fromMicros(rate < 0 ? -lead : lead));
+  if (target < rangeStart) target = rangeStart;
+  if (target > rangeEnd) target = rangeEnd;
+  return target;
+}
+
+/// Prevents an old seek, old document snapshot, or playback-state transition
+/// from flashing on the monitor after a newer request superseded it.
+bool isPreviewFrameCurrent({
+  required int requestRevision,
+  required int currentRevision,
+  required bool requestWasPlaying,
+  required bool currentlyPlaying,
+  required Rt requested,
+  required Rt playhead,
+  required Rt frameDuration,
+}) {
+  if (requestRevision != currentRevision ||
+      requestWasPlaying != currentlyPlaying) {
+    return false;
+  }
+  if (!requestWasPlaying) return requested == playhead;
+  return (playhead.minus(requested).micros).abs() <= frameDuration.micros * 2;
+}
+
 /// One composited preview frame.
 class PreviewFrame {
   const PreviewFrame({
@@ -65,11 +106,6 @@ class PreviewRenderer {
   final Map<int, Completer<PreviewFrame>> _pending = {};
   int _nextId = 1;
   bool _closed = false;
-
-  /// How many renders may be outstanding at once. Two keeps the isolate busy
-  /// while the UI paints the previous frame without building a long queue of
-  /// stale positions.
-  static const int maxInFlight = 2;
 
   int get inFlight => _pending.length;
   bool get idle => _pending.isEmpty;

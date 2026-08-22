@@ -472,8 +472,11 @@ mixin TimelineEdits on ChangeNotifier {
         tail.sourceIn = c.sourceIn.plus(tailStart.minus(c.start));
         tail.duration = c.end.minus(tailStart);
         c.duration = from.minus(c.start);
-        doc.clips.add(tail);
+        // Touch a newly-created entity before inserting it. Otherwise the
+        // transaction records the tail as its "before" state and undo keeps
+        // it alive alongside the restored, unsplit source clip.
         tx.clip(tail.id);
+        doc.clips.add(tail);
         continue;
       }
       if (c.start < from) {

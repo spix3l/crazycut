@@ -116,6 +116,67 @@ void applyExposureContrastSaturationTempTintFade(const LinearImage& img,
   (void)exposure; (void)contrast; (void)saturation; (void)temp; (void)tint;
 }
 
+// One separable box-blur pass with a sliding window. Runtime is O(width ×
+// height), independent of the blur radius; the previous implementation walked
+// every sample in every pixel's radius and could turn one preview frame into
+// hundreds of milliseconds.
+void boxBlur(const RgbaSurface& src, int half, RgbaSurface* out) {
+  const int w = src.width;
+  const int h = src.height;
+  const int count = half * 2 + 1;
+  RgbaSurface horizontal{w, h,
+                         std::vector<uint8_t>(src.rgba.size())};
+  out->width = w;
+  out->height = h;
+  out->rgba.resize(src.rgba.size());
+
+  for (int y = 0; y < h; ++y) {
+    int sums[4] = {};
+    const uint8_t* row =
+        src.rgba.data() + static_cast<size_t>(y) * w * 4;
+    for (int k = -half; k <= half; ++k) {
+      const uint8_t* p = row + static_cast<size_t>(std::clamp(k, 0, w - 1)) * 4;
+      for (int ch = 0; ch < 4; ++ch) sums[ch] += p[ch];
+    }
+    for (int x = 0; x < w; ++x) {
+      uint8_t* q = horizontal.rgba.data() +
+                   (static_cast<size_t>(y) * w + x) * 4;
+      for (int ch = 0; ch < 4; ++ch) q[ch] = sums[ch] / count;
+      const uint8_t* leaving =
+          row + static_cast<size_t>(std::clamp(x - half, 0, w - 1)) * 4;
+      const uint8_t* entering =
+          row + static_cast<size_t>(std::clamp(x + half + 1, 0, w - 1)) * 4;
+      for (int ch = 0; ch < 4; ++ch) {
+        sums[ch] += static_cast<int>(entering[ch]) - leaving[ch];
+      }
+    }
+  }
+
+  for (int x = 0; x < w; ++x) {
+    int sums[4] = {};
+    for (int k = -half; k <= half; ++k) {
+      const int y = std::clamp(k, 0, h - 1);
+      const uint8_t* p = horizontal.rgba.data() +
+                         (static_cast<size_t>(y) * w + x) * 4;
+      for (int ch = 0; ch < 4; ++ch) sums[ch] += p[ch];
+    }
+    for (int y = 0; y < h; ++y) {
+      uint8_t* q = out->rgba.data() +
+                   (static_cast<size_t>(y) * w + x) * 4;
+      for (int ch = 0; ch < 4; ++ch) q[ch] = sums[ch] / count;
+      const int leavingY = std::clamp(y - half, 0, h - 1);
+      const int enteringY = std::clamp(y + half + 1, 0, h - 1);
+      const uint8_t* leaving = horizontal.rgba.data() +
+                               (static_cast<size_t>(leavingY) * w + x) * 4;
+      const uint8_t* entering = horizontal.rgba.data() +
+                                (static_cast<size_t>(enteringY) * w + x) * 4;
+      for (int ch = 0; ch < 4; ++ch) {
+        sums[ch] += static_cast<int>(entering[ch]) - leaving[ch];
+      }
+    }
+  }
+}
+
 }  // namespace
 
 const EffectParamDef* EffectDef::param(const std::string& id) const {
@@ -348,116 +409,43 @@ Error applyEffect(const ResolvedEffect& effect, const RenderContext& ctx,
     const double sigma = radius / std::sqrt(iterations * 3.0);
     const int half = std::max(1, static_cast<int>(sigma * 1.5));
 
-    // Region mask for blur-island (ellipse, keyframeable centre/size).
-    double cx = 0.0, cy = 0.0, sizeX = 0.4, aspect = 1.0, feather = 0.4;
-    if (island) {
-      cx = numOrStatic(effect, "centerX", 0.0);
-      cy = numOrStatic(effect, "centerY", 0.0);
-      sizeX = numOrStatic(effect, "size", 0.4);
-      aspect = numOrStatic(effect, "aspect", 1.0);
-      feather = numOrStatic(effect, "feather", 0.4);
-      feather = clampd(feather, 0.02, 1.0);
+    const RgbaSurface original{image->width, image->height, image->rgba};
+    RgbaSurface blurred = original;
+    for (int pass = 0; pass < iterations; ++pass) {
+      RgbaSurface next;
+      boxBlur(blurred, half, &next);
+      blurred = std::move(next);
     }
 
-    RgbaSurface src = std::move(image->rgba).empty()
-                          ? RgbaSurface{}
-                          : RgbaSurface{image->width, image->height,
-                                        std::move(image->rgba)};
-    RgbaSurface tmp{src.width, src.height, std::vector<uint8_t>(src.rgba.size())};
-    image->rgba = std::vector<uint8_t>(src.rgba.size());
+    if (!island) {
+      *image = std::move(blurred);
+      return Error::None;
+    }
 
-    for (int pass = 0; pass < iterations; ++pass) {
-      const RgbaSurface& from = pass == 0 ? src : tmp;
-      RgbaSurface* to = pass == iterations - 1 ? image : &tmp;
-      // Horizontal then vertical box, separable.
-      for (int y = 0; y < src.height; ++y) {
-        for (int x = 0; x < src.width; ++x) {
-          if (island) {
-            const double nx = (x / static_cast<double>(src.width) - 0.5 - cx) * 2.0;
-            const double ny = (y / static_cast<double>(src.height) - 0.5 - cy) * 2.0;
-            const double d = std::sqrt(nx * nx + (ny / aspect) * (ny / aspect)) /
-                             std::max(0.01, sizeX);
-            const double t = clampd((1.0 - d), 0.0, 1.0);
-            const double mask = clampd(t / feather, 0.0, 1.0);
-            if (mask >= 1.0) {
-              std::memcpy(to->rgba.data() +
-                              (static_cast<size_t>(y) * src.width + x) * 4,
-                          from.rgba.data() + (static_cast<size_t>(y) * src.width + x) * 4,
-                          4);
-              continue;
-            }
-            if (mask <= 0.0) {
-              std::memcpy(to->rgba.data() +
-                              (static_cast<size_t>(y) * src.width + x) * 4,
-                          from.rgba.data() + (static_cast<size_t>(y) * src.width + x) * 4,
-                          4);
-              continue;
-            }
-          }
-          int sr = 0, sg = 0, sb = 0, sa = 0, count = 0;
-          for (int k = -half; k <= half; ++k) {
-            const int xx = std::clamp(x + k, 0, src.width - 1);
-            const uint8_t* p =
-                from.rgba.data() + (static_cast<size_t>(y) * src.width + xx) * 4;
-            sr += p[0]; sg += p[1]; sb += p[2]; sa += p[3]; ++count;
-          }
-          uint8_t* q = to->rgba.data() + (static_cast<size_t>(y) * src.width + x) * 4;
-          q[0] = static_cast<uint8_t>(sr / count);
-          q[1] = static_cast<uint8_t>(sg / count);
-          q[2] = static_cast<uint8_t>(sb / count);
-          q[3] = static_cast<uint8_t>(sa / count);
+    // Blur-island: fully blurred at the centre, original outside the ellipse,
+    // with [feather] controlling the boundary blend.
+    const double cx = numOrStatic(effect, "centerX", 0.0);
+    const double cy = numOrStatic(effect, "centerY", 0.0);
+    const double sizeX = std::max(0.01, numOrStatic(effect, "size", 0.4));
+    const double aspect = std::max(0.01, numOrStatic(effect, "aspect", 1.0));
+    const double feather =
+        clampd(numOrStatic(effect, "feather", 0.4), 0.02, 1.0);
+    for (int y = 0; y < image->height; ++y) {
+      for (int x = 0; x < image->width; ++x) {
+        const double nx =
+            (x / static_cast<double>(image->width) - 0.5 - cx) * 2.0;
+        const double ny =
+            (y / static_cast<double>(image->height) - 0.5 - cy) * 2.0;
+        const double d =
+            std::sqrt(nx * nx + (ny / aspect) * (ny / aspect)) / sizeX;
+        const double mask = clampd((1.0 - d) / feather, 0.0, 1.0);
+        const size_t at = (static_cast<size_t>(y) * image->width + x) * 4;
+        for (int ch = 0; ch < 4; ++ch) {
+          image->rgba[at + ch] = static_cast<uint8_t>(std::lround(
+              blurred.rgba[at + ch] * mask + original.rgba[at + ch] *
+                                                   (1.0 - mask)));
         }
       }
-      // Vertical pass of this iteration.
-      RgbaSurface swapIn = pass == 0 ? tmp : tmp;  // horizontal result lives in tmp
-      (void)swapIn;
-      RgbaSurface verticalTmp{src.width, src.height, std::vector<uint8_t>(src.rgba.size())};
-      const RgbaSurface& hSrc = *to;
-      for (int y = 0; y < src.height; ++y) {
-        for (int x = 0; x < src.width; ++x) {
-          if (island) {
-            const double nx = (x / static_cast<double>(src.width) - 0.5 - cx) * 2.0;
-            const double ny = (y / static_cast<double>(src.height) - 0.5 - cy) * 2.0;
-            const double d = std::sqrt(nx * nx + (ny / aspect) * (ny / aspect)) /
-                             std::max(0.01, sizeX);
-            const double t = clampd(1.0 - d, 0.0, 1.0);
-            const double mask = clampd(t / feather, 0.0, 1.0);
-            if (mask != 1.0 && mask != 0.0) {
-              int sr = 0, sg = 0, sb = 0, sa = 0, count = 0;
-              for (int k = -half; k <= half; ++k) {
-                const int yy = std::clamp(y + k, 0, src.height - 1);
-                const uint8_t* p = hSrc.rgba.data() +
-                                   (static_cast<size_t>(yy) * src.width + x) * 4;
-                sr += p[0]; sg += p[1]; sb += p[2]; sa += p[3]; ++count;
-              }
-              uint8_t* q = verticalTmp.rgba.data() +
-                           (static_cast<size_t>(y) * src.width + x) * 4;
-              const uint8_t* orig = hSrc.rgba.data() +
-                                    (static_cast<size_t>(y) * src.width + x) * 4;
-              const double m = mask;
-              q[0] = static_cast<uint8_t>((sr / count) * m + orig[0] * (1 - m));
-              q[1] = static_cast<uint8_t>((sg / count) * m + orig[1] * (1 - m));
-              q[2] = static_cast<uint8_t>((sb / count) * m + orig[2] * (1 - m));
-              q[3] = static_cast<uint8_t>((sa / count) * m + orig[3] * (1 - m));
-              continue;
-            }
-          }
-          int sr = 0, sg = 0, sb = 0, sa = 0, count = 0;
-          for (int k = -half; k <= half; ++k) {
-            const int yy = std::clamp(y + k, 0, src.height - 1);
-            const uint8_t* p =
-                hSrc.rgba.data() + (static_cast<size_t>(yy) * src.width + x) * 4;
-            sr += p[0]; sg += p[1]; sb += p[2]; sa += p[3]; ++count;
-          }
-          uint8_t* q = verticalTmp.rgba.data() +
-                       (static_cast<size_t>(y) * src.width + x) * 4;
-          q[0] = static_cast<uint8_t>(sr / count);
-          q[1] = static_cast<uint8_t>(sg / count);
-          q[2] = static_cast<uint8_t>(sb / count);
-          q[3] = static_cast<uint8_t>(sa / count);
-        }
-      }
-      *to = std::move(verticalTmp);
     }
     return Error::None;
   }

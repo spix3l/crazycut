@@ -558,6 +558,41 @@ void main() {
       expect(clips[2].start, s(6));
     });
 
+    test('undo image overwrite restores the original unsplit video', () {
+      final e = harness(assetSeconds: 20);
+      final video = e.doc.videoTrack()!.id;
+      final original = addClip(e, id: 'a', start: 0, duration: 10, sourceIn: 3);
+      final before = original.toJson();
+      e.doc.media.add(
+        MediaAsset(
+          id: 'image-1',
+          name: 'poster.webp',
+          path: '/tmp/poster.webp',
+          type: 'image',
+          duration: Rt.zero(),
+          hasAudio: false,
+        ),
+      );
+
+      e.placeAsset(
+        'image-1',
+        trackId: video,
+        at: s(2),
+        mode: DropMode.overwrite,
+      );
+      expect(e.doc.clipsOn(video), hasLength(3));
+
+      e.undo();
+
+      final restored = e.doc.clipsOn(video);
+      expect(restored, hasLength(1));
+      expect(restored.single.toJson(), before);
+      expect(e.history.canRedo, isTrue);
+
+      e.redo();
+      expect(e.doc.clipsOn(video), hasLength(3));
+    });
+
     test('insert ripples the lane right', () {
       final e = harness(assetSeconds: 4);
       final video = e.doc.videoTrack()!.id;

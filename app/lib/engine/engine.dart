@@ -595,6 +595,8 @@ class PlatformHelper {
   static List<String> engineLibCandidates() {
     return [
       ..._bundled(['libcrazycut.dylib', 'crazycut.dll']),
+      '../engine/build-release/libcrazycut.dylib',
+      '../../engine/build-release/libcrazycut.dylib',
       '../engine/build/libcrazycut.dylib',
       '../../engine/build/libcrazycut.dylib',
       '../engine/build/Debug/crazycut.dll',
@@ -634,6 +636,8 @@ class PlatformHelper {
     if (defined.isNotEmpty) return [defined];
     return [
       ..._bundled(['crazycut_worker', 'crazycut_worker.exe']),
+      '../engine/build-release/crazycut_worker',
+      '../../engine/build-release/crazycut_worker',
       '../engine/build/crazycut_worker',
       '../../engine/build/crazycut_worker',
       '../engine/build/Debug/crazycut_worker.exe',

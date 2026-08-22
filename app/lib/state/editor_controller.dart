@@ -68,6 +68,8 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   Timer? _playTimer;
   bool _frameBusy = false;
   bool _framePending = false;
+  int _previewRevision = 0;
+  int _previewRenderMicros = 33333;
   double _shuttleRate = 1;
 
   /// Wall clock for playback. The playhead is derived from elapsed real time
@@ -125,6 +127,11 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   /// wide the cost outruns what the monitor can show.
   static const int maxPreviewWidth = 1920;
 
+  /// Full-resolution frames are restored whenever playback stops. While the
+  /// transport is moving, cap the render size so decoding/compositing stays
+  /// ahead of a 30 fps playhead on high-DPI displays.
+  static const int maxPlaybackPreviewWidth = 960;
+
   int _previewWidth = minPreviewWidth;
   int get previewWidth => _previewWidth;
 
@@ -139,6 +146,7 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     final quantised = ((capped / 160).ceil() * 160).clamp(minPreviewWidth, ceiling);
     if (quantised == _previewWidth) return;
     _previewWidth = quantised;
+    _previewRevision++;
     unawaited(updatePreviewFrame());
   }
 
@@ -523,6 +531,7 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     _playTimer?.cancel();
     _playTimer = Timer.periodic(Duration(milliseconds: tickMs), (_) => _tick());
     notifyListeners();
+    unawaited(updatePreviewFrame());
   }
 
   /// Advances the playhead to wherever the wall clock says it should be. If
@@ -594,6 +603,8 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     playing = false;
     _shuttleRate = 1;
     notifyListeners();
+    // Replace the responsive playback frame with the sharp parked frame.
+    unawaited(updatePreviewFrame());
   }
 
   void toggleLoop() {
@@ -667,10 +678,37 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     }
     _frameBusy = true;
     try {
-      final requested = playhead;
+      final revision = _previewRevision;
+      final playbackRequest = playing;
+      // Render the time at which this frame is expected to reach the screen,
+      // not the time at which expensive decoding began. The moving average
+      // self-corrects for effects/layer complexity and keeps visual cuts in
+      // step with the realtime playhead.
+      final requested = computePreviewRenderTime(
+        playhead: playhead,
+        rangeStart: rangeStart,
+        rangeEnd: rangeEnd,
+        frameDuration: frameDuration,
+        playing: playbackRequest,
+        rate: _shuttleRate,
+        renderMicros: _previewRenderMicros,
+      );
+      final activeMedia = <String>{};
+      for (final clip in doc.clips) {
+        final track = doc.trackById(clip.trackId);
+        if (track == null || !track.isVideo || track.hidden) continue;
+        if (requested >= clip.start && requested < clip.end &&
+            clip.mediaId.isNotEmpty) {
+          activeMedia.add(clip.mediaId);
+        }
+      }
       final mediaPaths = <String, String>{};
       for (final asset in doc.media) {
-        if (asset.offline || asset.type == 'audio') continue;
+        if (!activeMedia.contains(asset.id) ||
+            asset.offline ||
+            asset.type == 'audio') {
+          continue;
+        }
         mediaPaths[asset.id] = ProxyService.decodePath(asset);
       }
       final textures = <String, Uint8List>{};
@@ -690,9 +728,12 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
         textureSizes['text:${clip.id}'] = (raster.width, raster.height);
       }
 
-      final width = _previewWidth;
+      final width = playing && _previewWidth > maxPlaybackPreviewWidth
+          ? maxPlaybackPreviewWidth
+          : _previewWidth;
       var height = (width * doc.settings.height / doc.settings.width).round();
       if (height.isOdd) height += 1;
+      final renderWatch = Stopwatch()..start();
       final frame = await renderer.render(
         time: requested,
         width: width,
@@ -701,11 +742,28 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
         textures: textures,
         textureSizes: textureSizes,
       );
+      renderWatch.stop();
+      if (playbackRequest) {
+        _previewRenderMicros = (_previewRenderMicros * 0.75 +
+                renderWatch.elapsedMicroseconds * 0.25)
+            .round();
+      }
       if (_disposed) return;
-      previewFrame = frame.rgba;
-      previewFrameSize = (frame.width, frame.height);
-      previewFrameTime = requested.seconds;
-      notifyListeners();
+      final current = isPreviewFrameCurrent(
+        requestRevision: revision,
+        currentRevision: _previewRevision,
+        requestWasPlaying: playbackRequest,
+        currentlyPlaying: playing,
+        requested: requested,
+        playhead: playhead,
+        frameDuration: frameDuration,
+      );
+      if (current) {
+        previewFrame = frame.rgba;
+        previewFrameSize = (frame.width, frame.height);
+        previewFrameTime = frame.time.seconds;
+        notifyListeners();
+      }
     } catch (e) {
       debugPrint('preview frame failed: $e');
     } finally {
@@ -728,6 +786,7 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   }
 
   void _syncEngineGraph() {
+    _previewRevision++;
     final snapshot = doc.encode(touchModified: false);
     try {
       CrazyCutEngine.instance.setProjectSnapshot(snapshot);
@@ -738,6 +797,9 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     _renderer?.setSnapshot(snapshot);
     _audioDocDirty = true;
     if (playing) _pushAudioDocument();
+    // A committed edit, undo or redo can change the frame under a stationary
+    // playhead. Snapshotting alone leaves the old pixels on screen.
+    unawaited(updatePreviewFrame());
   }
 
   Future<void> saveNow() => autosave.saveNow();

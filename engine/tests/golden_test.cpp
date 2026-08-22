@@ -167,6 +167,33 @@ TEST(GoldenFrames, OpacityZeroHidesClipEntirely) {
   }
 }
 
+TEST(GoldenFrames, LayerOpacityIsAppliedExactlyOnce) {
+  json clip = {{"id", "c1"}, {"trackId", "v1"}, {"mediaId", "m1"},
+               {"label", "image"}, {"start", "0/1"}, {"duration", "10/1"}};
+  clip["transform"] = {{"opacity", {{"static", 50.0}}}};
+  const auto doc = baseDoc(json::array({clip}));
+
+  cc::RgbaSurface frame;
+  ASSERT_EQ(
+      cc::renderFrame(
+          doc, cc::RationalTime{}, 320, 180,
+          [&](const std::string& key) -> std::optional<cc::ClipSource> {
+            if (key != "m1") return std::nullopt;
+            cc::ClipSource source;
+            // Smaller than the canvas so this exercises rasterize + composite,
+            // the path used by a still image over video.
+            source.texture = gradientFrame(64, 64, 255);
+            return source;
+          },
+          &frame),
+      cc::Error::None);
+
+  const size_t centre = (static_cast<size_t>(90) * 320 + 160) * 4;
+  // 50% blue over black is 128. Applying opacity in both stages produced 64
+  // and made animated image entrances look late against their timeline clip.
+  EXPECT_NEAR(frame.rgba[centre + 2], 128, 1);
+}
+
 TEST(GoldenFrames, GaussianBlurChangesPixelsPredictably) {
   if (!fixtureExists()) GTEST_SKIP() << "fixture not generated";
   json clipA = {{"id", "c1"}, {"trackId", "v1"}, {"mediaId", "m1"},
@@ -186,6 +213,38 @@ TEST(GoldenFrames, GaussianBlurChangesPixelsPredictably) {
   // Blur is idempotent per input — determinism check (KEY-9).
   const auto soft2 = renderDoc(blurred, "m1", fixturePath());
   EXPECT_DOUBLE_EQ(meanAbsDiff(soft, soft2), 0.0);
+}
+
+TEST(GoldenFrames, BlurIslandBlursCentreAndPreservesOutside) {
+  cc::RgbaSurface original{
+      64, 64, std::vector<uint8_t>(static_cast<size_t>(64) * 64 * 4)};
+  for (int y = 0; y < 64; ++y) {
+    for (int x = 0; x < 64; ++x) {
+      const uint8_t value = ((x / 2 + y / 2) % 2) ? 255 : 0;
+      uint8_t* pixel = original.rgba.data() +
+                       (static_cast<size_t>(y) * 64 + x) * 4;
+      pixel[0] = pixel[1] = pixel[2] = value;
+      pixel[3] = 255;
+    }
+  }
+  cc::RgbaSurface blurred = original;
+  cc::ResolvedEffect effect;
+  effect.def = cc::findEffect("blurIsland");
+  ASSERT_NE(effect.def, nullptr);
+  effect.params = {{"radius", 12.0}, {"centerX", 0.0}, {"centerY", 0.0},
+                   {"size", 0.5}, {"aspect", 1.0}, {"feather", 0.25}};
+
+  ASSERT_EQ(cc::applyEffect(effect, cc::RenderContext{64, 64}, &blurred),
+            cc::Error::None);
+
+  const size_t corner = 0;
+  const size_t centre = (static_cast<size_t>(32) * 64 + 32) * 4;
+  EXPECT_EQ(std::memcmp(blurred.rgba.data() + corner,
+                        original.rgba.data() + corner, 4),
+            0);
+  EXPECT_NE(std::memcmp(blurred.rgba.data() + centre,
+                        original.rgba.data() + centre, 3),
+            0);
 }
 
 TEST(GoldenFrames, PixelateProducesFlatCells) {

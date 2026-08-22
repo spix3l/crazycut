@@ -35,9 +35,9 @@ void applyTransformJson(const nlohmann::json& transform, const RationalTime& loc
 
 // Resamples [src] into a dstW×dstH buffer honouring framing ("fit" letterboxes,
 // "fill" covers and crops centred, "stretch" ignores aspect), then applies the
-// layer's position/scale/rotation/opacity. Output has the layer's footprint on
-// the full sequence canvas: returned surface is sequence-sized with the layer
-// drawn over transparency, ready for blendComposite().
+// layer's position/scale/rotation. Output has the layer's footprint on the full
+// sequence canvas with its source alpha intact; opacity and blend mode are
+// applied once by blendComposite().
 Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
                      const RenderContext& ctx, const std::string& framing,
                      RgbaSurface* out);

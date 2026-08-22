@@ -95,7 +95,6 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
   out->width = W;
   out->height = H;
   out->rgba.assign(static_cast<size_t>(W) * H * 4, 0);
-  if (layer.opacity <= 0.0) return Error::None;
 
   // --- Framing: base scale from source → sequence canvas -------------------
   double baseScale;
@@ -132,8 +131,6 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
   const int halfW = dw / 2, halfH = dh / 2;
   const double kx = totalScale * stretchX;
   const double ky = totalScale * stretchY;
-  const float opacityF = static_cast<float>(layer.opacity);
-
   // Nearest-neighbour sampling. Bilinear would be nicer; nearest keeps
   // determinism trivially and is what golden tests assert on. Preview scale
   // hides the difference.
@@ -165,12 +162,11 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
         const int sx = columns[px];
         if (sx < 0) continue;
         const uint8_t* p = row + static_cast<size_t>(sx) * 4;
-        const float a = p[3] / 255.f * opacityF;
-        if (a <= 0.f) continue;
+        if (p[3] == 0) continue;
         q[0] = p[0];
         q[1] = p[1];
         q[2] = p[2];
-        q[3] = static_cast<uint8_t>(std::lround(a * 255.f));
+        q[3] = p[3];
       }
     }
     return Error::None;
@@ -195,12 +191,11 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
       if (layer.flipV) sy = src.height - 1 - sy;
       const uint8_t* p =
           src.rgba.data() + (static_cast<size_t>(sy) * src.width + sx) * 4;
-      const float a = p[3] / 255.f * opacityF;
-      if (a <= 0.f) continue;
+      if (p[3] == 0) continue;
       q[0] = p[0];
       q[1] = p[1];
       q[2] = p[2];
-      q[3] = static_cast<uint8_t>(std::lround(a * 255.f));
+      q[3] = p[3];
     }
   }
   return Error::None;

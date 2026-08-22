@@ -65,7 +65,10 @@ Error loadMediaFrame(const std::string& path, double sourceSeconds,
   if (err != Error::None) return err;
   out->width = frame.width;
   out->height = frame.height;
-  out->rgba.assign(frame.rgba.begin(), frame.rgba.end());
+  // Hand the decoded allocation to the compositor instead of copying a full
+  // RGBA frame. The decoder receives the compositor's previous scratch buffer
+  // and reuses that allocation on the next call.
+  out->rgba.swap(frame.rgba);
   return Error::None;
 }
 
@@ -239,7 +242,7 @@ Error renderFrame(const json& document, const RationalTime& time, int width,
         }
       }
 
-      // Blend/opacity ride on the layer.
+      // Blend/opacity ride on the layer and are applied once at composite.
       layer->blend = side.value("blend", "normal");
       return Error::None;
     };
@@ -260,6 +263,20 @@ Error renderFrame(const json& document, const RationalTime& time, int width,
       std::string framing = "fit";
       if (side.contains("transform") && side["transform"].is_object()) {
         framing = side["transform"].value("framing", "fit");
+      }
+      if (layer.opacity <= 0.0) return Error::None;
+
+      // The normal playback path is already decoded at canvas width. Avoid a
+      // second full-frame raster pass when no geometric transform is present.
+      const bool passthrough =
+          surf->width == ctx.sequenceWidth &&
+          surf->height == ctx.sequenceHeight && layer.x == 0.0 &&
+          layer.y == 0.0 && layer.scale == 1.0 &&
+          layer.rotationDeg == 0.0 && layer.anchorX == 0.0 &&
+          layer.anchorY == 0.0 && !layer.flipH && !layer.flipV;
+      if (passthrough) {
+        blendComposite(canvas, *surf, layer.opacity, layer.blend);
+        return Error::None;
       }
       err = rasterizeLayer(*surf, layer, ctx, framing, &renderedScratch);
       if (err != Error::None) return err;
