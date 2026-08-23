@@ -55,7 +55,6 @@ class TimelineClipTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final width = clip.duration.seconds * pxPerSec;
     return Opacity(
       opacity: dimmed ? 0.55 : 1,
       child: Container(
@@ -88,7 +87,7 @@ class TimelineClipTile extends StatelessWidget {
                   ),
                 ),
               )
-            else if (pxPerSec >= kFilmstripMinPxPerSec && tileAt != null && width > 40)
+            else if (tileAt != null)
               _Filmstrip(clip: clip, pxPerSec: pxPerSec, height: height, tileAt: tileAt!),
             Align(
               alignment: _isAudio ? Alignment.topCenter : Alignment.bottomCenter,

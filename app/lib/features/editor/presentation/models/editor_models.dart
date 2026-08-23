@@ -92,9 +92,6 @@ double timelineLaneScaleForPixelsPerSecond(double pxPerSec) {
   return 0.5 + 0.5 * t;
 }
 
-/// Above this zoom a video clip is wide enough to be worth a filmstrip.
-const double kFilmstripMinPxPerSec = 24;
-
 String formatDuration(double seconds) {
   final s = seconds.round();
   return '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';

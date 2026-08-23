@@ -1,1 +1,0 @@
-- When aligning elements on screen (text, images, etc...) show magnet anchors to center vertically or horizontally

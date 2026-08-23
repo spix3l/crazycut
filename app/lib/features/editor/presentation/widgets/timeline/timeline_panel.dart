@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:collection/collection.dart';
@@ -372,11 +373,11 @@ class _TimelinePanelState extends State<TimelinePanel> {
                                   child: SingleChildScrollView(
                                     controller: _laneScroll,
                                     child: SizedBox(
-                                      height:
-                                          lanesHeight < constraints.maxHeight
-                                              ? constraints.maxHeight -
-                                                  TimelinePanel.rulerHeight
-                                              : lanesHeight,
+                                      height: math.max(
+                                        lanesHeight,
+                                        constraints.maxHeight -
+                                            TimelinePanel.rulerHeight,
+                                      ),
                                       child: Stack(
                                         clipBehavior: ui.Clip.none,
                                         children: [
