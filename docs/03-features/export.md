@@ -1,6 +1,6 @@
 # Feature Spec — Export & Render Queue
 
-> Status: Draft v0.1 · Owner: @steve · Last updated: 2026-08-21
+> Status: Draft v0.2 · Owner: @steve · Last updated: 2026-08-23
 > Requirements prefix: **EXP** · Pipeline: `01-architecture.md` §8
 
 ## Summary
@@ -36,6 +36,7 @@ Export is a background queue, not a modal prison. Presets match where creators p
 - **EXP-5** Software encoders default: x264 (main), x265 optional, ProRes 422. Audio: AAC LC 320 kbps default; PCM WAV option in Master.
 - **EXP-6** Hardware encoders opt-in per job ("Use hardware encoding" checkbox, remembered): VideoToolbox (macOS), NVENC/QSV/AMF (Windows). Tooltip: "Faster, slightly larger files at same quality".
 - **EXP-7** Loudness normalization checkbox (default on for social presets): two-pass loudnorm to −14 LUFS, true peak −1.5 dBTP (AUD-12).
+- **EXP-15** Exposure matching checkbox ("Match clip exposure", default off): before encoding, each visible clip's mean linear-light luma is sampled from its played source range and a corrective exposure gain toward the project median is applied after the clip's own effects, clamped ±0.5 stop so grading intent survives. Export-only; composes with EXP-7's audio counterpart AUD-16 as the "normalize" pair.
 
 ### Queue & lifecycle
 - **EXP-8** Export dialog shows: preset picker, filename/location (default `<project name> [<preset>].mp4` to last-used or Movies folder), estimated size after first pass estimate, summary line.
@@ -76,3 +77,4 @@ Direct upload to YouTube/TikTok [v1.5 candidate], image-sequence export, GIF exp
 ## Changelog
 
 - v0.1 — Initial draft.
+- v0.2 — EXP-15: export exposure matching across clips (AUD-16 pairs the audio side).

@@ -351,6 +351,109 @@ TEST_F(AudioMix, ScanPeakFindsClipLevel) {
   EXPECT_NEAR(peak, 0.5, 0.02);
 }
 
+TEST_F(AudioMix, LevelingMeasuresEachClipAndEqualizesTheMix) {
+  // AUD-16: two sequential clips from sources 12 dB apart at unity faders.
+  // Leveling must measure the gap and pull both toward the median so neither
+  // half of the timeline dominates.
+  const std::string quiet = writeToneWav("quiet", 12.0, 703.0, 0.125);
+  const std::map<std::string, std::string> pair{{"loud", tone},
+                                                {"quiet", quiet}};
+  const json doc = audioDoc(json::array({
+      {{"id", "c1"}, {"trackId", "a1"}, {"mediaId", "loud"},
+       {"start", "0/1"}, {"duration", "6/1"}, {"sourceIn", "0/1"}},
+      {{"id", "c2"}, {"trackId", "a1"}, {"mediaId", "quiet"},
+       {"start", "6/1"}, {"duration", "6/1"}, {"sourceIn", "0/1"}},
+  }));
+
+  const auto lufs = cc::measureClipLoudnesses(doc, pair, 0.0, 12.0, 48000);
+  ASSERT_EQ(lufs.size(), 2u);
+  EXPECT_NEAR(lufs.at("c1") - lufs.at("c2"), 12.0, 1.0)
+      << "source level gap must show up as a loudness gap";
+
+  const auto gains = cc::computeLevelGains(lufs);
+  ASSERT_EQ(gains.size(), 2u);
+  // Median of a two-clip set sits halfway: −6 dB for the loud clip, +6 for
+  // the quiet one.
+  EXPECT_NEAR(gains.at("c1"), std::pow(10.0, -6.02 / 20.0), 0.05);
+  EXPECT_NEAR(gains.at("c2"), std::pow(10.0, +6.02 / 20.0), 0.05);
+
+  cc::AudioBuffer leveled;
+  ASSERT_EQ(cc::mixTimeline(doc, pair, 0.0, 12.0, 48000, master, &leveled,
+                            &gains),
+            cc::Error::None);
+  EXPECT_NEAR(windowRmsDb(leveled, 1.0, 5.0), windowRmsDb(leveled, 7.0, 11.0),
+              1.0)
+      << "leveled halves must sit at the same level";
+
+  // Sanity: without the gains the gap is still audible (≥ 8 dB of RMS).
+  cc::AudioBuffer raw;
+  ASSERT_EQ(cc::mixTimeline(doc, pair, 0.0, 12.0, 48000, master, &raw),
+            cc::Error::None);
+  EXPECT_GT(windowRmsDb(raw, 1.0, 5.0) - windowRmsDb(raw, 7.0, 11.0), 8.0);
+
+  std::error_code ec;
+  std::filesystem::remove(quiet, ec);
+}
+
+TEST_F(AudioMix, LevelingRespectsDeliberateFaderBalance) {
+  // The same 12 dB source gap, but the user has already ridden the fader to
+  // make the halves equally loud. Measuring post-fader must see no gap and
+  // leave both clips at unity — leveling evens out material, not intent.
+  const std::string quiet = writeToneWav("quiet2", 12.0, 703.0, 0.125);
+  const std::map<std::string, std::string> pair{{"loud", tone},
+                                                {"quiet", quiet}};
+  const json doc = audioDoc(json::array({
+      {{"id", "c1"}, {"trackId", "a1"}, {"mediaId", "loud"},
+       {"start", "0/1"}, {"duration", "6/1"}, {"sourceIn", "0/1"}},
+      {{"id", "c2"}, {"trackId", "a1"}, {"mediaId", "quiet"},
+       {"start", "6/1"}, {"duration", "6/1"}, {"sourceIn", "0/1"},
+       {"volume", 4.0}},  // +12 dB: the fader already fixed the balance
+  }));
+
+  const auto lufs = cc::measureClipLoudnesses(doc, pair, 0.0, 12.0, 48000);
+  ASSERT_EQ(lufs.size(), 2u);
+  EXPECT_NEAR(lufs.at("c1"), lufs.at("c2"), 1.0);
+
+  const auto gains = cc::computeLevelGains(lufs);
+  ASSERT_EQ(gains.size(), 2u);
+  EXPECT_NEAR(gains.at("c1"), 1.0, 0.02);
+  EXPECT_NEAR(gains.at("c2"), 1.0, 0.02);
+
+  std::error_code ec;
+  std::filesystem::remove(quiet, ec);
+}
+
+TEST_F(AudioMix, LevelingIgnoresMutedClipsAndOutOfRangeSpans) {
+  const json doc = audioDoc(json::array({
+      audioClip("c1", 0.0, 4.0),
+      audioClip("muted", 4.0, 4.0, {{"mute", true}}),
+      audioClip("later", 8.0, 2.0),
+  }));
+  // Window covers only the first clip and half of… nothing else on it.
+  const auto lufs = cc::measureClipLoudnesses(doc, paths, 0.0, 4.0, 48000);
+  EXPECT_EQ(lufs.size(), 1u);
+  EXPECT_EQ(lufs.count("c1"), 1u);
+
+  // Widening the window picks up the third clip but never the muted one.
+  const auto wide = cc::measureClipLoudnesses(doc, paths, 0.0, 12.0, 48000);
+  EXPECT_EQ(wide.size(), 2u);
+  EXPECT_EQ(wide.count("muted"), 0u);
+}
+
+TEST(LevelGainMath, ClampsToMaxAndSkipsSilence) {
+  const std::map<std::string, double> measured{
+      {"a", -30.0}, {"b", -18.0}, {"q", -70.0}};
+  const auto g = cc::computeLevelGains(measured, 3.0);
+  ASSERT_EQ(g.size(), 2u);
+  // Median −24 LUFS; both corrections want ±6 dB but the clamp holds ±3.
+  EXPECT_DOUBLE_EQ(g.at("a"), std::pow(10.0, 3.0 / 20.0));
+  EXPECT_DOUBLE_EQ(g.at("b"), std::pow(10.0, -3.0 / 20.0));
+  // The silence-floor entry gets no gain at all — nothing to match from.
+  EXPECT_EQ(g.count("q"), 0u);
+
+  EXPECT_TRUE(cc::computeLevelGains({}).empty());
+}
+
 TEST_F(AudioMix, MissingAudioStreamMixesSilence) {
   std::map<std::string, std::string> missing{{"tone", "/nonexistent/file.wav"}};
   cc::AudioBuffer mix;

@@ -44,11 +44,8 @@ class ClipAnimationEdgeControl extends StatelessWidget {
   }
 
   void _pick(BuildContext context) {
-    final anchor = context.findRenderObject() as RenderBox?;
-    if (anchor == null || !anchor.attached) return;
-    showCcMenu(
+    showCcMenuBelow(
       context,
-      anchor.localToGlobal(Offset(0, anchor.size.height + 4)),
       [
         CcMenuItem('None', checked: _preset == null, onTap: () => _apply('')),
         for (final entry in TimelineEdits.kClipEdgePresets.entries)

@@ -512,4 +512,82 @@ TEST(GoldenFrames, BlendModesDifferFromNormal) {
   EXPECT_GT(meanAbsDiff(mult, add), 1.0);
 }
 
+// --- Export exposure matching (EXP-15) --------------------------------------
+
+double surfaceMeanLuma(const cc::RgbaSurface& s) {
+  double sum = 0;
+  const size_t pixels = s.rgba.size() / 4;
+  for (size_t i = 0; i < pixels; ++i) {
+    sum += 0.2126 * s.rgba[i * 4] + 0.7152 * s.rgba[i * 4 + 1] +
+           0.0722 * s.rgba[i * 4 + 2];
+  }
+  return pixels == 0 ? 0.0 : sum / pixels;
+}
+
+TEST(GoldenFrames, ExposureMatchingMeasuresClipsAndCorrectsRenderedLuma) {
+  if (!fixtureExists()) GTEST_SKIP() << "fixture not generated";
+  json clipA = {{"id", "c1"}, {"trackId", "v1"}, {"mediaId", "m1"},
+                {"label", "a"}, {"start", "0/1"}, {"duration", "5/1"}};
+  json clipB = {{"id", "c2"}, {"trackId", "v1"}, {"mediaId", "m1"},
+                {"label", "b"}, {"start", "5/1"}, {"duration", "5/1"}};
+  auto doc = baseDoc(json::array({clipA, clipB}));
+  const std::map<std::string, std::string> paths{{"m1", fixturePath()}};
+
+  // Same source in both halves ⇒ near-identical measured luma, and the
+  // corrections that fall out are (near-)neutral.
+  const auto luma = cc::measureClipLuma(doc, paths, 0.0, 10.0);
+  ASSERT_EQ(luma.size(), 2u);
+  EXPECT_GT(luma.at("c1"), 0.0);
+  EXPECT_NEAR(luma.at("c1"), luma.at("c2"), 0.02);
+
+  // Hand-built asymmetry: a dark and a bright clip around the same median.
+  const auto stops =
+      cc::computeExposureStops({{"c1", luma.at("c1") * 0.5},
+                                {"c2", luma.at("c2")}},
+                               /*maxStops=*/4.0);
+  ASSERT_EQ(stops.size(), 2u);
+  // Median of two sits halfway between them, so both move toward each other:
+  // the dark clip brightens (~+0.58 stop for half the luma)…
+  EXPECT_GT(stops.at("c1"), 0.5);
+  // …and the brighter one is pulled down.
+  EXPECT_LT(stops.at("c2"), -0.1);
+
+  // Rendering with the correction brightens exactly the targeted clip.
+  cc::RgbaSurface plain, corrected;
+  const cc::RationalTime t{60, 30};  // 2 s: inside c1
+  ASSERT_EQ(cc::renderFrame(doc, t.normalized(), 320, 180, paths, &plain),
+            cc::Error::None);
+  ASSERT_EQ(cc::renderFrame(doc, t.normalized(), 320, 180, paths, &corrected,
+                            &stops),
+            cc::Error::None);
+  EXPECT_GT(surfaceMeanLuma(corrected), surfaceMeanLuma(plain) + 10.0);
+
+  // A different clip id is left untouched.
+  std::map<std::string, double> otherStops{{"cX", 1.0}};
+  cc::RgbaSurface untouched;
+  ASSERT_EQ(cc::renderFrame(doc, t.normalized(), 320, 180, paths, &untouched,
+                            &otherStops),
+            cc::Error::None);
+  EXPECT_EQ(plain.rgba, untouched.rgba);
+}
+
+TEST(ExposureStopMath, MedianTargetAndClampBehaviour) {
+  // Three clips: median is the middle value, which becomes the target.
+  const auto stops = cc::computeExposureStops({{"a", 0.25}, {"b", 0.5},
+                                               {"c", 1.0}});
+  ASSERT_EQ(stops.size(), 3u);
+  EXPECT_NEAR(stops.at("a"), 0.5, 1e-9);   // clamped at +maxStops
+  EXPECT_DOUBLE_EQ(stops.at("b"), 0.0);    // the reference
+  EXPECT_NEAR(stops.at("c"), -0.5, 1e-9);  // clamped at −maxStops
+
+  // Raising the ceiling lets the full correction through (log2(0.5/0.25)).
+  const auto wide = cc::computeExposureStops({{"a", 0.25}, {"b", 0.5}},
+                                             /*maxStops=*/4.0);
+  EXPECT_NEAR(wide.at("a"), std::log2(0.375 / 0.25), 1e-9);
+  EXPECT_NEAR(wide.at("b"), std::log2(0.375 / 0.5), 1e-9);
+
+  // Black frames carry no usable exposure and get no entry.
+  EXPECT_TRUE(cc::computeExposureStops({{"dark", 0.0}}).empty());
+}
+
 }  // namespace

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:crazycut_app/data/param_value.dart';
 import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/timeline_edits.dart';
@@ -812,6 +813,53 @@ void main() {
       expect(e.increaseClipSpeed(video.id), isFalse);
       expect(linked.speed, '1/1');
       expect(video.speed, '1/1');
+    });
+
+    test('setClipSpeed goes both ways and rejects non-presets', () {
+      final e = harness();
+      final clip = addClip(e, id: 'a', start: 0, duration: 10);
+
+      expect(e.setClipSpeed(clip.id, 4, 1), isTrue);
+      expect(clip.duration, s(2.5));
+
+      expect(e.decreaseClipSpeed(clip.id), isTrue);
+      expect(clip.speed, '2/1');
+      expect(clip.duration, s(5));
+      expect(clip.sourceSpan, s(10));
+
+      expect(e.setClipSpeed(clip.id, 1, 4), isTrue);
+      expect(clip.duration, s(40));
+      expect(e.decreaseClipSpeed(clip.id), isFalse);
+
+      // Not a v1 preset, and setting the speed it already has, are both no-ops.
+      expect(e.setClipSpeed(clip.id, 3, 1), isFalse);
+      expect(e.setClipSpeed(clip.id, 1, 4), isFalse);
+      expect(clip.speed, '1/4');
+    });
+
+    test('retimes keyframes and fades with the clip', () {
+      final e = harness();
+      final clip = addClip(e, id: 'a', start: 0, duration: 10);
+      e.setClipEntryLeave(clip.id, entry: 'fade', leave: 'fade');
+      e.setClipFades(clip.id, fadeIn: s(2), fadeOut: s(2));
+
+      expect(e.setClipSpeed(clip.id, 2, 1), isTrue);
+
+      expect(clip.duration, s(5));
+      expect(clip.fadeIn.duration, s(1));
+      expect(clip.fadeOut.duration, s(1));
+      // The clip is opaque through its middle: an entry fade generated for the
+      // old length used to run over most of the sped-up clip, which read as
+      // the speed change having darkened it.
+      final opacity = clip.transform!.opacity;
+      expect(opacity.evaluate(s(2.5)), 100.0);
+      expect(opacity.evaluate(s(0)), 0.0);
+      // The leave fade still lands on the clip's new out-point.
+      expect(opacity.evaluate(clip.duration), 0.0);
+      expect(
+        ParamValue.timeOf(opacity.keyframes.last),
+        clip.duration,
+      );
     });
 
     test('speed increase is one undoable edit', () {

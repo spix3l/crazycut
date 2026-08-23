@@ -46,6 +46,8 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
   int _presetIndex = 0;
   late ExportQuality _quality;
   late bool _loudness;
+  bool _levelClips = false;
+  bool _matchExposure = false;
   bool _hardware = false;
   bool _rangeOnly = false;
   String? _outputPath;
@@ -121,6 +123,8 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
       quality: _quality,
       hardware: _hardware,
       loudness: _loudness,
+      levelClips: _levelClips,
+      matchExposure: _matchExposure,
       rangeStart: _rangeOnly && hasRange ? controller.rangeStart : null,
       rangeEnd: _rangeOnly && hasRange ? controller.rangeEnd : Rt.zero(),
     );
@@ -210,6 +214,23 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
                     label: 'Hardware encoding',
                     checked: _hardware,
                     onTap: () => setState(() => _hardware = !_hardware),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  _Option(
+                    label: 'Level clip volumes',
+                    checked: _levelClips,
+                    onTap: () => setState(() => _levelClips = !_levelClips),
+                  ),
+                  const SizedBox(width: 24),
+                  _Option(
+                    label: 'Match clip exposure',
+                    checked: _matchExposure,
+                    onTap: () =>
+                        setState(() => _matchExposure = !_matchExposure),
                   ),
                 ],
               ),

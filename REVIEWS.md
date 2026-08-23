@@ -1,2 +1,2 @@
 - Work on reusable templates    
-- Option missing: increase a clip speed
+- When aligning elements on screen (text, images, etc...) show magnet anchors to center vertically or horizontally

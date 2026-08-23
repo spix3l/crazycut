@@ -33,6 +33,9 @@ struct ClipSpan {
   std::string fadeOutCurve = "exponential";
   double trackGain = 1.0;
   double trackPan = 0.0;
+  // AUD-16: corrective gain from export loudness leveling, folded in with
+  // the fader gains. Unity unless the caller passes measured gains.
+  double analysisGain = 1.0;
 };
 
 // AUD-2 curves. `p` runs 0→1 across the fade, 0 = silent end.
@@ -122,44 +125,18 @@ Biquad highpassFilter(double rate) {
 
 }  // namespace
 
-MasterSettings masterFromDocument(const json& document) {
-  MasterSettings m;
-  if (!document.contains("settings") || !document["settings"].is_object()) {
-    return m;
-  }
-  const json& settings = document["settings"];
-  if (!settings.contains("master") || !settings["master"].is_object()) return m;
-  const json& master = settings["master"];
-  m.gain = clampd(master.value("gain", 1.0), 0.0, 4.0);
-  m.limiter = master.value("limiter", true);
-  m.ceilingDb = clampd(master.value("ceilingDb", -1.0), -24.0, 0.0);
-  return m;
-}
-
-Error mixTimeline(const json& document,
-                  const std::map<std::string, std::string>& mediaPaths,
-                  double startSec, double durationSec, int sampleRate,
-                  const MasterSettings& master, AudioBuffer* out) {
-  if (!out || sampleRate <= 0 || durationSec < 0) {
-    setLastError("mixTimeline: invalid arguments");
-    return Error::InvalidArgument;
-  }
-  startSec = std::max(0.0, startSec);
-  out->sampleRate = sampleRate;
-  const size_t frames =
-      static_cast<size_t>(std::ceil(durationSec * sampleRate));
-  out->resizeFrames(frames);
-  if (frames == 0) return Error::None;
-
-  const double windowEnd = startSec + durationSec;
-
-  // Solo wins over mute across the whole sequence (AUD-10).
+// Resolves every audible clip overlapping [startSec, windowEnd) into spans.
+// Shared by mixTimeline and measureClipLoudnesses so leveling measures exactly
+// what mixing plays (solo wins over mute across the whole sequence, AUD-10).
+std::vector<ClipSpan> collectSpans(const json& document,
+                                   const std::map<std::string, std::string>& mediaPaths,
+                                   double startSec, double windowEnd) {
+  std::vector<ClipSpan> spans;
   bool anySolo = false;
   for (const auto& track : arrayField(document, "tracks")) {
     if (track.is_object() && track.value("solo", false)) anySolo = true;
   }
 
-  std::vector<ClipSpan> spans;
   for (const auto& track : arrayField(document, "tracks")) {
     if (!track.is_object()) continue;
     if (anySolo ? !track.value("solo", false) : track.value("mute", false)) {
@@ -206,6 +183,51 @@ Error mixTimeline(const json& document,
       span.trackGain = trackGain;
       span.trackPan = trackPan;
       spans.push_back(std::move(span));
+    }
+  }
+  return spans;
+}
+
+MasterSettings masterFromDocument(const json& document) {
+  MasterSettings m;
+  if (!document.contains("settings") || !document["settings"].is_object()) {
+    return m;
+  }
+  const json& settings = document["settings"];
+  if (!settings.contains("master") || !settings["master"].is_object()) return m;
+  const json& master = settings["master"];
+  m.gain = clampd(master.value("gain", 1.0), 0.0, 4.0);
+  m.limiter = master.value("limiter", true);
+  m.ceilingDb = clampd(master.value("ceilingDb", -1.0), -24.0, 0.0);
+  return m;
+}
+
+Error mixTimeline(const json& document,
+                  const std::map<std::string, std::string>& mediaPaths,
+                  double startSec, double durationSec, int sampleRate,
+                  const MasterSettings& master, AudioBuffer* out,
+                  const std::map<std::string, double>* clipGains) {
+  if (!out || sampleRate <= 0 || durationSec < 0) {
+    setLastError("mixTimeline: invalid arguments");
+    return Error::InvalidArgument;
+  }
+  startSec = std::max(0.0, startSec);
+  out->sampleRate = sampleRate;
+  const size_t frames =
+      static_cast<size_t>(std::ceil(durationSec * sampleRate));
+  out->resizeFrames(frames);
+  if (frames == 0) return Error::None;
+
+  const double windowEnd = startSec + durationSec;
+
+  std::vector<ClipSpan> spans =
+      collectSpans(document, mediaPaths, startSec, windowEnd);
+  if (clipGains) {
+    for (auto& span : spans) {
+      const auto it = clipGains->find(span.id);
+      if (it != clipGains->end()) {
+        span.analysisGain = clampd(it->second, 0.0, 4.0);
+      }
     }
   }
 
@@ -285,7 +307,8 @@ Error mixTimeline(const json& document,
           std::llround((local - localStart) * span.speed * sampleRate));
       if (srcIndex >= srcFrames) break;
 
-      double gain = span.volume * span.trackGain * fadeGain(span, local);
+      double gain = span.volume * span.trackGain * span.analysisGain *
+                    fadeGain(span, local);
       for (const auto& xf : crossfades) {
         if (tSeq < xf.start || tSeq >= xf.end) continue;
         if (span.id != xf.aId && span.id != xf.bId) continue;
@@ -399,6 +422,75 @@ double truePeakDb(const AudioBuffer& buffer) {
   }
   if (peak <= 0.0) return -120.0;
   return 20.0 * std::log10(peak);
+}
+
+std::map<std::string, double> measureClipLoudnesses(
+    const json& document, const std::map<std::string, std::string>& mediaPaths,
+    double startSec, double durationSec, int sampleRate) {
+  std::map<std::string, double> out;
+  if (sampleRate <= 0 || durationSec < 0) return out;
+  startSec = std::max(0.0, startSec);
+  const double windowEnd = startSec + durationSec;
+
+  std::vector<float> pcm;
+  for (const ClipSpan& span :
+       collectSpans(document, mediaPaths, startSec, windowEnd)) {
+    // Level what the export actually plays: the clip's intersection with the
+    // window, at its own speed — not the whole source file.
+    const double clipWindowStart = std::max(startSec, span.startSec);
+    const double clipWindowEnd =
+        std::min(windowEnd, span.startSec + span.durationSec);
+    const double take = clipWindowEnd - clipWindowStart;
+    if (take <= 0) continue;
+    const double localStart = clipWindowStart - span.startSec;
+    if (decodeStereoRange(span.path,
+                          span.sourceInSec + localStart * span.speed,
+                          take * span.speed, sampleRate,
+                          &pcm) != Error::None) {
+      continue;
+    }
+    AudioBuffer buf;
+    buf.sampleRate = sampleRate;
+    buf.samples = std::move(pcm);
+    // Measure what the faders deliver (volume × track gain), not the raw
+    // source: a deliberate fader choice is intent, and leveling must never
+    // undo it — it evens out the material itself. Fades are excluded on
+    // purpose: they shape edges, they are not a level decision.
+    double lufs = integratedLufs(buf);
+    const double preGain = span.volume * span.trackGain;
+    if (lufs > -70.0 && preGain > 0.0 && preGain != 1.0) {
+      lufs += 20.0 * std::log10(preGain);
+    }
+    // integratedLufs reports -70 for silence and sub-block material; those
+    // clips have no meaningful level to match, so they stay at unity.
+    if (lufs > -70.0) out[span.id] = lufs;
+  }
+  return out;
+}
+
+std::map<std::string, double> computeLevelGains(
+    const std::map<std::string, double>& clipLufs, double maxGainDb) {
+  std::map<std::string, double> out;
+  std::vector<double> values;
+  for (const auto& [id, lufs] : clipLufs) {
+    (void)id;
+    if (lufs > -70.0) values.push_back(lufs);
+  }
+  if (values.empty()) return out;
+  std::sort(values.begin(), values.end());
+  // Median: one wild outlier should not become the reference every other
+  // clip is pulled toward.
+  const double median =
+      values.size() % 2 == 1
+          ? values[values.size() / 2]
+          : 0.5 * (values[values.size() / 2 - 1] + values[values.size() / 2]);
+  maxGainDb = std::max(0.0, maxGainDb);
+  for (const auto& [id, lufs] : clipLufs) {
+    if (lufs <= -70.0) continue;
+    const double gainDb = clampd(median - lufs, -maxGainDb, maxGainDb);
+    out[id] = std::pow(10.0, gainDb / 20.0);
+  }
+  return out;
 }
 
 }  // namespace cc

@@ -148,6 +148,8 @@ class ExportService extends ChangeNotifier {
     required ExportQuality quality,
     bool hardware = false,
     bool loudness = false,
+    bool levelClips = false,
+    bool matchExposure = false,
     Rt? rangeStart,
     Rt? rangeEnd,
   }) {
@@ -179,12 +181,14 @@ class ExportService extends ChangeNotifier {
         'maxWidth': preset.maxWidth,
         'maxHeight': preset.maxHeight,
         'hardware': hardware,
+        if (matchExposure) 'matchExposure': true,
       },
       'audio': {
         'codec': preset.audioCodec,
         'bitrate': preset.audioBitrate,
         if (loudness) 'loudnessLufs': -14.0,
         if (loudness) 'truePeakDb': -1.5,
+        if (levelClips) 'levelClips': true,
       },
       'faststart': preset.faststart,
     };
@@ -341,6 +345,11 @@ class ExportService extends ChangeNotifier {
             );
           case 'encoder':
             job.log.add('Encoder: ${event['video']}');
+          case 'note':
+            // Analysis passes report what they adjusted (AUD-16 / EXP-15).
+            if (event['message']?.toString().isNotEmpty ?? false) {
+              job.log.add(event['message'].toString());
+            }
           case 'progress':
             job.framesDone =
                 (event['frame'] as num?)?.toInt() ?? job.framesDone;

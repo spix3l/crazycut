@@ -1,6 +1,6 @@
 # Feature Spec — Audio
 
-> Status: Draft v0.1 · Owner: @steve · Last updated: 2026-08-21
+> Status: Draft v0.2 · Owner: @steve · Last updated: 2026-08-23
 > Requirements prefix: **AUD** · Clock/mixing internals: `01-architecture.md` §2, §6
 
 ## Summary
@@ -32,6 +32,7 @@ Creators need audio that just works: visible waveforms, quick fades, music under
 - **AUD-10** Mixer panel: one strip per audio track + master: fader (−∞…+6 dB), mute, solo, stereo meter with peak-hold, pan knob. Track fader × clip gains compose multiplicatively.
 - **AUD-11** Master limiter (safety brickwall, −1 dBFS ceiling) always on during preview/export to catch accidental clipping; toggleable.
 - **AUD-12** Loudness tools: "Analyze sequence loudness" reports integrated LUFS; export option normalizes to target (default −14 LUFS via two-pass loudnorm, EXP spec).
+- **AUD-16** Export clip leveling ("Level clip volumes"): before mixing, each audible clip is measured with BS.1770 integrated loudness over its played range (post clip/track fader, so deliberate balance choices are intent, not error) and given a corrective gain toward the project median, clamped ±12 dB. Silent or sub-block (<400 ms) material stays at unity. Composes with the master normalize of AUD-12/EXP-7, which still sets the absolute target; export-only (preview is untouched).
 
 ### Monitoring & display
 - **AUD-13** Waveforms render on all audio-bearing clips from cached peaks (IMP-7); refresh after speed/fade changes is visual-only (peaks unchanged by gain/fades).
@@ -65,3 +66,4 @@ Freeform volume automation lanes [v1.5], effects (EQ/compression/reverb) [v1.5 c
 ## Changelog
 
 - v0.1 — Initial draft.
+- v0.2 — AUD-16: export clip leveling (per-clip loudness match toward median, EXP-15 pairs the video side).

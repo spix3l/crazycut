@@ -47,6 +47,8 @@ struct VideoSettings {
   int maxWidth = 0;
   int maxHeight = 0;
   bool hardware = false;  // EXP-6, opt-in per job
+  // EXP-15: match every visible clip's exposure toward the project median.
+  bool matchExposure = false;
 };
 
 struct AudioSettings {
@@ -57,6 +59,9 @@ struct AudioSettings {
   // the true peak kept under the ceiling.
   std::optional<double> loudnessTargetLufs;
   double truePeakCeilingDb = -1.5;
+  // AUD-16: level each clip toward the median measured loudness before the
+  // master bus so no single clip dominates the balance.
+  bool levelClips = false;
 };
 
 void fitEven(int* w, int* h) {
@@ -228,6 +233,7 @@ int runTimelineJob(const json& spec) {
     if (v.contains("maxWidth")) vs.maxWidth = v["maxWidth"].get<int>();
     if (v.contains("maxHeight")) vs.maxHeight = v["maxHeight"].get<int>();
     if (v.contains("hardware")) vs.hardware = v["hardware"].get<bool>();
+    if (v.contains("matchExposure")) vs.matchExposure = v["matchExposure"].get<bool>();
   }
   std::optional<AudioSettings> as{AudioSettings{}};
   if (spec.contains("audio")) {
@@ -242,6 +248,7 @@ int runTimelineJob(const json& spec) {
       if (a.contains("truePeakDb") && a["truePeakDb"].is_number()) {
         as->truePeakCeilingDb = a["truePeakDb"].get<double>();
       }
+      if (a.contains("levelClips")) as->levelClips = a["levelClips"].get<bool>();
     }
   }
   const bool faststart = spec.value("faststart", true);
@@ -321,6 +328,39 @@ int runTimelineJob(const json& spec) {
   // on the error path (see the catch below).
 
   try {
+    // --- Normalize analyses (AUD-16 / EXP-15) --------------------------------
+    // Both pass before any encoding so measurement never interleaves with
+    // the frame loop, and both measure exactly what this job will play:
+    // the clips as trimmed, sped and ranged.
+    const double exportStart = rangeStartSec;
+    const double exportEnd = rangeEndSec > exportStart ? rangeEndSec
+                                                       : seqDuration.toSeconds();
+
+    std::map<std::string, double> levelGains;
+    if (as.has_value() && as->levelClips) {
+      const auto lufs =
+          measureClipLoudnesses(document, media, exportStart,
+                                exportEnd - exportStart,
+                                static_cast<int>(kMixRate));
+      levelGains = computeLevelGains(lufs);
+      emit(json{{"type", "note"},
+                {"message", "Leveling: " + std::to_string(levelGains.size()) +
+                                " of " + std::to_string(lufs.size()) +
+                                " audio clips adjusted"}});
+    }
+
+    std::map<std::string, double> exposureStops;
+    if (vs.enabled && vs.matchExposure) {
+      const auto luma =
+          measureClipLuma(document, media, exportStart, exportEnd);
+      exposureStops = computeExposureStops(luma);
+      emit(json{{"type", "note"},
+                {"message", "Exposure matching: " +
+                                std::to_string(exposureStops.size()) + " of " +
+                                std::to_string(luma.size()) +
+                                " clips adjusted"}});
+    }
+
     // --- Video encoder ------------------------------------------------------
     if (vs.enabled) {
       // EXP-5/6: software x264/x265/ProRes by default; hardware encoders are
@@ -416,7 +456,8 @@ int runTimelineJob(const json& spec) {
                                                    : seqDuration.toSeconds()) -
                           rangeStartSec,
                       static_cast<int>(kMixRate), masterFromDocument(document),
-                      &mix);
+                      &mix,
+                      levelGains.empty() ? nullptr : &levelGains);
       if (mixErr != Error::None) throw std::runtime_error("audio mix failed");
 
       if (as->loudnessTargetLufs.has_value()) {
@@ -494,9 +535,6 @@ int runTimelineJob(const json& spec) {
         throw std::runtime_error("mux write failed");
     };
 
-    const double exportStart = rangeStartSec;
-    const double exportEnd = rangeEndSec > exportStart ? rangeEndSec
-                                                       : seqDuration.toSeconds();
     const int64_t totalFrames = static_cast<int64_t>(
         std::max(0.0, exportEnd - exportStart) * av_q2d(fps) + 0.5);
     RgbaSurface canvas;
@@ -580,7 +618,9 @@ int runTimelineJob(const json& spec) {
       const RationalTime t = RationalTime::fromSeconds(
           exportStart + static_cast<double>(f) / av_q2d(fps));
       const Error err = renderFrame(document, t.normalized(), renderWidth,
-                                    renderHeight, media, &canvas);
+                                    renderHeight, media, &canvas,
+                                    exposureStops.empty() ? nullptr
+                                                          : &exposureStops);
       if (err != Error::None) throw std::runtime_error("renderFrame failed");
 
       if (vEnc) {

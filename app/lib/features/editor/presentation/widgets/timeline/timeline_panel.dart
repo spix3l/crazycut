@@ -274,14 +274,15 @@ class _TimelinePanelState extends State<TimelinePanel> {
         clip.mute ? 'Unmute clip' : 'Mute clip',
         onTap: () => c.setClipAudio(clip.id, mute: !clip.mute),
       ),
-      CcMenuItem(
-        'Increase speed to ${c.nextClipSpeedLabel(clip.id) ?? '4x'}',
-        icon: LucideIcons.forward,
-        separatorBefore: true,
-        onTap: c.nextClipSpeedLabel(clip.id) == null
-            ? null
-            : () => c.increaseClipSpeed(clip.id),
-      ),
+      // Every preset, checked at the current one: one click to any speed and
+      // back, rather than a ratchet that only ever climbs to 4x.
+      for (final preset in TimelineEdits.clipSpeedPresets)
+        CcMenuItem(
+          'Speed ${preset.$3}',
+          separatorBefore: preset == TimelineEdits.clipSpeedPresets.first,
+          checked: (preset.$1 / preset.$2 - clip.speedValue).abs() < 0.000001,
+          onTap: () => c.setClipSpeed(clip.id, preset.$1, preset.$2),
+        ),
       CcMenuItem(
         'Save selection as template…',
         shortcut: '⇧⌘T',

@@ -104,13 +104,53 @@ const json* findTransition(const json& doc, const std::string& aId,
   return nullptr;
 }
 
+// EXP-15: exposure corrections are linear-light gains, same math as the
+// exposure effect (FX-5). A 256-entry LUT gives bit-identical results to a
+// float round-trip for opaque video pixels at a fraction of the cost.
+float srgbToLinear(float c) {
+  return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
+}
+
+float linearToSrgb(float c) {
+  c = clampd(c, 0.0f, 1.0f);
+  return c <= 0.0031308f ? c * 12.92f : 1.055f * std::pow(c, 1.f / 2.4f) - 0.055f;
+}
+
+void applyExposureGain(RgbaSurface* surf, double stops) {
+  const float m = static_cast<float>(std::pow(2.0, stops));
+  uint8_t lut[256];
+  for (int v = 0; v < 256; ++v) {
+    lut[v] = static_cast<uint8_t>(std::lround(
+        linearToSrgb(srgbToLinear(v / 255.f) * m) * 255.f));
+  }
+  for (size_t i = 0; i + 3 < surf->rgba.size(); i += 4) {
+    surf->rgba[i] = lut[surf->rgba[i]];
+    surf->rgba[i + 1] = lut[surf->rgba[i + 1]];
+    surf->rgba[i + 2] = lut[surf->rgba[i + 2]];
+  }
+}
+
+// Mean linear-light Rec.709 luma of one decoded frame.
+double frameLuma(const DecodedFrame& frame) {
+  const size_t n = static_cast<size_t>(frame.width) * frame.height;
+  if (n == 0 || frame.rgba.size() < n * 4) return -1.0;
+  double sum = 0.0;
+  for (size_t i = 0; i < n; ++i) {
+    sum += 0.2126 * srgbToLinear(frame.rgba[i * 4] / 255.0) +
+           0.7152 * srgbToLinear(frame.rgba[i * 4 + 1] / 255.0) +
+           0.0722 * srgbToLinear(frame.rgba[i * 4 + 2] / 255.0);
+  }
+  return sum / static_cast<double>(n);
+}
+
 }  // namespace
 
 Error renderFrame(const json& document, const RationalTime& time, int width,
                   int height,
                   const std::function<std::optional<ClipSource>(
                       const std::string&)>& resolve,
-                  RgbaSurface* out) {
+                  RgbaSurface* out,
+                  const std::map<std::string, double>* exposureStops) {
   if (!out) return Error::InvalidArgument;
   RenderContext ctx;
   ctx.sequenceWidth = width;
@@ -254,6 +294,15 @@ Error renderFrame(const json& document, const RationalTime& time, int width,
         }
       }
 
+      // EXP-15: the export's exposure correction rides in after the user's
+      // own grade so matching never fights their effect choices.
+      if (exposureStops) {
+        const auto it = exposureStops->find(side.value("id", ""));
+        if (it != exposureStops->end() && it->second != 0.0) {
+          applyExposureGain(surf, it->second);
+        }
+      }
+
       // Blend/opacity ride on the layer and are applied once at composite.
       layer->blend = side.value("blend", "normal");
       return Error::None;
@@ -355,7 +404,8 @@ Error renderFrame(const json& document, const RationalTime& time, int width,
 
 Error renderFrame(const json& document, const RationalTime& time, int width,
                   int height, const std::map<std::string, std::string>& assetPaths,
-                  RgbaSurface* out) {
+                  RgbaSurface* out,
+                  const std::map<std::string, double>* exposureStops) {
   return renderFrame(
       document, time, width, height,
       [&](const std::string& assetId) -> std::optional<ClipSource> {
@@ -365,7 +415,101 @@ Error renderFrame(const json& document, const RationalTime& time, int width,
         src.path = it->second;
         return src;
       },
-      out);
+      out, exposureStops);
+}
+
+std::map<std::string, double> measureClipLuma(
+    const json& document, const std::map<std::string, std::string>& assetPaths,
+    double startSec, double endSec, int samplesPerClip) {
+  std::map<std::string, double> out;
+  if (samplesPerClip < 1 || endSec <= startSec) return out;
+
+  // Same visibility rules the renderer applies: video tracks in index order,
+  // hidden tracks contribute nothing.
+  for (const auto& track : videoTrackOrder(document)) {
+    if (track.hidden) continue;
+    if (!document.contains("clips") || !document["clips"].is_array()) continue;
+    for (const json& clip : document["clips"]) {
+      if (!clip.is_object() || clip.value("trackId", "") != track.id) continue;
+      const std::string mediaId = clip.value("mediaId", "");
+      if (mediaId.empty()) continue;  // text clips have no source pixels
+      const auto path = assetPaths.find(mediaId);
+      if (path == assetPaths.end()) continue;
+
+      const auto start = parseJsonTime(clip.at("start"));
+      const auto duration = parseJsonTime(clip.at("duration"));
+      if (!start || !duration) continue;
+      RationalTime sourceIn;
+      if (clip.contains("sourceIn")) {
+        if (const auto si = parseJsonTime(clip["sourceIn"])) sourceIn = *si;
+      }
+      double speed = 1.0;
+      if (clip.contains("speed")) {
+        const auto& s = clip["speed"];
+        speed = s.is_object()
+                    ? static_cast<double>(s.value("num", 1)) /
+                          std::max(1, s.value("den", 1))
+                    : 1.0;
+      }
+
+      // Intersect the clip's timeline span with the measured window, then map
+      // to source time — matching is computed from exactly what gets played.
+      const double cStart = start->toSeconds();
+      const double cEnd = cStart + duration->toSeconds();
+      const double l0 = std::max(cStart, startSec);
+      const double l1 = std::min(cEnd, endSec);
+      if (l1 - l0 <= 0) continue;
+      const double s0 = sourceIn.toSeconds() + (l0 - cStart) * speed;
+      const double s1 = sourceIn.toSeconds() + (l1 - cStart) * speed;
+
+      thread_local DecodedFrame frame;
+      double sum = 0.0;
+      int counted = 0;
+      const std::string clipId = clip.value("id", "");
+      for (int k = 0; k < samplesPerClip; ++k) {
+        const double t =
+            s0 + (s1 - s0) * (static_cast<double>(k) + 0.5) / samplesPerClip;
+        // Small width: statistics do not need full resolution, and the
+        // decoder session cache makes repeat seeks cheap.
+        if (extractFrameRgba(path->second, t, 160, &frame) != Error::None) {
+          break;
+        }
+        const double y = frameLuma(frame);
+        if (y < 0.0) break;
+        sum += y;
+        ++counted;
+      }
+      if (counted > 0 && sum > 0.0) {
+        out[clipId] = sum / static_cast<double>(counted);
+      }
+    }
+  }
+  return out;
+}
+
+std::map<std::string, double> computeExposureStops(
+    const std::map<std::string, double>& clipLuma, double maxStops) {
+  std::map<std::string, double> out;
+  std::vector<double> values;
+  for (const auto& [id, luma] : clipLuma) {
+    (void)id;
+    if (luma > 0.0) values.push_back(luma);
+  }
+  if (values.empty()) return out;
+  std::sort(values.begin(), values.end());
+  // Median target: the export keeps the project's overall exposure and only
+  // pulls the outliers in line.
+  const double median =
+      values.size() % 2 == 1
+          ? values[values.size() / 2]
+          : 0.5 * (values[values.size() / 2 - 1] + values[values.size() / 2]);
+  if (median <= 0.0) return out;
+  maxStops = std::max(0.0, maxStops);
+  for (const auto& [id, luma] : clipLuma) {
+    if (luma <= 0.0) continue;
+    out[id] = clampd(std::log2(median / luma), -maxStops, maxStops);
+  }
+  return out;
 }
 
 }  // namespace cc

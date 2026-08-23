@@ -1668,37 +1668,152 @@ mixin TimelineEdits on ChangeNotifier {
     (4, 1),
   ];
 
-  /// Increases a clip to the next v1 speed preset and retimes its duration.
-  /// Linked A/V partners follow together so the pair cannot drift apart.
-  /// Returns false when the clip is missing, locked, or already at 4x.
-  bool increaseClipSpeed(String id) {
+  /// The speed presets, slowest first, as `(num, den, label)` for pickers.
+  static List<(int, int, String)> get clipSpeedPresets => [
+    for (final preset in _clipSpeedPresets)
+      (preset.$1, preset.$2, clipSpeedLabel(preset.$1 / preset.$2)),
+  ];
+
+  /// `0.25x`, `1x`, `4x` — trailing zeros trimmed so the picker stays narrow.
+  static String clipSpeedLabel(double speed) {
+    final text =
+        speed == speed.roundToDouble()
+            ? speed.round().toString()
+            : speed
+                .toStringAsFixed(2)
+                .replaceFirst(RegExp(r'0+$'), '')
+                .replaceFirst(RegExp(r'\.$'), '');
+    return '${text}x';
+  }
+
+  /// Sets a clip to an exact speed preset and retimes it. Linked A/V partners
+  /// follow together so the pair cannot drift apart. Returns false when the
+  /// clip is missing, locked, the speed is not a v1 preset, or nothing changes.
+  ///
+  /// Everything measured in clip-local time is retimed with the clip: a 0.4 s
+  /// entry fade on a 2 s clip is 0.4 s of a *sped-up* clip too, and leaving it
+  /// alone left a 4x clip that was one long fade-up from black — the clip
+  /// looked like the speed change had darkened it.
+  bool setClipSpeed(String id, int num, int den) {
     final clip = doc.clipById(id);
-    if (clip == null) return false;
-    final current = clip.speedValue;
-    final next = _clipSpeedPresets.firstWhereOrNull(
-      (preset) => preset.$1 / preset.$2 > current + 0.000001,
-    );
-    if (next == null) return false;
+    if (clip == null || den <= 0 || num <= 0) return false;
+    if (!_clipSpeedPresets.any((p) => p.$1 == num && p.$2 == den)) return false;
+    final speed = num / den;
+    if ((speed - clip.speedValue).abs() < 0.000001) return false;
 
     final targets = doc.linkedWith(clip);
-    if (targets.isEmpty || targets.any((candidate) => _locked(candidate.trackId))) {
+    if (targets.isEmpty ||
+        targets.any((candidate) => _locked(candidate.trackId))) {
       return false;
     }
-    final speed = next.$1 / next.$2;
-    _run('Increase clip speed', (tx) {
+    _run('Clip speed', (tx) {
       for (final target in targets) {
         tx.clip(target.id);
+        final before = target.duration;
+        // Hold the source span: the clip keeps showing the same frames, it
+        // just plays them over a shorter or longer stretch of timeline.
         final sourceSpan = target.sourceSpan;
         var duration = Rt.fromMicros((sourceSpan.micros / speed).round());
         if (duration < frameDuration) duration = frameDuration;
-        target.speed = '${next.$1}/${next.$2}';
+        target.speed = '$num/$den';
         final max = _maxDuration(target);
         if (max != null && duration > max) duration = max;
         target.duration = duration;
+        _retimeClipLocal(target, before, duration);
         _pushAside(tx, target);
       }
     });
     return true;
+  }
+
+  /// Increases a clip to the next v1 speed preset and retimes its duration.
+  /// Returns false when the clip is missing, locked, or already at 4x.
+  bool increaseClipSpeed(String id) {
+    final clip = doc.clipById(id);
+    if (clip == null) return false;
+    final next = _clipSpeedPresets.firstWhereOrNull(
+      (preset) => preset.$1 / preset.$2 > clip.speedValue + 0.000001,
+    );
+    if (next == null) return false;
+    return setClipSpeed(id, next.$1, next.$2);
+  }
+
+  /// Drops a clip to the previous v1 speed preset (down to 0.25x).
+  bool decreaseClipSpeed(String id) {
+    final clip = doc.clipById(id);
+    if (clip == null) return false;
+    final previous = _clipSpeedPresets.lastWhereOrNull(
+      (preset) => preset.$1 / preset.$2 < clip.speedValue - 0.000001,
+    );
+    if (previous == null) return false;
+    return setClipSpeed(id, previous.$1, previous.$2);
+  }
+
+  /// Scales everything stored in clip-local time — keyframes, generated
+  /// animations, audio fades — from [before] onto [after].
+  void _retimeClipLocal(Clip clip, Rt before, Rt after) {
+    if (before.micros <= 0 || after.micros <= 0 || before == after) return;
+    final ratio = after.micros / before.micros;
+
+    Rt scale(Rt t) => quantiseToFrame(Rt.fromMicros((t.micros * ratio).round()));
+    void scaleKeys(ParamValue param) {
+      if (!param.animated) return;
+      for (final key in param.keyframes) {
+        key['t'] = scale(ParamValue.timeOf(key)).toString();
+      }
+      param.sortKeys();
+    }
+
+    final transform = clip.transform;
+    if (transform != null) {
+      for (final param in [
+        transform.x,
+        transform.y,
+        transform.scale,
+        transform.rotation,
+        transform.anchor,
+        transform.opacity,
+      ]) {
+        scaleKeys(param);
+      }
+    }
+    for (final effect in clip.effects) {
+      if (effect is! Map) continue;
+      final params = effect['params'];
+      if (params is! Map) continue;
+      for (final entry in params.entries) {
+        final raw = entry.value;
+        if (raw is! Map || raw['keyframes'] is! List) continue;
+        final param = ParamValue.from(Map<String, dynamic>.from(raw));
+        scaleKeys(param);
+        params[entry.key] = param.toJson();
+      }
+    }
+
+    // Audio fades are authored against the clip on the timeline, so they ride
+    // the retime too, and can never outgrow the clip they belong to.
+    Rt fade(Rt d) {
+      final scaled = scale(d);
+      return scaled > after ? after : scaled;
+    }
+
+    clip.fadeIn.duration = fade(clip.fadeIn.duration);
+    clip.fadeOut.duration = fade(clip.fadeOut.duration);
+
+    // Generated edge animations keep their share of the clip: scale the
+    // authored seconds, then regenerate so the keys land on the new duration
+    // and each edge is re-clamped to half the clip.
+    final spec = clipAnimationSpec(clip);
+    if (spec != null) {
+      for (final key in const ['entry', 'leave']) {
+        final edge = spec[key];
+        if (edge is! Map) continue;
+        final seconds =
+            (edge['seconds'] as num?)?.toDouble() ?? kClipEdgeDefaultSeconds;
+        edge['seconds'] = seconds * ratio;
+      }
+      _writeClipAnimation(clip);
+    }
   }
 
   /// The next speed label for context menus and disabled-state decisions.

@@ -122,10 +122,12 @@ class _EffectCard extends StatelessWidget {
                   Expanded(
                     child: Text(_label(type), style: CcType.small),
                   ),
-                  CcTappable(
-                    onTap: () => _menu(context, Offset(40, 200)),
-                    child: const CcIcon(LucideIcons.moreVertical,
-                        size: 13, color: CcColors.textSecondary),
+                  Builder(
+                    builder: (buttonContext) => CcTappable(
+                      onTap: () => showCcMenuBelow(buttonContext, _items()),
+                      child: const CcIcon(LucideIcons.moreVertical,
+                          size: 13, color: CcColors.textSecondary),
+                    ),
                   ),
                 ],
               ),
@@ -146,9 +148,12 @@ class _EffectCard extends StatelessWidget {
     );
   }
 
-  void _menu(BuildContext context, Offset at) {
+  void _menu(BuildContext context, Offset at) =>
+      showCcMenu(context, at, _items());
+
+  List<CcMenuItem> _items() {
     final id = instance['id'] as String;
-    showCcMenu(context, at, [
+    return [
       CcMenuItem('Move up',
           onTap: () => controller.reorderEffect(clip.id, id,
               _indexOf() - 1),
@@ -158,7 +163,7 @@ class _EffectCard extends StatelessWidget {
       CcMenuItem('Reset', onTap: () => controller.resetEffect(clip.id, id)),
       CcMenuItem('Remove',
           danger: true, onTap: () => controller.removeEffect(clip.id, id)),
-    ]);
+    ];
   }
 
   int _indexOf() =>

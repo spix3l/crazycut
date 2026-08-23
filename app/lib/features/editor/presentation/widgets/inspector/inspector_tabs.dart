@@ -1,11 +1,11 @@
 import 'package:flutter/widgets.dart' hide Clip;
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../../../core/design/tokens.dart';
 import '../../../../../core/widgets/primitives.dart';
 import '../../../../../data/project.dart';
 import '../../../../../models/rational.dart';
 import '../../../../../state/editor_controller.dart';
+import '../../../../../state/timeline_edits.dart';
 import 'inspector_rows.dart';
 
 /// Frame-exact timing for the selected clip (TIM-8). Every field commits one
@@ -120,45 +120,43 @@ class ClipTimingTab extends StatelessWidget {
   static Widget _value(String text) =>
       Text(text, style: CcType.style(size: 12, weight: CcType.medium));
 
+  /// Every preset in one picker: speed is a value the user sets, not a
+  /// ratchet they click up to 4x and can never walk back.
   static Widget _speedControl(
     EditorController controller,
     Clip clip,
     bool locked,
   ) {
-    final next = controller.nextClipSpeedLabel(clip.id);
-    final canIncrease = next != null &&
-        !locked &&
+    final canChange = !locked &&
         controller.doc.linkedWith(clip).every(
           (candidate) => !(controller.doc.trackById(candidate.trackId)?.lock ?? false),
         );
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(_speedLabel(clip.speedValue), style: CcType.style(size: 12, weight: CcType.medium)),
-        const SizedBox(width: 8),
-        CcTooltip(
-          message: canIncrease
-              ? 'Increase speed to $next'
-              : next == null
-              ? 'Maximum speed reached'
-              : 'Unlock linked tracks to change speed',
-          child: CcIconButton(
-            icon: LucideIcons.forward,
-            size: 24,
-            iconSize: 12,
-            enabled: canIncrease,
-            onPressed: canIncrease ? () => controller.increaseClipSpeed(clip.id) : null,
-          ),
+    return CcTooltip(
+      message: canChange
+          ? 'Clip speed — the clip retimes around it'
+          : 'Unlock linked tracks to change speed',
+      child: Builder(
+        builder: (anchorContext) => CcDropdown(
+          value: TimelineEdits.clipSpeedLabel(clip.speedValue),
+          width: 76,
+          height: 24,
+          fontSize: 12,
+          bordered: true,
+          onTap: canChange
+              ? () => showCcMenuBelow(anchorContext, [
+                  for (final preset in TimelineEdits.clipSpeedPresets)
+                    CcMenuItem(
+                      preset.$3,
+                      checked: (preset.$1 / preset.$2 - clip.speedValue).abs() <
+                          0.000001,
+                      onTap: () =>
+                          controller.setClipSpeed(clip.id, preset.$1, preset.$2),
+                    ),
+                ])
+              : null,
         ),
-      ],
+      ),
     );
-  }
-
-  static String _speedLabel(double speed) {
-    final text = speed == speed.roundToDouble()
-        ? speed.round().toString()
-        : speed.toStringAsFixed(2).replaceFirst(RegExp(r'0+$'), '');
-    return '${text}x';
   }
 
   String _handles(MediaAsset? asset, double fps) {

@@ -82,11 +82,7 @@ class _TemplatesPanelState extends State<TemplatesPanel> {
   void _menu(ClipTemplate template, Offset position) {
     showCcMenu(context, position, [
       CcMenuItem('Insert at playhead…', onTap: () => _insert(template)),
-      CcMenuItem(
-        'Rename…',
-        separatorBefore: true,
-        onTap: () => _rename(template),
-      ),
+      CcMenuItem('Rename…', separatorBefore: true, onTap: () => _rename(template)),
       CcMenuItem(
         'Duplicate',
         onTap: () async {
@@ -101,12 +97,7 @@ class _TemplatesPanelState extends State<TemplatesPanel> {
           if (path != null) c.revealPath(path);
         },
       ),
-      CcMenuItem(
-        'Delete',
-        danger: true,
-        separatorBefore: true,
-        onTap: () => _delete(template),
-      ),
+      CcMenuItem('Delete', danger: true, separatorBefore: true, onTap: () => _delete(template)),
     ]);
   }
 
@@ -127,7 +118,7 @@ class _TemplatesPanelState extends State<TemplatesPanel> {
       title: 'Delete template',
       message:
           'Delete "${template.name}"? The clips it was built from are '
-          'untouched — only the template file goes.',
+          'untouched. Only the template file goes.',
     );
     if (!go) return;
     await _library.delete(template);
@@ -193,9 +184,7 @@ class _TemplatesPanelState extends State<TemplatesPanel> {
                       ),
                     ),
             ),
-            if (_status != null ||
-                _warnings.isNotEmpty ||
-                _library.unreadableCount > 0)
+            if (_status != null || _warnings.isNotEmpty || _library.unreadableCount > 0)
               Padding(
                 padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
                 child: Column(
@@ -207,11 +196,7 @@ class _TemplatesPanelState extends State<TemplatesPanel> {
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(
                           warning,
-                          style: CcType.style(
-                            size: 10,
-                            color: CcColors.warning,
-                            height: 1.3,
-                          ),
+                          style: CcType.style(size: 10, color: CcColors.warning, height: 1.3),
                         ),
                       ),
                     if (_library.unreadableCount > 0)
@@ -220,10 +205,7 @@ class _TemplatesPanelState extends State<TemplatesPanel> {
                         child: Text(
                           '${_library.unreadableCount} template file(s) could '
                           'not be read',
-                          style: CcType.style(
-                            size: 10,
-                            color: CcColors.textTertiary,
-                          ),
+                          style: CcType.style(size: 10, color: CcColors.textTertiary),
                         ),
                       ),
                   ],
@@ -250,10 +232,7 @@ class _TemplateCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final slots = template.slots.length;
-    final edges = [
-      if (template.edgeIn.enabled) 'in',
-      if (template.edgeOut.enabled) 'out',
-    ];
+    final edges = [if (template.edgeIn.enabled) 'in', if (template.edgeOut.enabled) 'out'];
     return GestureDetector(
       onSecondaryTapDown: (d) => onContextMenu(d.globalPosition),
       child: CcTappable(

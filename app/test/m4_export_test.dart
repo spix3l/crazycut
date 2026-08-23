@@ -132,6 +132,44 @@ void main() {
       service.cancel(job.id);
     });
 
+    test('leveling and exposure matching ride the spec only when asked', () {
+      final service = ExportService.instance;
+      final off = service.submit(
+        doc: sampleDoc(),
+        preset: ExportPreset.youtube1080,
+        outputPath: '${temp.path}/normalize-off.mp4',
+        quality: ExportQuality.draft,
+      );
+      expect(
+        (off.spec['audio'] as Map<String, dynamic>).containsKey('levelClips'),
+        isFalse,
+      );
+      expect(
+        (off.spec['video'] as Map<String, dynamic>)
+            .containsKey('matchExposure'),
+        isFalse,
+      );
+      service.cancel(off.id);
+
+      final on = service.submit(
+        doc: sampleDoc(),
+        preset: ExportPreset.youtube1080,
+        outputPath: '${temp.path}/normalize-on.mp4',
+        quality: ExportQuality.draft,
+        loudness: true,
+        levelClips: true,
+        matchExposure: true,
+      );
+      // AUD-16 / EXP-15 compose with the master normalize (EXP-7), they do
+      // not replace it.
+      final audio = on.spec['audio'] as Map<String, dynamic>;
+      final video = on.spec['video'] as Map<String, dynamic>;
+      expect(audio['loudnessLufs'], -14.0);
+      expect(audio['levelClips'], isTrue);
+      expect(video['matchExposure'], isTrue);
+      service.cancel(on.id);
+    });
+
     test('cancelling removes the job from the active set', () {
       final service = ExportService.instance;
       final job = service.submit(

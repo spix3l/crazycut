@@ -39,10 +39,14 @@ struct MasterSettings {
 //
 // [mediaPaths] maps asset id → decode path. Assets that are missing, silent
 // or undecodable contribute silence.
+//
+// [clipGains] optionally carries per-clip corrective linear gains keyed by
+// clip id (AUD-16 export leveling); clips without an entry mix at unity.
 Error mixTimeline(const nlohmann::json& document,
                   const std::map<std::string, std::string>& mediaPaths,
                   double startSec, double durationSec, int sampleRate,
-                  const MasterSettings& master, AudioBuffer* out);
+                  const MasterSettings& master, AudioBuffer* out,
+                  const std::map<std::string, double>* clipGains = nullptr);
 
 // Reads master settings out of a document's `settings.master` object, falling
 // back to the defaults above.
@@ -60,5 +64,26 @@ double peakDb(const AudioBuffer& buffer);
 
 // True peak in dBTP, estimated with 4× oversampling as BS.1770 prescribes.
 double truePeakDb(const AudioBuffer& buffer);
+
+// --- Export leveling (AUD-16) ----------------------------------------------
+
+// Measures the integrated loudness (LUFS, same BS.1770-4 math as
+// integratedLufs) of every audible clip's contribution to the window
+// [startSec, startSec + durationSec), keyed by clip id. Levels are measured
+// after the clip's own fader and track gain so deliberate balance choices
+// survive leveling (AUD-16); fades, pans and crossfades do not count as
+// level decisions and are excluded. Clips that are muted, soloed out,
+// silent or shorter than one loudness block are omitted.
+std::map<std::string, double> measureClipLoudnesses(
+    const nlohmann::json& document,
+    const std::map<std::string, std::string>& mediaPaths, double startSec,
+    double durationSec, int sampleRate);
+
+// Computes per-clip corrective linear gains that bring every measured clip to
+// the median loudness of the set, clamped to ±[maxGainDb] dB around unity so
+// a stray whisper cannot be blown up into noise. Unmeasured clips get no
+// entry (they mix at unity).
+std::map<std::string, double> computeLevelGains(
+    const std::map<std::string, double>& clipLufs, double maxGainDb = 12.0);
 
 }  // namespace cc
