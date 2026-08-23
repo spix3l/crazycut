@@ -532,6 +532,11 @@ mixin TimelineEdits on ChangeNotifier {
     }
   }
 
+  /// [_clearRange] for sibling mixins working inside their own transaction —
+  /// template insertion in overwrite mode makes room exactly like a drop does.
+  void clearRangeIn(EditTransaction tx, String trackId, Rt from, Rt to) =>
+      _clearRange(tx, trackId, from, to);
+
   // --- Drag gestures --------------------------------------------------------
 
   /// Captures origins for a drag. [primaryId] is the clip under the cursor;
@@ -1651,6 +1656,62 @@ mixin TimelineEdits on ChangeNotifier {
   }
 
   // --- Clip properties ------------------------------------------------------
+
+  /// v1 constant-speed presets from the timeline spec. Values are kept as
+  /// rationals in the document so saving and reopening does not introduce
+  /// floating-point speed drift.
+  static const List<(int, int)> _clipSpeedPresets = [
+    (1, 4),
+    (1, 2),
+    (1, 1),
+    (2, 1),
+    (4, 1),
+  ];
+
+  /// Increases a clip to the next v1 speed preset and retimes its duration.
+  /// Linked A/V partners follow together so the pair cannot drift apart.
+  /// Returns false when the clip is missing, locked, or already at 4x.
+  bool increaseClipSpeed(String id) {
+    final clip = doc.clipById(id);
+    if (clip == null) return false;
+    final current = clip.speedValue;
+    final next = _clipSpeedPresets.firstWhereOrNull(
+      (preset) => preset.$1 / preset.$2 > current + 0.000001,
+    );
+    if (next == null) return false;
+
+    final targets = doc.linkedWith(clip);
+    if (targets.isEmpty || targets.any((candidate) => _locked(candidate.trackId))) {
+      return false;
+    }
+    final speed = next.$1 / next.$2;
+    _run('Increase clip speed', (tx) {
+      for (final target in targets) {
+        tx.clip(target.id);
+        final sourceSpan = target.sourceSpan;
+        var duration = Rt.fromMicros((sourceSpan.micros / speed).round());
+        if (duration < frameDuration) duration = frameDuration;
+        final max = _maxDuration(target);
+        if (max != null && duration > max) duration = max;
+        target.speed = '${next.$1}/${next.$2}';
+        target.duration = duration;
+        _pushAside(tx, target);
+      }
+    });
+    return true;
+  }
+
+  /// The next speed label for context menus and disabled-state decisions.
+  String? nextClipSpeedLabel(String id) {
+    final clip = doc.clipById(id);
+    if (clip == null) return null;
+    for (final preset in _clipSpeedPresets) {
+      if (preset.$1 / preset.$2 > clip.speedValue + 0.000001) {
+        return '${preset.$1}/${preset.$2}x';
+      }
+    }
+    return null;
+  }
 
   /// Per-clip audio settings; fades keep the AUD spec's shape even though the
   /// mixer itself lands in M3.

@@ -1,6 +1,6 @@
 # CrazyCut — Data Model & Project Format
 
-> Status: Draft v0.1 · Owner: @steve · Last updated: 2026-08-21
+> Status: Draft v0.2 · Owner: @steve · Last updated: 2026-08-23
 > Companion docs: `01-architecture.md`, `03-features/*`
 
 ## 1. Principles
@@ -243,6 +243,38 @@ Violations never crash the app: loader quarantines invalid entities into a repor
 }
 ```
 
+## 12. Template files
+
+Reusable chunks live outside the project, one `.cctemplate` JSON file per
+template under `<CrazyCut>/Templates` (`03-features/templates.md`):
+
+```json
+{
+  "schema": "crazycut/template@1",
+  "id": "…", "name": "Section bumper", "category": "Bumpers",
+  "createdAt": "…", "width": 1920, "height": 1080, "fps": "30/1",
+  "lanes":   [ { "key": "…", "kind": "video", "offset": 0, "name": "V1" } ],
+  "clips":   [ /* Clip payloads, `start` relative to the chunk, `trackId` = lane key */ ],
+  "transitions": [ /* Transition payloads, clip ids template-local */ ],
+  "media":   [ { "id": "…", "hash": "sha256:…", "path": "…", "probe": { } } ],
+  "slots":   [ { "id": "…", "kind": "text|media|duration", "name": "Title",
+                 "clipId": "…", "default": "Chapter one" } ],
+  "edgeIn":  { "enabled": true, "type": "crossDissolve", "duration": "1/2", "easing": "easeInOut" },
+  "edgeOut": { "enabled": true, "type": "dipToBlack", "duration": "1/2", "easing": "easeInOut" }
+}
+```
+
+- Clip and transition payloads use the *project* encoding (§5) verbatim, so
+  everything a clip can carry travels with the template and forward-safety
+  (§9) applies to them unchanged. Ids inside a template are local: insertion
+  remaps every one of them.
+- Times are relative to the chunk's first clip; lanes are offsets from the
+  template's base lane, so a chunk lands correctly in any track layout.
+- Internal transitions keep their stored `aExtend`/`bExtend`, because the
+  captured clips already carry the overlap the transition owns.
+- Same major-version gate as projects: `crazycut/template@<major>`.
+
 ## Changelog
 
+- v0.2 — §12 template files.
 - v0.1 — Initial draft.

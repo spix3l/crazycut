@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -62,6 +64,22 @@ extension AssetPresentation on MediaAsset {
 const double kPixelsPerSecond = 40;
 const double kMinPxPerSec = 8;
 const double kMaxPxPerSec = 160;
+
+/// Maps the timeline's normalized control position onto its exponential zoom
+/// range. Keeping this and [timelineZoomForPixelsPerSecond] together prevents
+/// toolbar clicks and the screen from interpreting the same value differently.
+double timelinePixelsPerSecondForZoom(double zoom) {
+  final t = zoom.clamp(0.0, 1.0);
+  return (kMinPxPerSec * math.pow(kMaxPxPerSec / kMinPxPerSec, t)).toDouble();
+}
+
+/// Inverse of [timelinePixelsPerSecondForZoom].
+double timelineZoomForPixelsPerSecond(double pixelsPerSecond) {
+  final pixels = pixelsPerSecond.clamp(kMinPxPerSec, kMaxPxPerSec);
+  final ratio = pixels / kMinPxPerSec;
+  final span = kMaxPxPerSec / kMinPxPerSec;
+  return (math.log(ratio) / math.log(span)).clamp(0.0, 1.0).toDouble();
+}
 
 /// Above this zoom a video clip is wide enough to be worth a filmstrip.
 const double kFilmstripMinPxPerSec = 24;

@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:auto_route/auto_route.dart';
 import 'package:desktop_drop/desktop_drop.dart';
@@ -25,7 +24,28 @@ import '../widgets/media_pool.dart';
 import '../widgets/missing_media_dialog.dart';
 import '../widgets/mixer_panel.dart';
 import '../widgets/monitor_panel.dart';
+import '../widgets/templates/template_dialogs.dart';
 import '../widgets/timeline/timeline_panel.dart';
+
+/// Keys whose action is useful while the operating system auto-repeats them.
+///
+/// Edit commands are intentionally absent: a repeat event for Cmd+D or Cmd+V
+/// must not create another batch of clips just because the keys were held for
+/// longer than the keyboard repeat delay.
+bool isRepeatableEditorKey(LogicalKeyboardKey key) => switch (key) {
+  LogicalKeyboardKey.arrowLeft ||
+  LogicalKeyboardKey.arrowRight ||
+  LogicalKeyboardKey.arrowUp ||
+  LogicalKeyboardKey.arrowDown ||
+  LogicalKeyboardKey.pageUp ||
+  LogicalKeyboardKey.pageDown ||
+  LogicalKeyboardKey.equal ||
+  LogicalKeyboardKey.minus => true,
+  _ => false,
+};
+
+bool isOneShotEditorKeyRepeat(KeyEvent event) =>
+    event is KeyRepeatEvent && !isRepeatableEditorKey(event.logicalKey);
 
 /// The editor: toolbar on top, media pool / monitor / inspector in the middle,
 /// timeline at the bottom. The screen translates gestures and keys into
@@ -101,17 +121,12 @@ class _EditorScreenState extends State<EditorScreen> {
   /// Slider position 0..1 mapped exponentially so the low end still gives
   /// frame-level steps.
   void _setZoom(double t) {
-    final clamped = t.clamp(0.0, 1.0);
     setState(() {
-      _pxPerSec = kMinPxPerSec * math.pow(kMaxPxPerSec / kMinPxPerSec, clamped);
+      _pxPerSec = timelinePixelsPerSecondForZoom(t);
     });
   }
 
-  double get _zoomT {
-    final ratio = _pxPerSec / kMinPxPerSec;
-    final span = kMaxPxPerSec / kMinPxPerSec;
-    return (math.log(ratio) / math.log(span)).clamp(0.0, 1.0);
-  }
+  double get _zoomT => timelineZoomForPixelsPerSecond(_pxPerSec);
 
   void _zoomBy(double delta) => _setZoom(_zoomT + delta);
 
@@ -224,6 +239,9 @@ class _EditorScreenState extends State<EditorScreen> {
 
   KeyEventResult _onKey(EditorController c, KeyEvent event) {
     if (event is KeyUpEvent) return KeyEventResult.ignored;
+    if (isOneShotEditorKeyRepeat(event)) {
+      return KeyEventResult.handled;
+    }
 
     // EditableText handles typing after focus-key propagation. Do not let the
     // editor's single-key commands (S, M, I, Backspace, arrows, and friends)
@@ -269,6 +287,8 @@ class _EditorScreenState extends State<EditorScreen> {
         c.pasteAttributes();
       case LogicalKeyboardKey.keyV when meta:
         c.paste();
+      case LogicalKeyboardKey.keyT when meta && shift:
+        _saveAsTemplate(c);
       case LogicalKeyboardKey.keyD when meta:
         c.duplicateSelection();
       case LogicalKeyboardKey.keyA when meta:
@@ -440,6 +460,12 @@ class _EditorScreenState extends State<EditorScreen> {
         ),
       ),
     );
+  }
+
+  /// TPL-4: capture the selection into the shared template library.
+  Future<void> _saveAsTemplate(EditorController c) async {
+    if (c.selection.isEmpty) return;
+    await showSaveTemplateDialog(context, c);
   }
 
   Future<void> _renameProject(EditorController c) async {

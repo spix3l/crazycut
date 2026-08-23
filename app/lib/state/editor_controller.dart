@@ -10,6 +10,7 @@ import 'package:crazycut_app/data/media_cache.dart';
 import 'package:crazycut_app/data/param_value.dart';
 import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/data/repository.dart';
+import 'package:crazycut_app/data/template.dart';
 import 'package:crazycut_app/engine/engine.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/audio_edits.dart';
@@ -17,6 +18,7 @@ import 'package:crazycut_app/state/canvas_geometry.dart';
 import 'package:crazycut_app/state/preview_renderer.dart';
 import 'package:crazycut_app/state/proxy_service.dart';
 import 'package:crazycut_app/state/svg_rasterizer.dart';
+import 'package:crazycut_app/state/template_edits.dart';
 import 'package:crazycut_app/state/text_rasterizer.dart';
 import 'package:crazycut_app/state/timeline_edits.dart';
 
@@ -57,7 +59,8 @@ const kSupportedExtensions = {
 /// Everything the editor screen reads and writes for one open project:
 /// document edits (via [TimelineEdits]), the media pool, playback, the preview
 /// frame, autosave and proxies.
-class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
+class EditorController extends ChangeNotifier
+    with TimelineEdits, AudioEdits, TemplateEdits {
   EditorController(this.doc, {required String path, ProxyService? proxies})
     : proxies = proxies ?? ProxyService(),
       _ownsProxies = proxies == null {
@@ -405,6 +408,55 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
     notifyListeners();
   }
 
+  // --- Templates (TPL-12) ---------------------------------------------------
+
+  /// Resolves a template's media, then inserts it.
+  ///
+  /// An asset already in the project with the same content hash wins; failing
+  /// that the recorded path is imported (probe included, but not placed on the
+  /// timeline). Anything still unresolved is left to the ops layer's offline
+  /// stand-in, so a template whose footage moved still inserts and can be
+  /// relinked afterwards.
+  Future<TemplateInsertResult> insertTemplateResolvingMedia(
+    ClipTemplate template, {
+    Rt? at,
+    String? baseTrackId,
+    Map<String, String> slotValues = const {},
+    DropMode mode = DropMode.insert,
+    TemplateEdge? edgeIn,
+    TemplateEdge? edgeOut,
+  }) async {
+    final resolution = <String, String>{};
+    for (final ref in template.media) {
+      final known = doc.media.firstWhereOrNull(
+        (a) =>
+            (ref.hash.isNotEmpty && a.hash == ref.hash) ||
+            (ref.path.isNotEmpty && a.path == ref.path),
+      );
+      if (known != null) {
+        resolution[ref.id] = known.id;
+        continue;
+      }
+      if (ref.path.isEmpty || !File(ref.path).existsSync()) continue;
+      final before = doc.media.map((a) => a.id).toSet();
+      await importFiles([ref.path], addToTimeline: false);
+      final added = doc.media.firstWhereOrNull((a) => !before.contains(a.id));
+      if (added != null) resolution[ref.id] = added.id;
+    }
+    final result = insertTemplate(
+      template,
+      at: at,
+      baseTrackId: baseTrackId,
+      slotValues: slotValues,
+      mediaResolution: resolution,
+      mode: mode,
+      edgeIn: edgeIn,
+      edgeOut: edgeOut,
+    );
+    notifyListeners();
+    return result;
+  }
+
   /// IMP-12: removing an asset never touches the file on disk.
   void removeAsset(String assetId, {bool force = false}) {
     final asset = doc.assetById(assetId);
@@ -462,13 +514,20 @@ class EditorController extends ChangeNotifier with TimelineEdits, AudioEdits {
   Future<void> revealAsset(String assetId) async {
     final asset = doc.assetById(assetId);
     if (asset == null) return;
+    await revealPath(asset.path);
+  }
+
+  /// Shows any file the app owns in the OS file browser — media, and the
+  /// template files the Templates panel lists (TPL-2).
+  Future<void> revealPath(String path) async {
+    if (path.isEmpty) return;
     try {
       if (Platform.isMacOS) {
-        await Process.run('open', ['-R', asset.path]);
+        await Process.run('open', ['-R', path]);
       } else if (Platform.isWindows) {
-        await Process.run('explorer', ['/select,', asset.path]);
+        await Process.run('explorer', ['/select,', path]);
       } else {
-        await Process.run('xdg-open', [File(asset.path).parent.path]);
+        await Process.run('xdg-open', [File(path).parent.path]);
       }
     } on Object catch (error) {
       debugPrint('reveal failed: $error');

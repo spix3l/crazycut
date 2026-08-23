@@ -1,1 +1,2 @@
 - Work on reusable templates    
+- Option missing: increase a clip speed

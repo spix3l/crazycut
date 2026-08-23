@@ -1,5 +1,26 @@
 import 'package:crazycut_app/models/rational.dart';
 
+/// The v1 catalog (`03-features/transitions.md`), type id → display name.
+/// Menus and pickers read this so a new type shows up everywhere at once.
+const Map<String, String> kTransitionCatalog = {
+  'crossDissolve': 'Cross dissolve',
+  'dipToBlack': 'Dip to black',
+  'dipToWhite': 'Dip to white',
+  'slideLeft': 'Slide left',
+  'slideRight': 'Slide right',
+  'slideUp': 'Slide up',
+  'slideDown': 'Slide down',
+  'pushLeft': 'Push left',
+  'pushRight': 'Push right',
+  'pushUp': 'Push up',
+  'pushDown': 'Push down',
+  'zoomIn': 'Zoom in',
+  'zoomOut': 'Zoom out',
+};
+
+/// Display name for a transition type, falling back to the raw id.
+String transitionTypeLabel(String type) => kTransitionCatalog[type] ?? type;
+
 /// Typed transition entity (`02-data-model.md` §5, `03-features/transitions.md`).
 class Transition {
   Transition({

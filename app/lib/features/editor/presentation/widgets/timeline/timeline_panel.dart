@@ -15,6 +15,7 @@ import '../../../../../models/rational.dart';
 import '../../../../../state/editor_controller.dart';
 import '../../../../../state/timeline_edits.dart';
 import '../../models/editor_models.dart';
+import '../templates/template_dialogs.dart';
 import 'timeline_clip_tile.dart';
 import 'track_header.dart';
 
@@ -273,6 +274,20 @@ class _TimelinePanelState extends State<TimelinePanel> {
         clip.mute ? 'Unmute clip' : 'Mute clip',
         onTap: () => c.setClipAudio(clip.id, mute: !clip.mute),
       ),
+      CcMenuItem(
+        'Increase speed to ${c.nextClipSpeedLabel(clip.id) ?? '4x'}',
+        icon: LucideIcons.forward,
+        separatorBefore: true,
+        onTap: c.nextClipSpeedLabel(clip.id) == null
+            ? null
+            : () => c.increaseClipSpeed(clip.id),
+      ),
+      CcMenuItem(
+        'Save selection as template…',
+        shortcut: '⇧⌘T',
+        separatorBefore: true,
+        onTap: () => showSaveTemplateDialog(context, c),
+      ),
     ]);
   }
 
@@ -294,7 +309,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
           _TimelineToolbar(
             controller: c,
             snap: widget.snap,
-            zoom: (pxPerSec - kMinPxPerSec) / (kMaxPxPerSec - kMinPxPerSec),
+            zoom: timelineZoomForPixelsPerSecond(pxPerSec),
             onSnapChanged: widget.onSnapChanged,
             onZoomChanged: widget.onZoomChanged,
             onFit: widget.onFit,
