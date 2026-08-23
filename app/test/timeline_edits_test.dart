@@ -744,6 +744,89 @@ void main() {
       expect(e.nextEdge(s(9), forward: false), s(8));
     });
   });
+  group('speed', () {
+    test('increases speed to the next preset and preserves source span', () {
+      final e = harness();
+      final clip = addClip(e, id: 'a', start: 0, duration: 10);
+
+      expect(e.nextClipSpeedLabel(clip.id), '2/1x');
+      expect(e.increaseClipSpeed(clip.id), isTrue);
+
+      expect(clip.speed, '2/1');
+      expect(clip.duration, s(5));
+      expect(clip.sourceSpan, s(10));
+      expect(e.history.depth, 1);
+    });
+
+    test('increases linked picture and audio together', () {
+      final e = harness();
+      final group = 'linked';
+      final video = addClip(
+        e,
+        id: 'v',
+        start: 0,
+        duration: 10,
+        linkedGroup: group,
+      );
+      final audio = addClip(
+        e,
+        id: 'a',
+        start: 0,
+        duration: 10,
+        linkedGroup: group,
+        trackId: e.doc.audioTrack()!.id,
+      );
+
+      expect(e.increaseClipSpeed(video.id), isTrue);
+
+      expect(video.speed, '2/1');
+      expect(audio.speed, '2/1');
+      expect(video.duration, s(5));
+      expect(audio.duration, s(5));
+    });
+
+    test('stops at 4x and keeps a locked linked pair unchanged', () {
+      final e = harness();
+      final clip = addClip(e, id: 'a', start: 0, duration: 10);
+      clip.speed = '4/1';
+      expect(e.nextClipSpeedLabel(clip.id), isNull);
+      expect(e.increaseClipSpeed(clip.id), isFalse);
+
+      final linked = addClip(
+        e,
+        id: 'linked-a',
+        start: 0,
+        duration: 10,
+        linkedGroup: 'locked',
+        trackId: e.doc.audioTrack()!.id,
+      );
+      final video = addClip(
+        e,
+        id: 'linked-v',
+        start: 0,
+        duration: 10,
+        linkedGroup: 'locked',
+      );
+      e.setTrackFlags(e.doc.audioTrack()!.id, lock: true);
+
+      expect(e.increaseClipSpeed(video.id), isFalse);
+      expect(linked.speed, '1/1');
+      expect(video.speed, '1/1');
+    });
+
+    test('speed increase is one undoable edit', () {
+      final e = harness();
+      final clip = addClip(e, id: 'a', start: 0, duration: 10);
+      e.increaseClipSpeed(clip.id);
+
+      e.undo();
+
+      final restored = e.clipById(clip.id)!;
+      expect(restored.speed, '1/1');
+      expect(restored.duration, s(10));
+    });
+  });
+
   test('undo of duplicate removes the clone (not restores it)', () {
     final e = harness();
     addClip(e, id: 'c1', start: 0, duration: 5);

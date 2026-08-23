@@ -17,31 +17,35 @@ void main() {
   testWidgets('the templates tab lists the library and offers capture', (
     tester,
   ) async {
-    print('STEP start');
     final temp = Directory.systemTemp.createTempSync('cc_templates_panel');
     ProjectRepository.rootOverride = temp;
     TemplateLibrary.instance.resetForTest();
 
-    await TemplateLibrary.instance.save(
-      ClipTemplate(
-        id: 'tpl-1',
-        name: 'Section bumper',
-        category: 'Bumpers',
-        createdAt: DateTime.now().toUtc(),
-        clips: [
-          {
-            'id': 'c1',
-            'trackId': 'lane',
-            'mediaId': '',
-            'label': 'Text',
-            'start': '0/1',
-            'duration': '3/1',
-            'sourceIn': '0/1',
-          },
-        ],
-        lanes: [TemplateLane(key: 'lane', kind: 'video', offset: 0)],
-      ),
-    );
+    // File I/O has to run on the real event loop: testWidgets drives a fake
+    // clock, so an awaited write inside the test body never completes.
+    await tester.runAsync(() async {
+      await TemplateLibrary.instance.save(
+        ClipTemplate(
+          id: 'tpl-1',
+          name: 'Section bumper',
+          category: 'Bumpers',
+          createdAt: DateTime.now().toUtc(),
+          clips: [
+            {
+              'id': 'c1',
+              'trackId': 'lane',
+              'mediaId': '',
+              'label': 'Text',
+              'start': '0/1',
+              'duration': '3/1',
+              'sourceIn': '0/1',
+            },
+          ],
+          lanes: [TemplateLane(key: 'lane', kind: 'video', offset: 0)],
+        ),
+      );
+      await TemplateLibrary.instance.refresh();
+    });
 
     final doc = ProjectDoc.empty('Proj', width: 1920, height: 1080, fps: 30);
     final controller = EditorController(
@@ -77,19 +81,16 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    print('STEP tabbed');
     expect(find.text('Section bumper'), findsOneWidget);
     expect(find.text('3.0s'), findsOneWidget);
     expect(find.textContaining('Bumpers'), findsOneWidget);
 
-    print('STEP card ok');
     // Capture needs a selection; without one it says so rather than opening an
     // empty dialog.
     await tester.tap(find.text('Save selection as template'));
     await tester.pump();
     expect(find.text('Select clips on the timeline first'), findsOneWidget);
 
-    print('STEP status ok');
     // The media tab is still there and still works.
     await tester.tap(find.text('Media'));
     await tester.pump();
@@ -102,6 +103,8 @@ void main() {
     final temp = Directory.systemTemp.createTempSync('cc_templates_empty');
     ProjectRepository.rootOverride = temp;
     TemplateLibrary.instance.resetForTest();
+
+    await tester.runAsync(() => TemplateLibrary.instance.refresh());
 
     final doc = ProjectDoc.empty('Proj', width: 1920, height: 1080, fps: 30);
     doc.media.add(

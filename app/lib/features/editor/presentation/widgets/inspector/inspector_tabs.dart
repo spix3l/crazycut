@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart' hide Clip;
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../../../core/design/tokens.dart';
 import '../../../../../core/widgets/primitives.dart';
@@ -70,6 +71,10 @@ class ClipTimingTab extends StatelessWidget {
             child: Column(
               children: [
                 InfoRow('Media', _value(asset?.name ?? 'missing')),
+                InfoRow(
+                  'Speed',
+                  _speedControl(controller, clip, locked),
+                ),
                 InfoRow('Track', _value(track?.name ?? '—')),
                 if (asset != null)
                   InfoRow('Available', _value(Rt.toTimecode(asset.duration, fps))),
@@ -114,6 +119,47 @@ class ClipTimingTab extends StatelessWidget {
 
   static Widget _value(String text) =>
       Text(text, style: CcType.style(size: 12, weight: CcType.medium));
+
+  static Widget _speedControl(
+    EditorController controller,
+    Clip clip,
+    bool locked,
+  ) {
+    final next = controller.nextClipSpeedLabel(clip.id);
+    final canIncrease = next != null &&
+        !locked &&
+        controller.doc.linkedWith(clip).every(
+          (candidate) => !(controller.doc.trackById(candidate.trackId)?.lock ?? false),
+        );
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(_speedLabel(clip.speedValue), style: CcType.style(size: 12, weight: CcType.medium)),
+        const SizedBox(width: 8),
+        CcTooltip(
+          message: canIncrease
+              ? 'Increase speed to $next'
+              : next == null
+              ? 'Maximum speed reached'
+              : 'Unlock linked tracks to change speed',
+          child: CcIconButton(
+            icon: LucideIcons.forward,
+            size: 24,
+            iconSize: 12,
+            enabled: canIncrease,
+            onPressed: canIncrease ? () => controller.increaseClipSpeed(clip.id) : null,
+          ),
+        ),
+      ],
+    );
+  }
+
+  static String _speedLabel(double speed) {
+    final text = speed == speed.roundToDouble()
+        ? speed.round().toString()
+        : speed.toStringAsFixed(2).replaceFirst(RegExp(r'0+$'), '');
+    return '${text}x';
+  }
 
   String _handles(MediaAsset? asset, double fps) {
     if (asset == null || asset.duration.isZero) return 'unbounded';

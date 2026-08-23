@@ -1691,9 +1691,9 @@ mixin TimelineEdits on ChangeNotifier {
         final sourceSpan = target.sourceSpan;
         var duration = Rt.fromMicros((sourceSpan.micros / speed).round());
         if (duration < frameDuration) duration = frameDuration;
+        target.speed = '${next.$1}/${next.$2}';
         final max = _maxDuration(target);
         if (max != null && duration > max) duration = max;
-        target.speed = '${next.$1}/${next.$2}';
         target.duration = duration;
         _pushAside(tx, target);
       }
