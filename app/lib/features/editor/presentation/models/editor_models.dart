@@ -81,6 +81,17 @@ double timelineZoomForPixelsPerSecond(double pixelsPerSecond) {
   return (math.log(ratio) / math.log(span)).clamp(0.0, 1.0).toDouble();
 }
 
+/// Lane scale as the timeline zooms out. At the default zoom lanes sit at
+/// their authored [TrackHeight]; zooming out shrinks them down to half so
+/// more tracks fit on screen. Zooming in keeps them full size — the authored
+/// height stays the ceiling, and only the horizontal scale grows.
+double timelineLaneScaleForPixelsPerSecond(double pxPerSec) {
+  if (pxPerSec >= kPixelsPerSecond) return 1.0;
+  final t = ((pxPerSec - kMinPxPerSec) / (kPixelsPerSecond - kMinPxPerSec))
+      .clamp(0.0, 1.0);
+  return 0.5 + 0.5 * t;
+}
+
 /// Above this zoom a video clip is wide enough to be worth a filmstrip.
 const double kFilmstripMinPxPerSec = 24;
 

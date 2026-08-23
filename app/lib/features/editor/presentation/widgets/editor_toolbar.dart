@@ -129,7 +129,7 @@ class EditorToolbar extends StatelessWidget {
                       // The project name doubles as the project menu: rename,
                       // collect media (PRJ-14) and diagnostics live here
                       // because there is no menu bar in this shell.
-                      onTap: () => showCcMenuBelow(context, [
+                      onTap: () => showCcMenu(context, [
                         CcMenuItem(
                           'Rename project…',
                           icon: LucideIcons.pencil,

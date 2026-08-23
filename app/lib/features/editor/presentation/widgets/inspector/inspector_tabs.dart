@@ -143,7 +143,7 @@ class ClipTimingTab extends StatelessWidget {
           fontSize: 12,
           bordered: true,
           onTap: canChange
-              ? () => showCcMenuBelow(anchorContext, [
+              ? () => showCcMenu(anchorContext, [
                   for (final preset in TimelineEdits.clipSpeedPresets)
                     CcMenuItem(
                       preset.$3,

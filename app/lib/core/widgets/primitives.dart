@@ -898,9 +898,16 @@ class CcMenu extends StatelessWidget {
   }
 }
 
-/// Opens a [CcMenu] at a global position (right-click menus).
-void showCcMenu(BuildContext context, Offset globalPosition, List<CcMenuItem> items) {
-  final overlay = Overlay.of(context);
+/// Opens a [CcMenu] anchored to the bottom edge of [anchorContext].
+///
+/// This is the app's only menu entry point: buttons and right-click targets
+/// alike pass the widget that owns the gesture, so the menu opens beside it
+/// instead of being told where the pointer was.
+void showCcMenu(BuildContext anchorContext, List<CcMenuItem> items) {
+  final anchor = anchorContext.findRenderObject() as RenderBox?;
+  if (anchor == null || !anchor.attached) return;
+  final position = anchor.localToGlobal(Offset(0, anchor.size.height + 4));
+  final overlay = Overlay.of(anchorContext);
   final overlayBox = overlay.context.findRenderObject() as RenderBox?;
   if (overlayBox == null) return;
   late OverlayEntry entry;
@@ -911,7 +918,7 @@ void showCcMenu(BuildContext context, Offset globalPosition, List<CcMenuItem> it
   // Ten pixels of explicit vertical padding plus the one-pixel border on each
   // edge. Keeping this equal to CcMenu's real height prevents bottom clipping.
   final estimatedHeight = items.length * 28.0 + separatorHeight + 12;
-  final requested = overlayBox.globalToLocal(globalPosition);
+  final requested = overlayBox.globalToLocal(position);
   final horizontalMargin =
       overlayBox.size.width < edgeMargin * 2
           ? overlayBox.size.width / 2
@@ -958,17 +965,6 @@ void showCcMenu(BuildContext context, Offset globalPosition, List<CcMenuItem> it
     ),
   );
   overlay.insert(entry);
-}
-
-/// Opens a [CcMenu] from the lower-left corner of [anchorContext].
-///
-/// Use this for button-triggered menus. Pointer-triggered context menus should
-/// continue to call [showCcMenu] with the pointer's global position.
-void showCcMenuBelow(BuildContext anchorContext, List<CcMenuItem> items) {
-  final anchor = anchorContext.findRenderObject() as RenderBox?;
-  if (anchor == null || !anchor.attached) return;
-  final position = anchor.localToGlobal(Offset(0, anchor.size.height + 4));
-  showCcMenu(anchorContext, position, items);
 }
 
 /// Hover tooltip. Material's `Tooltip` is off-limits here, and the timeline

@@ -27,7 +27,9 @@ class AssetCard extends StatelessWidget {
   final double proxyProgress;
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTap;
-  final void Function(Offset globalPosition)? onContextMenu;
+
+  /// Anchors the right-click menu to the card itself.
+  final void Function(BuildContext anchor)? onContextMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -36,9 +38,10 @@ class AssetCard extends StatelessWidget {
     final failed = item.status == ImportStatus.failed;
     final offline = asset.offline;
 
-    return GestureDetector(
+    return Builder(
+      builder: (cardContext) => GestureDetector(
       onSecondaryTapDown:
-          onContextMenu == null ? null : (d) => onContextMenu!(d.globalPosition),
+          onContextMenu == null ? null : (_) => onContextMenu!(cardContext),
       child: CcTappable(
         onTap: onTap,
         child: Opacity(
@@ -138,6 +141,7 @@ class AssetCard extends StatelessWidget {
             ),
           ),
         ),
+      ),
       ),
     );
   }

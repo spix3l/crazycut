@@ -45,11 +45,12 @@ class EffectsTab extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
             child: Builder(
-              builder: (buttonContext) => CcButton(
-                label: 'Add effect',
-                icon: LucideIcons.plus,
-                onPressed: () => _openGallery(buttonContext),
-              ),
+              builder:
+                  (buttonContext) => CcButton(
+                    label: 'Add effect',
+                    icon: LucideIcons.plus,
+                    onPressed: () => _openGallery(buttonContext),
+                  ),
             ),
           ),
         ],
@@ -60,19 +61,21 @@ class EffectsTab extends StatelessWidget {
   void _openGallery(BuildContext context) async {
     final catalog = await c.effectCatalogOrFallback();
     if (!context.mounted) return;
-    showCcMenuBelow(context, [
-      for (final category in _grouped(catalog).entries)
-        ...[
-          CcMenuItem(category.key, onTap: null),
-          for (final def in category.value)
-            CcMenuItem('   ${def['label'] as String}',
-                onTap: () => c.addEffect(clip.id, def['id'] as String)),
-        ],
+    showCcMenu(context, [
+      for (final category in _grouped(catalog).entries) ...[
+        CcMenuItem(category.key, onTap: null),
+        for (final def in category.value)
+          CcMenuItem(
+            '   ${def['label'] as String}',
+            onTap: () => c.addEffect(clip.id, def['id'] as String),
+          ),
+      ],
     ]);
   }
 
   Map<String, List<Map<String, dynamic>>> _grouped(
-      List<Map<String, dynamic>> catalog) {
+    List<Map<String, dynamic>> catalog,
+  ) {
     final out = <String, List<Map<String, dynamic>>>{};
     for (final def in catalog) {
       out.putIfAbsent(def['category'] as String? ?? 'Other', () => []).add(def);
@@ -106,32 +109,47 @@ class _EffectCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onSecondaryTapDown: (d) => _menu(context, d.globalPosition),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
-              child: Row(
-                children: [
-                  CcCheckbox(
-                    checked: enabled,
-                    onTap: () => controller.setEffectEnabled(
-                        clip.id, instance['id'] as String, !enabled),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(_label(type), style: CcType.small),
-                  ),
-                  Builder(
-                    builder: (buttonContext) => CcTappable(
-                      onTap: () => showCcMenuBelow(buttonContext, _items()),
-                      child: const CcIcon(LucideIcons.moreVertical,
-                          size: 13, color: CcColors.textSecondary),
+          Builder(
+            builder:
+                (headerContext) => GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onSecondaryTapDown: (_) => _menu(headerContext),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+                    child: Row(
+                      children: [
+                        CcCheckbox(
+                          checked: enabled,
+                          onTap:
+                              () => controller.setEffectEnabled(
+                                clip.id,
+                                instance['id'] as String,
+                                !enabled,
+                              ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(_label(type), style: CcType.small),
+                        ),
+                        Builder(
+                          builder:
+                              (buttonContext) => CcTappable(
+                                onTap:
+                                    () => showCcMenu(
+                                      buttonContext,
+                                      _items(),
+                                    ),
+                                child: const CcIcon(
+                                  LucideIcons.moreVertical,
+                                  size: 13,
+                                  color: CcColors.textSecondary,
+                                ),
+                              ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
-            ),
+                ),
           ),
           for (final entry
               in ((instance['params'] as Map<String, dynamic>?) ?? const {})
@@ -148,21 +166,27 @@ class _EffectCard extends StatelessWidget {
     );
   }
 
-  void _menu(BuildContext context, Offset at) =>
-      showCcMenu(context, at, _items());
+  void _menu(BuildContext anchorContext) =>
+      showCcMenu(anchorContext, _items());
 
   List<CcMenuItem> _items() {
     final id = instance['id'] as String;
     return [
-      CcMenuItem('Move up',
-          onTap: () => controller.reorderEffect(clip.id, id,
-              _indexOf() - 1),
-          checked: null),
-      CcMenuItem('Move down',
-          onTap: () => controller.reorderEffect(clip.id, id, _indexOf() + 1)),
+      CcMenuItem(
+        'Move up',
+        onTap: () => controller.reorderEffect(clip.id, id, _indexOf() - 1),
+        checked: null,
+      ),
+      CcMenuItem(
+        'Move down',
+        onTap: () => controller.reorderEffect(clip.id, id, _indexOf() + 1),
+      ),
       CcMenuItem('Reset', onTap: () => controller.resetEffect(clip.id, id)),
-      CcMenuItem('Remove',
-          danger: true, onTap: () => controller.removeEffect(clip.id, id)),
+      CcMenuItem(
+        'Remove',
+        danger: true,
+        onTap: () => controller.removeEffect(clip.id, id),
+      ),
     ];
   }
 
@@ -238,23 +262,26 @@ class _ParamRowState extends State<_ParamRow> {
           children: [
             Expanded(
               flex: 5,
-              child: Text(_paramLabel(widget.paramId),
-                  style: CcType.style(size: 11, color: CcColors.textSecondary),
-                  overflow: TextOverflow.ellipsis),
+              child: Text(
+                _paramLabel(widget.paramId),
+                style: CcType.style(size: 11, color: CcColors.textSecondary),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             Expanded(
               flex: 7,
               child: CcSlider(
-                value:
-                    ((currentValue - min) / (max - min)).clamp(0.0, 1.0),
+                value: ((currentValue - min) / (max - min)).clamp(0.0, 1.0),
                 onChanged: (t) => _setValue(min + t * (max - min)),
               ),
             ),
             SizedBox(
               width: 40,
-              child: Text(currentValue.toStringAsFixed(1),
-                  textAlign: TextAlign.right,
-                  style: CcType.style(size: 10, weight: CcType.medium)),
+              child: Text(
+                currentValue.toStringAsFixed(1),
+                textAlign: TextAlign.right,
+                style: CcType.style(size: 10, weight: CcType.medium),
+              ),
             ),
             SizedBox(
               width: 22,
@@ -262,23 +289,23 @@ class _ParamRowState extends State<_ParamRow> {
                 child: KeyframeDiamond(
                   animated: isAnimated,
                   atCurrentTime: _keyAtPlayhead(),
-                  onTap: () => widget.controller.toggleKeyframe(
-                    widget.clip.id,
-                    widget.instanceId,
-                    widget.paramId,
-                    widget.controller.playhead
-                        .minus(widget.clip.start),
-                  ),
-                  onContextMenu: (position) => showKeyframeMenu(
-                    context,
-                    position,
-                    controller: widget.controller,
-                    clip: widget.clip,
-                    effectInstanceId: widget.instanceId,
-                    paramId: widget.paramId,
-                    param: _param,
-                    localTime: _localTime,
-                  ),
+                  onTap:
+                      () => widget.controller.toggleKeyframe(
+                        widget.clip.id,
+                        widget.instanceId,
+                        widget.paramId,
+                        widget.controller.playhead.minus(widget.clip.start),
+                      ),
+                  onContextMenu:
+                      (anchor) => showKeyframeMenu(
+                        anchor,
+                        controller: widget.controller,
+                        clip: widget.clip,
+                        effectInstanceId: widget.instanceId,
+                        paramId: widget.paramId,
+                        param: _param,
+                        localTime: _localTime,
+                      ),
                 ),
               ),
             ),
@@ -310,18 +337,20 @@ class _ParamRowState extends State<_ParamRow> {
   }
 
   bool _keyAtPlayhead() => _param.keyframes.any(
-        (key) =>
-            (ParamValue.timeOf(key) - _localTime).micros.abs() <=
-            widget.controller.frameDuration.micros ~/ 2,
-      );
+    (key) =>
+        (ParamValue.timeOf(key) - _localTime).micros.abs() <=
+        widget.controller.frameDuration.micros ~/ 2,
+  );
 
   (double, double)? _schemaFor(String typeId, String paramId) {
     for (final def in widget.controller.catalogCache) {
       if (def['id'] != typeId) continue;
       for (final pd in (def['params'] as List)) {
         if ((pd as Map)['id'] == paramId) {
-          return (((pd['min'] as num?)?.toDouble()) ?? 0.0,
-              ((pd['max'] as num?)?.toDouble()) ?? 100.0);
+          return (
+            ((pd['min'] as num?)?.toDouble()) ?? 0.0,
+            ((pd['max'] as num?)?.toDouble()) ?? 100.0,
+          );
         }
       }
     }
@@ -329,28 +358,28 @@ class _ParamRowState extends State<_ParamRow> {
   }
 
   String _paramLabel(String id) => switch (id) {
-        'amount' => 'Amount',
-        'stops' => 'Stops',
-        'radius' => 'Radius',
-        'cell' => 'Cell size',
-        'iterations' => 'Quality',
-        'roundness' => 'Roundness',
-        'softness' => 'Softness',
-        'centerX' => 'Center X',
-        'centerY' => 'Center Y',
-        'size' => 'Size',
-        'aspect' => 'Aspect',
-        'feather' => 'Feather',
-        'left' => 'Left',
-        'right' => 'Right',
-        'top' => 'Top',
-        'bottom' => 'Bottom',
-        'offsetX' => 'Offset X',
-        'offsetY' => 'Offset Y',
-        'blur' => 'Blur',
-        'opacity' => 'Opacity',
-        _ => id,
-      };
+    'amount' => 'Amount',
+    'stops' => 'Stops',
+    'radius' => 'Radius',
+    'cell' => 'Cell size',
+    'iterations' => 'Quality',
+    'roundness' => 'Roundness',
+    'softness' => 'Softness',
+    'centerX' => 'Center X',
+    'centerY' => 'Center Y',
+    'size' => 'Size',
+    'aspect' => 'Aspect',
+    'feather' => 'Feather',
+    'left' => 'Left',
+    'right' => 'Right',
+    'top' => 'Top',
+    'bottom' => 'Bottom',
+    'offsetX' => 'Offset X',
+    'offsetY' => 'Offset Y',
+    'blur' => 'Blur',
+    'opacity' => 'Opacity',
+    _ => id,
+  };
 }
 
 /// The options behind a right-click on any keyframe diamond (KEY-7).
@@ -359,8 +388,7 @@ class _ParamRowState extends State<_ParamRow> {
 /// only be created and never removed is a trap, and the diamond alone gives no
 /// way to walk between the keys already on the parameter.
 void showKeyframeMenu(
-  BuildContext context,
-  Offset position, {
+  BuildContext anchorContext, {
   required EditorController controller,
   required Clip clip,
   required String effectInstanceId,
@@ -368,36 +396,38 @@ void showKeyframeMenu(
   required ParamValue param,
   required Rt localTime,
 }) {
-  final times = param.keyframes.map(ParamValue.timeOf).toList()
-    ..sort((a, b) => a.compareTo(b));
+  final times =
+      param.keyframes.map(ParamValue.timeOf).toList()
+        ..sort((a, b) => a.compareTo(b));
   final previous = times.where((time) => time < localTime).lastOrNull;
   final next = times.where((time) => time > localTime).firstOrNull;
   final atPlayhead = times.any(
     (time) =>
         (time - localTime).micros.abs() <= controller.frameDuration.micros ~/ 2,
   );
-  showCcMenu(context, position, [
+  showCcMenu(anchorContext, [
     CcMenuItem(
       'Previous keyframe',
       icon: LucideIcons.chevronLeft,
-      onTap: previous == null
-          ? null
-          : () => controller.seekTo(clip.start.plus(previous)),
+      onTap:
+          previous == null
+              ? null
+              : () => controller.seekTo(clip.start.plus(previous)),
     ),
     CcMenuItem(
       'Next keyframe',
       icon: LucideIcons.chevronRight,
-      onTap: next == null
-          ? null
-          : () => controller.seekTo(clip.start.plus(next)),
+      onTap:
+          next == null ? null : () => controller.seekTo(clip.start.plus(next)),
     ),
     CcMenuItem(
       'Delete keyframe',
       icon: LucideIcons.trash2,
       separatorBefore: true,
-      onTap: !atPlayhead
-          ? null
-          : () => controller.removeKeyframe(
+      onTap:
+          !atPlayhead
+              ? null
+              : () => controller.removeKeyframe(
                 clip.id,
                 effectInstanceId,
                 paramId,
@@ -407,10 +437,11 @@ void showKeyframeMenu(
     CcMenuItem(
       'Clear all keyframes',
       danger: true,
-      onTap: !param.animated
-          ? null
-          : () =>
-              controller.clearKeyframes(clip.id, effectInstanceId, paramId),
+      onTap:
+          !param.animated
+              ? null
+              : () =>
+                  controller.clearKeyframes(clip.id, effectInstanceId, paramId),
     ),
   ]);
 }
@@ -428,49 +459,58 @@ class KeyframeDiamond extends StatelessWidget {
   final bool animated;
   final bool atCurrentTime;
   final VoidCallback? onTap;
-  final ValueChanged<Offset>? onContextMenu;
+
+  /// Anchors the right-click menu to the diamond itself.
+  final ValueChanged<BuildContext>? onContextMenu;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onSecondaryTapDown: onContextMenu == null
-          ? null
-          : (details) => onContextMenu!(details.globalPosition),
-      child: CcTooltip(
-        message: atCurrentTime
-            ? 'Keyframe at playhead · right-click for options'
-            : animated
-                ? 'Animated · click to add a keyframe here'
-                : 'Add keyframe at playhead',
-        child: CcTappable(
-          onTap: onTap,
-          child: SizedBox(
-            width: 22,
-            height: 22,
-            child: Center(
-              child: Transform.rotate(
-                angle: 3.14159 / 4,
-                child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: atCurrentTime
-                        ? CcColors.accent
-                        : CcColors.elevated2,
-                    border: Border.all(
-                      color: animated || atCurrentTime
-                          ? CcColors.accent
-                          : CcColors.borderStrong,
+    return Builder(
+      builder:
+          (diamondContext) => GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onSecondaryTapDown:
+                onContextMenu == null
+                    ? null
+                    : (_) => onContextMenu!(diamondContext),
+            child: CcTooltip(
+              message:
+                  atCurrentTime
+                      ? 'Keyframe at playhead · right-click for options'
+                      : animated
+                      ? 'Animated · click to add a keyframe here'
+                      : 'Add keyframe at playhead',
+              child: CcTappable(
+                onTap: onTap,
+                child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: Center(
+                    child: Transform.rotate(
+                      angle: 3.14159 / 4,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color:
+                              atCurrentTime
+                                  ? CcColors.accent
+                                  : CcColors.elevated2,
+                          border: Border.all(
+                            color:
+                                animated || atCurrentTime
+                                    ? CcColors.accent
+                                    : CcColors.borderStrong,
+                          ),
+                          borderRadius: BorderRadius.circular(1.5),
+                        ),
+                      ),
                     ),
-                    borderRadius: BorderRadius.circular(1.5),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-      ),
     );
   }
 }

@@ -133,10 +133,10 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
 
   // --- Card actions (PRJ-2) -------------------------------------------------
 
-  void _cardMenu(ProjectSummary summary, Offset position) {
+  void _cardMenu(ProjectSummary summary, BuildContext anchorContext) {
     final path = summary.path;
     if (path == null) return;
-    showCcMenu(context, position, [
+    showCcMenu(anchorContext, [
       CcMenuItem('Open', onTap: () => _open(summary)),
       CcMenuItem('Duplicate', onTap: () => _duplicate(path)),
       CcMenuItem('Rename…', onTap: () => _rename(summary, path)),
@@ -224,7 +224,7 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
               _Sort.name => 'Name',
               _Sort.created => 'Created',
             },
-            onSortTapped: (position) => showCcMenu(context, position, [
+            onSortTapped: (anchor) => showCcMenu(anchor, [
               CcMenuItem(
                 'Last opened',
                 checked: _sort == _Sort.lastOpened,
@@ -281,7 +281,7 @@ class _ProjectGrid extends StatelessWidget {
 
   final List<ProjectSummary> projects;
   final ValueChanged<ProjectSummary> onOpen;
-  final void Function(ProjectSummary summary, Offset position) onMenu;
+  final void Function(ProjectSummary summary, BuildContext anchor) onMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -333,7 +333,7 @@ class _ProjectGrid extends StatelessWidget {
                       child: ProjectCard(
                         project: project,
                         onOpen: () => onOpen(project),
-                        onMenu: (position) => onMenu(project, position),
+                        onMenu: (anchor) => onMenu(project, anchor),
                       ),
                     ),
                 ],

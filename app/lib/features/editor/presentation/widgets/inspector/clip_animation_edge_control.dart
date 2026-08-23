@@ -44,7 +44,7 @@ class ClipAnimationEdgeControl extends StatelessWidget {
   }
 
   void _pick(BuildContext context) {
-    showCcMenuBelow(
+    showCcMenu(
       context,
       [
         CcMenuItem('None', checked: _preset == null, onTap: () => _apply('')),

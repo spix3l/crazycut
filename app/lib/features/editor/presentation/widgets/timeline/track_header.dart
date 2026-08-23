@@ -11,6 +11,7 @@ class TrackHeaderTile extends StatefulWidget {
   const TrackHeaderTile({
     super.key,
     required this.track,
+    this.height,
     this.selected = false,
     this.dragHandle,
     this.onSelect,
@@ -27,6 +28,11 @@ class TrackHeaderTile extends StatefulWidget {
   static const double width = 160;
 
   final Track track;
+
+  /// Displayed lane height. Defaults to the track's authored height; the
+  /// timeline shrinks lanes when zoomed out, and the gutter has to track
+  /// that or the two columns drift apart.
+  final double? height;
   final bool selected;
   final Widget? dragHandle;
   final VoidCallback? onSelect;
@@ -73,13 +79,14 @@ class _TrackHeaderTileState extends State<TrackHeaderTile> {
   @override
   Widget build(BuildContext context) {
     final track = widget.track;
-    final compact = track.height <= 56;
+    final displayHeight = widget.height ?? track.height.toDouble();
+    final compact = displayHeight <= 56;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: widget.onSelect,
       onDoubleTap: widget.onRename == null ? null : _startRename,
       child: Container(
-        height: track.height.toDouble(),
+        height: displayHeight,
         padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
           color: widget.selected ? CcColors.elevated2 : CcColors.elevated,
@@ -203,7 +210,7 @@ class _TrackMenu extends StatefulWidget {
 
 class _TrackMenuState extends State<_TrackMenu> {
   void _open(BuildContext anchorContext) {
-    showCcMenuBelow(anchorContext, [
+    showCcMenu(anchorContext, [
       CcMenuItem('Rename', onTap: widget.onRename),
       CcMenuItem('Cycle height', onTap: widget.onCycleHeight),
       CcMenuItem(

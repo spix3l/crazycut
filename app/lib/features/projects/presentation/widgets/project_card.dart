@@ -12,8 +12,8 @@ class ProjectCard extends StatelessWidget {
   final ProjectSummary project;
   final VoidCallback? onOpen;
 
-  /// Receives the global position of the ⋯ button so the menu can anchor.
-  final ValueChanged<Offset>? onMenu;
+  /// Anchors the ⋯ menu to the ⋯ button itself.
+  final ValueChanged<BuildContext>? onMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -71,9 +71,11 @@ class ProjectCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    GestureDetector(
-                      onTapDown: onMenu == null ? null : (d) => onMenu!(d.globalPosition),
-                      child: const CcIcon(LucideIcons.ellipsis, size: 16),
+                    Builder(
+                      builder: (buttonContext) => GestureDetector(
+                        onTapDown: onMenu == null ? null : (_) => onMenu!(buttonContext),
+                        child: const CcIcon(LucideIcons.ellipsis, size: 16),
+                      ),
                     ),
                   ],
                 ),

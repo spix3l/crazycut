@@ -73,16 +73,21 @@ class _TemplatesPanelState extends State<TemplatesPanel> {
     if (!mounted || result == null) return;
     setState(() {
       _warnings = result.warnings;
-      _status = result.isEmpty
-          ? 'Nothing was inserted — the target lanes are locked'
-          : 'Inserted ${result.clipIds.length} clips';
+      _status =
+          result.isEmpty
+              ? 'Nothing was inserted — the target lanes are locked'
+              : 'Inserted ${result.clipIds.length} clips';
     });
   }
 
-  void _menu(ClipTemplate template, Offset position) {
-    showCcMenu(context, position, [
+  void _menu(ClipTemplate template, BuildContext anchorContext) {
+    showCcMenu(anchorContext, [
       CcMenuItem('Insert at playhead…', onTap: () => _insert(template)),
-      CcMenuItem('Rename…', separatorBefore: true, onTap: () => _rename(template)),
+      CcMenuItem(
+        'Rename…',
+        separatorBefore: true,
+        onTap: () => _rename(template),
+      ),
       CcMenuItem(
         'Duplicate',
         onTap: () async {
@@ -97,7 +102,12 @@ class _TemplatesPanelState extends State<TemplatesPanel> {
           if (path != null) c.revealPath(path);
         },
       ),
-      CcMenuItem('Delete', danger: true, separatorBefore: true, onTap: () => _delete(template)),
+      CcMenuItem(
+        'Delete',
+        danger: true,
+        separatorBefore: true,
+        onTap: () => _delete(template),
+      ),
     ]);
   }
 
@@ -159,32 +169,39 @@ class _TemplatesPanelState extends State<TemplatesPanel> {
               ),
             ),
             Expanded(
-              child: items.isEmpty
-                  ? Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: CcEmptyState(
-                        icon: LucideIcons.layers,
-                        title: _library.templates.isEmpty
-                            ? 'No templates yet'
-                            : 'Nothing matches',
-                        description: _library.templates.isEmpty
-                            ? 'Select a chunk of timeline — a title card, a '
-                                  'bumper — and save it here to reuse it.'
-                            : 'Try another search.',
+              child:
+                  items.isEmpty
+                      ? Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: CcEmptyState(
+                          icon: LucideIcons.layers,
+                          title:
+                              _library.templates.isEmpty
+                                  ? 'No templates yet'
+                                  : 'Nothing matches',
+                          description:
+                              _library.templates.isEmpty
+                                  ? 'Select a chunk of timeline — a title card, a '
+                                      'bumper — and save it here to reuse it.'
+                                  : 'Try another search.',
+                        ),
+                      )
+                      : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                        itemCount: items.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 8),
+                        itemBuilder:
+                            (context, i) => _TemplateCard(
+                              template: items[i],
+                              onTap: () => _insert(items[i]),
+                              onContextMenu:
+                                  (anchor) => _menu(items[i], anchor),
+                            ),
                       ),
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                      itemCount: items.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 8),
-                      itemBuilder: (context, i) => _TemplateCard(
-                        template: items[i],
-                        onTap: () => _insert(items[i]),
-                        onContextMenu: (at) => _menu(items[i], at),
-                      ),
-                    ),
             ),
-            if (_status != null || _warnings.isNotEmpty || _library.unreadableCount > 0)
+            if (_status != null ||
+                _warnings.isNotEmpty ||
+                _library.unreadableCount > 0)
               Padding(
                 padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
                 child: Column(
@@ -196,7 +213,11 @@ class _TemplatesPanelState extends State<TemplatesPanel> {
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(
                           warning,
-                          style: CcType.style(size: 10, color: CcColors.warning, height: 1.3),
+                          style: CcType.style(
+                            size: 10,
+                            color: CcColors.warning,
+                            height: 1.3,
+                          ),
                         ),
                       ),
                     if (_library.unreadableCount > 0)
@@ -205,7 +226,10 @@ class _TemplatesPanelState extends State<TemplatesPanel> {
                         child: Text(
                           '${_library.unreadableCount} template file(s) could '
                           'not be read',
-                          style: CcType.style(size: 10, color: CcColors.textTertiary),
+                          style: CcType.style(
+                            size: 10,
+                            color: CcColors.textTertiary,
+                          ),
                         ),
                       ),
                   ],
@@ -227,57 +251,71 @@ class _TemplateCard extends StatelessWidget {
 
   final ClipTemplate template;
   final VoidCallback onTap;
-  final ValueChanged<Offset> onContextMenu;
+  final ValueChanged<BuildContext> onContextMenu;
 
   @override
   Widget build(BuildContext context) {
     final slots = template.slots.length;
-    final edges = [if (template.edgeIn.enabled) 'in', if (template.edgeOut.enabled) 'out'];
-    return GestureDetector(
-      onSecondaryTapDown: (d) => onContextMenu(d.globalPosition),
-      child: CcTappable(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: CcColors.elevated,
-            borderRadius: CcRadius.brMd,
-            border: CcBorders.allStrong,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  const CcIcon(LucideIcons.layers, size: 13),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      template.name,
+    final edges = [
+      if (template.edgeIn.enabled) 'in',
+      if (template.edgeOut.enabled) 'out',
+    ];
+    return Builder(
+      builder:
+          (cardContext) => GestureDetector(
+            onSecondaryTapDown: (_) => onContextMenu(cardContext),
+            child: CcTappable(
+              onTap: onTap,
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: CcColors.elevated,
+                  borderRadius: CcRadius.brMd,
+                  border: CcBorders.allStrong,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        const CcIcon(LucideIcons.layers, size: 13),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            template.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: CcType.style(
+                              size: 12,
+                              weight: CcType.semibold,
+                            ),
+                          ),
+                        ),
+                        CcBadge(
+                          '${template.duration.seconds.toStringAsFixed(1)}s',
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      [
+                        if (template.category.isNotEmpty) template.category,
+                        '${template.clips.length} clips',
+                        if (slots > 0) '$slots editable',
+                        if (edges.isNotEmpty) 'edge ${edges.join('/')}',
+                      ].join(' · '),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: CcType.style(size: 12, weight: CcType.semibold),
+                      style: CcType.style(
+                        size: 10,
+                        color: CcColors.textTertiary,
+                      ),
                     ),
-                  ),
-                  CcBadge('${template.duration.seconds.toStringAsFixed(1)}s'),
-                ],
+                  ],
+                ),
               ),
-              const SizedBox(height: 6),
-              Text(
-                [
-                  if (template.category.isNotEmpty) template.category,
-                  '${template.clips.length} clips',
-                  if (slots > 0) '$slots editable',
-                  if (edges.isNotEmpty) 'edge ${edges.join('/')}',
-                ].join(' · '),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: CcType.style(size: 10, color: CcColors.textTertiary),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 }

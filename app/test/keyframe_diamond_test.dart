@@ -8,7 +8,7 @@ void main() {
   Widget harness({
     required bool animated,
     required bool atCurrentTime,
-    ValueChanged<Offset>? onContextMenu,
+    ValueChanged<BuildContext>? onContextMenu,
   }) {
     return Directionality(
       textDirection: TextDirection.ltr,
@@ -53,12 +53,12 @@ void main() {
   });
 
   testWidgets('secondary click opens keyframe options', (tester) async {
-    Offset? openedAt;
+    BuildContext? openedAt;
     await tester.pumpWidget(
       harness(
         animated: true,
         atCurrentTime: false,
-        onContextMenu: (position) => openedAt = position,
+        onContextMenu: (anchor) => openedAt = anchor,
       ),
     );
 

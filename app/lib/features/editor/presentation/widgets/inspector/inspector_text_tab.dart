@@ -131,7 +131,7 @@ class TextTab extends StatelessWidget {
                   builder:
                       (anchorContext) => CcTappable(
                         onTap:
-                            () => showCcMenuBelow(anchorContext, [
+                            () => showCcMenu(anchorContext, [
                               for (final item in _fonts)
                                 CcMenuItem(
                                   '${item.label} · ${item.kind}',
@@ -199,7 +199,7 @@ class TextTab extends StatelessWidget {
                               value: weight.label,
                               bordered: true,
                               onTap:
-                                  () => showCcMenuBelow(anchorContext, [
+                                  () => showCcMenu(anchorContext, [
                                     for (final item in _weights)
                                       CcMenuItem(
                                         item.label,
@@ -527,7 +527,7 @@ class TextTab extends StatelessWidget {
       Color(0xFFFF8A65),
       Color(0xFF4A4A55),
     ];
-    showCcMenuBelow(anchorContext, [
+    showCcMenu(anchorContext, [
       for (final swatch in swatches)
         CcMenuItem(
           swatch.a == 0 ? 'Transparent' : _hex(swatch),

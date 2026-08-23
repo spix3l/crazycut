@@ -21,8 +21,8 @@ class BrowserHeader extends StatefulWidget {
   final ValueChanged<String>? onSearchChanged;
   final String sortLabel;
 
-  /// Receives the global position of the sort control so a menu can anchor.
-  final ValueChanged<Offset>? onSortTapped;
+  /// Anchors the sort menu to the sort control itself.
+  final ValueChanged<BuildContext>? onSortTapped;
 
   @override
   State<BrowserHeader> createState() => _BrowserHeaderState();
@@ -76,11 +76,13 @@ class _BrowserHeaderState extends State<BrowserHeader> {
               ),
             ),
             const SizedBox(width: 12),
-            GestureDetector(
-              onTapDown: widget.onSortTapped == null
-                  ? null
-                  : (d) => widget.onSortTapped!(d.globalPosition),
-              child: CcDropdown(value: widget.sortLabel, width: 120, radius: CcRadius.md),
+            Builder(
+              builder: (sortContext) => GestureDetector(
+                onTapDown: widget.onSortTapped == null
+                    ? null
+                    : (_) => widget.onSortTapped!(sortContext),
+                child: CcDropdown(value: widget.sortLabel, width: 120, radius: CcRadius.md),
+              ),
             ),
             const SizedBox(width: 12),
           ],

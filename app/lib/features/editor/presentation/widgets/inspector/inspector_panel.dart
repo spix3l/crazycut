@@ -309,7 +309,7 @@ class _OutputDeviceRow extends StatelessWidget {
         width: double.infinity,
         height: 28,
         fontSize: 11,
-        onTap: () => showCcMenuBelow(context, [
+        onTap: () => showCcMenu(context, [
           for (final device in devices)
             CcMenuItem(
               device,

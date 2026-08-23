@@ -473,7 +473,7 @@ class _MediaPicker extends StatelessWidget {
         width: double.infinity,
         onTap: assets.isEmpty
             ? null
-            : () => showCcMenuBelow(context, [
+            : () => showCcMenu(context, [
                 for (final a in assets)
                   CcMenuItem(a.name, onTap: () => onChanged(a.id)),
               ]),
@@ -526,7 +526,7 @@ class EdgeEditor extends StatelessWidget {
               width: double.infinity,
               onTap: !edge.enabled
                   ? null
-                  : () => showCcMenuBelow(context, [
+                  : () => showCcMenu(context, [
                       for (final entry in kTransitionCatalog.entries)
                         CcMenuItem(
                           entry.value,
@@ -554,7 +554,7 @@ class EdgeEditor extends StatelessWidget {
               width: double.infinity,
               onTap: !edge.enabled
                   ? null
-                  : () => showCcMenuBelow(context, [
+                  : () => showCcMenu(context, [
                       for (final seconds in const [
                         0.25,
                         0.5,

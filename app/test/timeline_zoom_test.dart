@@ -23,6 +23,20 @@ void main() {
     }
   });
 
+  test('lanes shrink as the timeline zooms out and stay full size zoomed in',
+      () {
+    expect(timelineLaneScaleForPixelsPerSecond(kMaxPxPerSec), 1.0);
+    expect(timelineLaneScaleForPixelsPerSecond(kPixelsPerSecond), 1.0);
+    expect(timelineLaneScaleForPixelsPerSecond(kMinPxPerSec), 0.5);
+    // Halfway between min and default zoom the lanes sit at three quarters.
+    expect(
+      timelineLaneScaleForPixelsPerSecond(
+        (kMinPxPerSec + kPixelsPerSecond) / 2,
+      ),
+      closeTo(0.75, 0.000001),
+    );
+  });
+
   test('repeated toolbar-sized zoom steps keep moving in one direction', () {
     var pixels = kPixelsPerSecond;
     final zoomedIn = <double>[];

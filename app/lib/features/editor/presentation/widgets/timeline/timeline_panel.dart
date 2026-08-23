@@ -89,6 +89,12 @@ class _TimelinePanelState extends State<TimelinePanel> {
   ProjectDoc get doc => c.doc;
   double get pxPerSec => widget.pxPerSec;
 
+  /// Lanes shrink as the timeline zooms out so more tracks fit on screen.
+  double get _laneScale => timelineLaneScaleForPixelsPerSecond(pxPerSec);
+
+  /// Displayed lane height: the authored [Track.height] scaled by the zoom.
+  double _laneHeight(Track track) => track.height * _laneScale;
+
   @override
   void initState() {
     super.initState();
@@ -218,7 +224,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
     c.endGesture();
   }
 
-  /// How many lanes a vertical drag crossed, from the lane heights.
+  /// How many lanes a vertical drag crossed, from the displayed lane heights.
   int _laneDelta(String fromTrackId, double dy) {
     final lanes = c.laneOrder;
     var index = lanes.indexWhere((t) => t.id == fromTrackId);
@@ -226,13 +232,13 @@ class _TimelinePanelState extends State<TimelinePanel> {
     final start = index;
     var remaining = dy;
     while (remaining > 0 && index < lanes.length - 1) {
-      final step = lanes[index].height.toDouble();
+      final step = _laneHeight(lanes[index]);
       if (remaining < step / 2) break;
       remaining -= step;
       index++;
     }
     while (remaining < 0 && index > 0) {
-      final step = lanes[index - 1].height.toDouble();
+      final step = _laneHeight(lanes[index - 1]);
       if (-remaining < step / 2) break;
       remaining += step;
       index--;
@@ -240,10 +246,10 @@ class _TimelinePanelState extends State<TimelinePanel> {
     return index - start;
   }
 
-  void _clipMenu(BuildContext context, Offset position, Clip clip) {
+  void _clipMenu(BuildContext anchorContext, Clip clip) {
     if (!c.selection.contains(clip.id)) c.selectClip(clip.id);
     final linked = clip.linkedGroup != null;
-    showCcMenu(context, position, [
+    showCcMenu(anchorContext, [
       CcMenuItem('Split at playhead', shortcut: 'S', onTap: c.splitAtPlayhead),
       CcMenuItem('Copy', shortcut: '⌘C', onTap: c.copySelection),
       CcMenuItem('Cut', shortcut: '⌘X', onTap: c.cutSelection),
@@ -297,7 +303,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
   @override
   Widget build(BuildContext context) {
     final lanes = c.laneOrder;
-    final lanesHeight = lanes.fold<double>(0, (sum, t) => sum + t.height);
+    final lanesHeight = lanes.fold<double>(0, (sum, t) => sum + _laneHeight(t));
 
     return Container(
       decoration: const BoxDecoration(
@@ -410,13 +416,14 @@ class _TimelinePanelState extends State<TimelinePanel> {
                                           // every clip in the timeline.
                                           ValueListenableBuilder<Rt>(
                                             valueListenable: c.playheadNotifier,
-                                            builder: (context, playhead, child) =>
-                                                Positioned(
-                                              left: _x(playhead) - 1,
-                                              top: 0,
-                                              height: lanesHeight,
-                                              child: child!,
-                                            ),
+                                            builder:
+                                                (context, playhead, child) =>
+                                                    Positioned(
+                                                      left: _x(playhead) - 1,
+                                                      top: 0,
+                                                      height: lanesHeight,
+                                                      child: child!,
+                                                    ),
                                             child: const IgnorePointer(
                                               child: SizedBox(
                                                 width: 2,
@@ -504,6 +511,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
           children: [
             TrackHeaderTile(
               track: track,
+              height: _laneHeight(track),
               selected: doc
                   .clipsOn(track.id)
                   .any((clip) => c.selection.contains(clip.id)),
@@ -572,7 +580,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
         opacity: 0.9,
         child: SizedBox(
           width: TrackHeaderTile.width,
-          child: TrackHeaderTile(track: track),
+          child: TrackHeaderTile(track: track, height: _laneHeight(track)),
         ),
       ),
       childWhenDragging: const Opacity(
@@ -626,11 +634,12 @@ class _TimelinePanelState extends State<TimelinePanel> {
             for (final marker in doc.markers) _markerFlag(marker),
             ValueListenableBuilder<Rt>(
               valueListenable: c.playheadNotifier,
-              builder: (context, playhead, child) => Positioned(
-                left: _x(playhead) - 6,
-                bottom: 2,
-                child: child!,
-              ),
+              builder:
+                  (context, playhead, child) => Positioned(
+                    left: _x(playhead) - 6,
+                    bottom: 2,
+                    child: child!,
+                  ),
               child: IgnorePointer(
                 child: Container(
                   width: 12,
@@ -652,49 +661,55 @@ class _TimelinePanelState extends State<TimelinePanel> {
     return Positioned(
       left: _x(marker.time) - 5,
       top: 2,
-      child: GestureDetector(
-        supportedDevices: _editPointerDevices,
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (_) => c.seekTo(marker.time),
-        onSecondaryTapDown:
-            (d) => showCcMenu(context, d.globalPosition, [
-              CcMenuItem('Rename marker', onTap: () => _renameMarker(marker)),
-              CcMenuItem(
-                'Delete marker',
-                danger: true,
-                onTap: () => c.removeMarker(marker.id),
+      child: Builder(
+        builder:
+            (markerContext) => GestureDetector(
+              supportedDevices: _editPointerDevices,
+              behavior: HitTestBehavior.opaque,
+              onTapDown: (_) => c.seekTo(marker.time),
+              onSecondaryTapDown:
+                  (d) => showCcMenu(markerContext, [
+                    CcMenuItem(
+                      'Rename marker',
+                      onTap: () => _renameMarker(marker),
+                    ),
+                    CcMenuItem(
+                      'Delete marker',
+                      danger: true,
+                      onTap: () => c.removeMarker(marker.id),
+                    ),
+                  ]),
+              onHorizontalDragStart: (_) {
+                _draggingMarkerId = marker.id;
+                c.beginGesture('Move marker');
+              },
+              onHorizontalDragUpdate: (d) {
+                if (_draggingMarkerId != marker.id) return;
+                c.moveMarker(marker.id, _time(_x(marker.time) + d.delta.dx));
+              },
+              onHorizontalDragEnd: (_) {
+                _draggingMarkerId = null;
+                c.endGesture();
+              },
+              // A cancelled pointer must close the transaction too: an open one
+              // swallows every later edit instead of letting it reach the undo
+              // stack.
+              onHorizontalDragCancel: () {
+                _draggingMarkerId = null;
+                c.endGesture();
+              },
+              child: MouseRegion(
+                cursor: SystemMouseCursors.resizeLeftRight,
+                child: CcTooltip(
+                  message: marker.name.isEmpty ? 'Marker' : marker.name,
+                  child: const CcIcon(
+                    LucideIcons.flag,
+                    size: 11,
+                    color: CcColors.markerYellow,
+                  ),
+                ),
               ),
-            ]),
-        onHorizontalDragStart: (_) {
-          _draggingMarkerId = marker.id;
-          c.beginGesture('Move marker');
-        },
-        onHorizontalDragUpdate: (d) {
-          if (_draggingMarkerId != marker.id) return;
-          c.moveMarker(marker.id, _time(_x(marker.time) + d.delta.dx));
-        },
-        onHorizontalDragEnd: (_) {
-          _draggingMarkerId = null;
-          c.endGesture();
-        },
-        // A cancelled pointer must close the transaction too: an open one
-        // swallows every later edit instead of letting it reach the undo
-        // stack.
-        onHorizontalDragCancel: () {
-          _draggingMarkerId = null;
-          c.endGesture();
-        },
-        child: MouseRegion(
-          cursor: SystemMouseCursors.resizeLeftRight,
-          child: CcTooltip(
-            message: marker.name.isEmpty ? 'Marker' : marker.name,
-            child: const CcIcon(
-              LucideIcons.flag,
-              size: 11,
-              color: CcColors.markerYellow,
             ),
-          ),
-        ),
       ),
     );
   }
@@ -789,7 +804,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
             .toList();
 
     return SizedBox(
-      height: track.height.toDouble(),
+      height: _laneHeight(track),
       child: Stack(
         clipBehavior: ui.Clip.none,
         children: [
@@ -819,7 +834,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
       left: seconds * pxPerSec,
       width: 120,
       top: 2,
-      height: track.height - 4,
+      height: _laneHeight(track) - 4,
       child: IgnorePointer(
         child: DecoratedBox(
           decoration: BoxDecoration(
@@ -843,41 +858,50 @@ class _TimelinePanelState extends State<TimelinePanel> {
   }
 
   Widget _laneBackground(Track track) {
-    return GestureDetector(
-      supportedDevices: _editPointerDevices,
-      behavior: HitTestBehavior.opaque,
-      onTapDown: (d) {
-        c.selectClip(null);
-        c.seekTo(_time(d.localPosition.dx));
-      },
-      onPanStart:
-          (d) => setState(() {
-            _marqueeStart = d.localPosition + Offset(0, _laneTop(track));
-            _marqueeEnd = _marqueeStart;
-            _marqueeAdditive = HardwareKeyboard.instance.isShiftPressed;
-          }),
-      onPanUpdate:
-          (d) => setState(() {
-            _marqueeEnd = d.localPosition + Offset(0, _laneTop(track));
-          }),
-      onPanEnd: (_) => _commitMarquee(),
-      onPanCancel: _commitMarquee,
-      onSecondaryTapDown:
-          (d) => showCcMenu(context, d.globalPosition, [
-            CcMenuItem(
-              'Paste',
-              shortcut: '⌘V',
-              onTap: c.hasClipboard ? c.paste : null,
+    return Builder(
+      builder:
+          (laneContext) => GestureDetector(
+            supportedDevices: _editPointerDevices,
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (d) {
+              c.selectClip(null);
+              c.seekTo(_time(d.localPosition.dx));
+            },
+            onPanStart:
+                (d) => setState(() {
+                  _marqueeStart = d.localPosition + Offset(0, _laneTop(track));
+                  _marqueeEnd = _marqueeStart;
+                  _marqueeAdditive = HardwareKeyboard.instance.isShiftPressed;
+                }),
+            onPanUpdate:
+                (d) => setState(() {
+                  _marqueeEnd = d.localPosition + Offset(0, _laneTop(track));
+                }),
+            onPanEnd: (_) => _commitMarquee(),
+            onPanCancel: _commitMarquee,
+            onSecondaryTapDown:
+                (d) => showCcMenu(laneContext, [
+                  CcMenuItem(
+                    'Paste',
+                    shortcut: '⌘V',
+                    onTap: c.hasClipboard ? c.paste : null,
+                  ),
+                  CcMenuItem(
+                    'Add marker',
+                    shortcut: 'M',
+                    onTap: () => c.addMarker(),
+                  ),
+                  CcMenuItem('Select all', shortcut: '⌘A', onTap: c.selectAll),
+                ]),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: track.lock ? CcColors.elevated : CcColors.bg,
+                border: const Border(
+                  bottom: BorderSide(color: CcColors.border),
+                ),
+              ),
             ),
-            CcMenuItem('Add marker', shortcut: 'M', onTap: () => c.addMarker()),
-            CcMenuItem('Select all', shortcut: '⌘A', onTap: c.selectAll),
-          ]),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: track.lock ? CcColors.elevated : CcColors.bg,
-          border: const Border(bottom: BorderSide(color: CcColors.border)),
-        ),
-      ),
+          ),
     );
   }
 
@@ -885,7 +909,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
     var top = 0.0;
     for (final t in c.laneOrder) {
       if (t.id == track.id) break;
-      top += t.height;
+      top += _laneHeight(t);
     }
     return top;
   }
@@ -906,7 +930,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
     var y = 0.0;
     for (final track in lanes) {
       final laneTop = y;
-      final laneBottom = y + track.height;
+      final laneBottom = y + _laneHeight(track);
       if (laneBottom > top && laneTop < bottom) trackIds.add(track.id);
       y = laneBottom;
     }
@@ -962,6 +986,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
     Widget zone({
       required EditGesture kind,
       required MouseCursor cursor,
+      required BuildContext anchorContext,
       Widget? child,
       double? width,
     }) {
@@ -975,7 +1000,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
           // whole selection, and selecting it again on pointer-down would
           // discard its peers before [beginDrag] captures their origins.
           onTap: () => _onClipTap(clip),
-          onSecondaryTapDown: (d) => _clipMenu(context, d.globalPosition, clip),
+          onSecondaryTapDown: (d) => _clipMenu(anchorContext, clip),
           onPanStart: locked ? null : (_) => _startClipDrag(clip, kind),
           onPanUpdate:
               locked
@@ -1001,78 +1026,90 @@ class _TimelinePanelState extends State<TimelinePanel> {
       left: _x(clip.start),
       width: width,
       top: 0,
-      height: track.height.toDouble(),
-      child: Stack(
-        children: [
-          zone(
-            kind: EditGesture.move,
-            cursor: SystemMouseCursors.grab,
-            child: TimelineClipTile(
-              clip: clip,
-              asset: asset,
-              audio: !track.isVideo,
-              height: track.height.toDouble(),
-              pxPerSec: pxPerSec,
-              selected: selected,
-              dimmed: locked || track.hidden,
-              peaks:
-                  asset == null || !asset.hasAudio
-                      ? const []
-                      : c.waveformFor(asset),
-              tileAt:
-                  asset == null || asset.type != 'video' || !track.isVideo
-                      ? null
-                      : (seconds) => c.filmstripTile(asset, seconds),
-              onFadeDrag:
-                  locked
-                      ? null
-                      : (fadeIn, deltaSeconds) {
-                        final current =
-                            fadeIn
-                                ? clip.fadeIn.duration
-                                : clip.fadeOut.duration;
-                        c.setClipFade(
-                          clip.id,
-                          fadeIn: fadeIn,
-                          duration: current.plus(Rt.fromSeconds(deltaSeconds)),
-                        );
-                      },
+      height: _laneHeight(track),
+      child: Builder(
+        builder:
+            (clipContext) => Stack(
+              children: [
+                zone(
+                  kind: EditGesture.move,
+                  cursor: SystemMouseCursors.grab,
+                  anchorContext: clipContext,
+                  child: TimelineClipTile(
+                    clip: clip,
+                    asset: asset,
+                    audio: !track.isVideo,
+                    height: _laneHeight(track),
+                    pxPerSec: pxPerSec,
+                    selected: selected,
+                    dimmed: locked || track.hidden,
+                    peaks:
+                        asset == null || !asset.hasAudio
+                            ? const []
+                            : c.waveformFor(asset),
+                    tileAt:
+                        asset == null || asset.type != 'video' || !track.isVideo
+                            ? null
+                            : (seconds) => c.filmstripTile(asset, seconds),
+                    onFadeDrag:
+                        locked
+                            ? null
+                            : (fadeIn, deltaSeconds) {
+                              final current =
+                                  fadeIn
+                                      ? clip.fadeIn.duration
+                                      : clip.fadeOut.duration;
+                              c.setClipFade(
+                                clip.id,
+                                fadeIn: fadeIn,
+                                duration: current.plus(
+                                  Rt.fromSeconds(deltaSeconds),
+                                ),
+                              );
+                            },
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: zone(
+                    kind: EditGesture.trimStart,
+                    cursor: SystemMouseCursors.resizeLeftRight,
+                    anchorContext: clipContext,
+                    width: 7,
+                  ),
+                ),
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: zone(
+                    kind: EditGesture.trimEnd,
+                    cursor: SystemMouseCursors.resizeLeftRight,
+                    anchorContext: clipContext,
+                    width: 7,
+                  ),
+                ),
+                // Last in the stack so a click lands on a keyframe rather than on
+                // the clip body underneath it. Only tap gestures are claimed here,
+                // so dragging across the ribbon still moves the clip.
+                ..._keyframeRibbon(clipContext, track, clip),
+              ],
             ),
-          ),
-          Positioned(
-            left: 0,
-            top: 0,
-            bottom: 0,
-            child: zone(
-              kind: EditGesture.trimStart,
-              cursor: SystemMouseCursors.resizeLeftRight,
-              width: 7,
-            ),
-          ),
-          Positioned(
-            right: 0,
-            top: 0,
-            bottom: 0,
-            child: zone(
-              kind: EditGesture.trimEnd,
-              cursor: SystemMouseCursors.resizeLeftRight,
-              width: 7,
-            ),
-          ),
-          // Last in the stack so a click lands on a keyframe rather than on
-          // the clip body underneath it. Only tap gestures are claimed here,
-          // so dragging across the ribbon still moves the clip.
-          ..._keyframeRibbon(track, clip),
-        ],
       ),
     );
   }
 
   /// The row of diamonds marking where a clip is keyed (KEY-5), or nothing at
   /// all when it has no keyframes.
-  List<Widget> _keyframeRibbon(Track track, Clip clip) {
+  List<Widget> _keyframeRibbon(
+    BuildContext anchorContext,
+    Track track,
+    Clip clip,
+  ) {
     if (!track.isVideo ||
-        track.height < kKeyframeRibbonMinTrackHeight ||
+        _laneHeight(track) < kKeyframeRibbonMinTrackHeight ||
         track.hidden) {
       return const [];
     }
@@ -1111,10 +1148,10 @@ class _TimelinePanelState extends State<TimelinePanel> {
             onSecondaryTapDown: (d) {
               final marker = nearest(d.localPosition.dx);
               if (marker == null) {
-                _clipMenu(context, d.globalPosition, clip);
+                _clipMenu(anchorContext, clip);
                 return;
               }
-              _keyframeMarkerMenu(d.globalPosition, clip, marker);
+              _keyframeMarkerMenu(anchorContext, clip, marker);
             },
             child: CustomPaint(
               painter: KeyframeRibbonPainter(
@@ -1140,11 +1177,15 @@ class _TimelinePanelState extends State<TimelinePanel> {
 
   /// Right-click on one of those diamonds: jump to it, delete it, or — when a
   /// preset wrote it — say why it cannot be deleted on its own.
-  void _keyframeMarkerMenu(Offset at, Clip clip, ClipKeyframeMarker marker) {
+  void _keyframeMarkerMenu(
+    BuildContext anchorContext,
+    Clip clip,
+    ClipKeyframeMarker marker,
+  ) {
     if (!c.selection.contains(clip.id)) c.selectClip(clip.id);
     final params = marker.keys.map((k) => k.label).toSet().toList()..sort();
     final deletable = marker.keys.where((k) => !k.generated).length;
-    showCcMenu(context, at, [
+    showCcMenu(anchorContext, [
       CcMenuItem(
         params.length == 1 ? params.first : '${params.length} parameters',
         onTap: null,
@@ -1158,8 +1199,8 @@ class _TimelinePanelState extends State<TimelinePanel> {
         marker.allGenerated
             ? 'From clip animation — clear the preset'
             : deletable == 1
-                ? 'Delete keyframe'
-                : 'Delete $deletable keyframes here',
+            ? 'Delete keyframe'
+            : 'Delete $deletable keyframes here',
         icon: LucideIcons.trash2,
         separatorBefore: true,
         danger: !marker.allGenerated,
@@ -1200,31 +1241,34 @@ class _TimelinePanelState extends State<TimelinePanel> {
       left: start.seconds * pxPerSec,
       width: width.clamp(10, double.infinity),
       top: 2,
-      height: track.height - 4,
-      child: GestureDetector(
-        supportedDevices: _editPointerDevices,
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (_) => c.selectClip(null),
-        onHorizontalDragStart: (_) => c.beginGesture('Retime transition'),
-        onHorizontalDragUpdate:
-            (d) => c.setTransitionDurationLive(
-              tr.id,
-              tr.duration.plus(Rt.fromSeconds(d.delta.dx / pxPerSec)),
+      height: _laneHeight(track) - 4,
+      child: Builder(
+        builder:
+            (badgeContext) => GestureDetector(
+              supportedDevices: _editPointerDevices,
+              behavior: HitTestBehavior.opaque,
+              onTapDown: (_) => c.selectClip(null),
+              onHorizontalDragStart: (_) => c.beginGesture('Retime transition'),
+              onHorizontalDragUpdate:
+                  (d) => c.setTransitionDurationLive(
+                    tr.id,
+                    tr.duration.plus(Rt.fromSeconds(d.delta.dx / pxPerSec)),
+                  ),
+              onHorizontalDragEnd: (_) => c.endGesture(),
+              onHorizontalDragCancel: () => c.endGesture(),
+              onSecondaryTapDown: (d) => _transitionMenu(badgeContext, tr),
+              child: CcTooltip(
+                message:
+                    '${tr.type} · ${tr.duration.seconds.toStringAsFixed(2)}s',
+                child: const TransitionBadge(height: 20),
+              ),
             ),
-        onHorizontalDragEnd: (_) => c.endGesture(),
-        onHorizontalDragCancel: () => c.endGesture(),
-        onSecondaryTapDown:
-            (d) => _transitionMenu(context, d.globalPosition, tr),
-        child: CcTooltip(
-          message: '${tr.type} · ${tr.duration.seconds.toStringAsFixed(2)}s',
-          child: const TransitionBadge(height: 20),
-        ),
       ),
     );
   }
 
-  void _transitionMenu(BuildContext context, Offset at, Transition tr) {
-    showCcMenu(context, at, [
+  void _transitionMenu(BuildContext anchorContext, Transition tr) {
+    showCcMenu(anchorContext, [
       const CcMenuItem('Type', onTap: null),
       CcMenuItem(
         'Cross dissolve',
@@ -1281,7 +1325,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
       left: _x(left.end) - 5,
       width: 10,
       top: 0,
-      height: track.height.toDouble(),
+      height: _laneHeight(track),
       child: MouseRegion(
         cursor: SystemMouseCursors.resizeColumn,
         child: GestureDetector(

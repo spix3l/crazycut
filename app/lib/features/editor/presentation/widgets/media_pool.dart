@@ -72,9 +72,9 @@ class _MediaPoolState extends State<MediaPool> {
     }).toList();
   }
 
-  void _menu(PoolItem item, Offset position) {
+  void _menu(PoolItem item, BuildContext anchorContext) {
     final asset = item.asset;
-    showCcMenu(context, position, [
+    showCcMenu(anchorContext, [
       CcMenuItem(
         'Insert at playhead',
         onTap: () =>
@@ -284,7 +284,7 @@ class _MediaPoolState extends State<MediaPool> {
                           proxyState: c.proxies.stateOf(item.asset.id),
                           proxyProgress: c.proxies.progressOf(item.asset.id),
                           onTap: () => c.placeAsset(item.asset.id),
-                          onContextMenu: (position) => _menu(item, position),
+                          onContextMenu: (anchor) => _menu(item, anchor),
                         ),
                       ),
                     ),

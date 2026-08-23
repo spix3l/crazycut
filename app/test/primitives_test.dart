@@ -161,7 +161,6 @@ void main() {
     await tester.pumpAndSettle();
     showCcMenu(
       tester.element(find.byKey(host)),
-      const Offset(0, 600),
       const [
         CcMenuItem('Rename'),
         CcMenuItem('Cycle height'),

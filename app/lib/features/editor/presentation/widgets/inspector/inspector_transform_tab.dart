@@ -523,9 +523,8 @@ class _TransformRowState extends State<_TransformRow> {
     return KeyEventResult.ignored;
   }
 
-  void _keyframeMenu(Offset position) => showKeyframeMenu(
-    context,
-    position,
+  void _keyframeMenu(BuildContext anchorContext) => showKeyframeMenu(
+    anchorContext,
     controller: widget.controller,
     clip: widget.clip,
     effectInstanceId: '__transform',
