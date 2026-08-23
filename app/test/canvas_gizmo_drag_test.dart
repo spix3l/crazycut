@@ -452,15 +452,17 @@ void main() {
 
     final before = c.clipRectInSequence(clip)!;
     final origin = tester.getTopLeft(find.byType(CanvasGizmo));
-    const dragBy = ui.Offset(50, 25);
+    // Big enough to land well clear of the move gizmo's magnet snap zone
+    // around the canvas centre/edges (see canvas_gizmo_snap_test.dart).
+    const dragBy = ui.Offset(150, 125);
     await tester.dragFrom(
       origin + before.center / (seqW / boxW),
       dragBy,
     );
     await tester.pump();
 
-    expect(clip.transformOrDefault.x.static, closeTo(100, 1));
-    expect(clip.transformOrDefault.y.static, closeTo(50, 1));
+    expect(clip.transformOrDefault.x.static, closeTo(300, 1));
+    expect(clip.transformOrDefault.y.static, closeTo(250, 1));
 
     await tester.pumpWidget(const SizedBox.shrink());
     c.dispose();

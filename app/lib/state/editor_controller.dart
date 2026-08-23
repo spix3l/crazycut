@@ -1062,15 +1062,25 @@ class EditorController extends ChangeNotifier
     doc.settings.height.toDouble(),
   );
 
-  /// Lines the selected images up on [edge]. With one clip selected the
-  /// reference is the sequence canvas; with several it is their combined
-  /// bounding box, the way every design tool behaves.
+  /// True when [clips] is a single clip, or every clip in it belongs to the
+  /// same linked group — cases where the selection is really one object, so
+  /// aligning it against its own bounding box would be a no-op.
+  bool _isSingleObject(List<Clip> clips) {
+    if (clips.length <= 1) return true;
+    final group = clips.first.linkedGroup;
+    return group != null && clips.every((c) => c.linkedGroup == group);
+  }
+
+  /// Lines the selected images up on [edge]. A single clip, or a fully linked
+  /// group selected together, lines up against the sequence canvas; several
+  /// independent clips line up against their combined bounding box, the way
+  /// every design tool behaves.
   void alignClips(AlignEdge edge) {
     final (clips, bounds) = _layoutTargets();
     if (clips.isEmpty) return;
     _applyLayoutDeltas(
       clips,
-      alignDeltas(bounds, edge, frame: clips.length == 1 ? sequenceRect : null),
+      alignDeltas(bounds, edge, frame: _isSingleObject(clips) ? sequenceRect : null),
       'Align clips',
     );
   }

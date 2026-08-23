@@ -116,6 +116,38 @@ void main() {
     expect(yOf(c, 'c1'), closeTo(240, 0.001));
   });
 
+  test(
+    'a fully linked group aligns to the canvas, not its own bounding box',
+    () {
+      // Two clips sharing a linked group, sitting off-centre together — the
+      // link makes this one composite object, not two independent images, so
+      // aligning it should move it against the canvas like a single clip
+      // would rather than being a no-op against its own already-shared bbox.
+      final c = harness('linked-group', [-300, 200], ys: [100, 100]);
+      c.doc.clipById('c0')!.linkedGroup = 'g';
+      c.doc.clipById('c1')!.linkedGroup = 'g';
+
+      c.alignClips(AlignEdge.centerY);
+
+      expect(yOf(c, 'c0'), closeTo(0, 0.001));
+      expect(yOf(c, 'c1'), closeTo(0, 0.001));
+    },
+  );
+
+  test(
+    'clips linked into different groups still align against each other',
+    () {
+      final c = harness('mixed-groups', [-300, 200], ys: [-100, 240]);
+      c.doc.clipById('c0')!.linkedGroup = 'g1';
+      c.doc.clipById('c1')!.linkedGroup = 'g2';
+
+      c.alignClips(AlignEdge.bottom);
+
+      expect(yOf(c, 'c0'), closeTo(240, 0.001));
+      expect(yOf(c, 'c1'), closeTo(240, 0.001));
+    },
+  );
+
   test('a single selected clip aligns to the sequence canvas', () {
     final c = harness('single', [120]);
     c.alignClips(AlignEdge.left);

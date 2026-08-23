@@ -44,6 +44,9 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
   static const double _hitSlop = 11;
   static const double _rotateOffset = 26;
 
+  /// "Magnet" catch radius for move-snapping, in widget px.
+  static const double _snapCatchPx = 8;
+
   EditorController get c => widget.controller;
 
   // Drag state. `_drag` is null between gestures.
@@ -199,6 +202,11 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
       drawnScale: c.evalTransformNum(clip.transformOrDefault.scale, clip, 100),
       rotation: _rotation(clip),
       symmetric: _altHeld,
+      canvasSize: Size(
+        c.doc.settings.width.toDouble(),
+        c.doc.settings.height.toDouble(),
+      ),
+      companions: _companionBoxes(clip),
     );
 
     // One undo step per gesture (TIM-20); markDirty also skips engine sync
@@ -222,7 +230,13 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
     if (clip == null) return;
 
     final at = c.clipLocalTime(clip);
-    final next = drag.resolve(local * _seqPerPx(box), snap: _shiftHeld);
+    final seqPerPx = _seqPerPx(box);
+    final next = drag.resolve(
+      local * seqPerPx,
+      snap: _shiftHeld,
+      moveSnapDistance:
+          drag.part == GizmoPart.move ? _snapCatchPx * seqPerPx : 0,
+    );
     // Rotation is not part of the generated animation, so it keyframes the way
     // the inspector's rotation slider does.
     if (next.rotation case final rotation?) {
@@ -311,6 +325,8 @@ class _CanvasGizmoState extends State<CanvasGizmo> {
                 seqPerPx: _seqPerPx(box),
                 hoverHandle:
                     _hover.part == GizmoPart.resize ? _hover.handle : -1,
+                snapVerticals: _drag?.snapVerticals ?? const [],
+                snapHorizontals: _drag?.snapHorizontals ?? const [],
               ),
             ),
           ),
@@ -345,6 +361,8 @@ class _GizmoPainter extends CustomPainter {
     required this.companions,
     required this.seqPerPx,
     required this.hoverHandle,
+    this.snapVerticals = const [],
+    this.snapHorizontals = const [],
   });
 
   /// Unrotated rect, in sequence pixels.
@@ -356,6 +374,11 @@ class _GizmoPainter extends CustomPainter {
   final List<(Rect, double)> companions;
   final double seqPerPx;
   final int hoverHandle;
+
+  /// "Magnet" alignment guides a move drag has snapped onto, in sequence
+  /// pixels — vertical lines carry an x, horizontal lines carry a y.
+  final List<double> snapVerticals;
+  final List<double> snapHorizontals;
 
   Rect _toWidget(Rect r) => Rect.fromLTRB(
     r.left / seqPerPx,
@@ -387,6 +410,20 @@ class _GizmoPainter extends CustomPainter {
       canvas.translate(-companionBox.center.dx, -companionBox.center.dy);
       canvas.drawRect(companionBox, companionOutline);
       canvas.restore();
+    }
+
+    final guidePaint =
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = CcColors.snapGuide;
+    for (final x in snapVerticals) {
+      final dx = x / seqPerPx;
+      canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), guidePaint);
+    }
+    for (final y in snapHorizontals) {
+      final dy = y / seqPerPx;
+      canvas.drawLine(Offset(0, dy), Offset(size.width, dy), guidePaint);
     }
 
     final box = _toWidget(rect);
@@ -427,5 +464,7 @@ class _GizmoPainter extends CustomPainter {
       old.rotation != rotation ||
       !listEquals(old.companions, companions) ||
       old.seqPerPx != seqPerPx ||
-      old.hoverHandle != hoverHandle;
+      old.hoverHandle != hoverHandle ||
+      !listEquals(old.snapVerticals, snapVerticals) ||
+      !listEquals(old.snapHorizontals, snapHorizontals);
 }

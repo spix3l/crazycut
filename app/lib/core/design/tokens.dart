@@ -26,6 +26,10 @@ abstract final class CcColors {
   static const textClipPlate = Color(0xFF2E2645);
 
   static const markerYellow = Color(0xFFF5C518);
+  /// "Magnet" alignment guide lines drawn while dragging a clip on the
+  /// canvas — kept distinct from [accent] so a snap line reads differently
+  /// from the gizmo's own outline.
+  static const snapGuide = Color(0xFFFF2ECC);
   static const error = Color(0xFFFF5252);
   static const warning = Color(0xFFFFB020);
   static const success = Color(0xFF3ED598);

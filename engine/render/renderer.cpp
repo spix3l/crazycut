@@ -54,6 +54,13 @@ RgbaSurface offlineSlate(int w, int h) {
   return out;
 }
 
+// A fully transparent 1x1 surface. Used where a layer has legitimately
+// nothing to draw this frame (e.g. a typewriter reveal before its first
+// character), so compositing it is a no-op instead of the offline slate.
+RgbaSurface transparentSurface() {
+  return RgbaSurface{1, 1, std::vector<uint8_t>(4, 0)};
+}
+
 // Loads a still image or decodes a video frame at [sourceSeconds].
 Error loadMediaFrame(const std::string& path, double sourceSeconds,
                      const RenderContext& ctx, RgbaSurface* out) {
@@ -248,12 +255,20 @@ Error renderFrame(const json& document, const RationalTime& time, int width,
           mediaId.empty() ? "text:" + side.value("id", "") : mediaId;
       std::optional<ClipSource> src = resolve(key);
       if (!src) {
-        // The slate is what the user sees when a clip cannot find its pixels.
-        // Say which clip and why, or the black-and-grey checkerboard is the
-        // only evidence there is.
-        CC_LOG_WARN("clip " + side.value("id", "") + ": no source for '" + key +
-                    "' — drawing the offline slate");
-        *surf = offlineSlate(ctx.sequenceWidth / 2, ctx.sequenceHeight / 2);
+        if (mediaId.empty()) {
+          // Text clip with nothing rasterized yet (e.g. a typewriter reveal
+          // before its first character): there is genuinely nothing to draw
+          // this frame, not a missing asset. Composite nothing instead of
+          // the offline slate, which reads as "media is broken".
+          *surf = transparentSurface();
+        } else {
+          // The slate is what the user sees when a clip cannot find its
+          // pixels. Say which clip and why, or the black-and-grey
+          // checkerboard is the only evidence there is.
+          CC_LOG_WARN("clip " + side.value("id", "") + ": no source for '" +
+                      key + "' — drawing the offline slate");
+          *surf = offlineSlate(ctx.sequenceWidth / 2, ctx.sequenceHeight / 2);
+        }
       } else if (!src->texture.rgba.empty()) {
         *surf = src->texture;  // text/image texture path
       } else {

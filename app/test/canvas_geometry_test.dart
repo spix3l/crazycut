@@ -158,6 +158,8 @@ void main() {
       double? drawnScale,
       double rotation = 0,
       bool symmetric = false,
+      Size canvasSize = Size.zero,
+      List<(Rect, double)> companions = const [],
     }) => GizmoDrag(
       part: part,
       handle: handle,
@@ -170,6 +172,8 @@ void main() {
       drawnScale: drawnScale ?? restingScale,
       rotation: rotation,
       symmetric: symmetric,
+      canvasSize: canvasSize,
+      companions: companions,
     );
 
     test('move tracks the pointer one-for-one', () {
@@ -178,6 +182,37 @@ void main() {
       expect(next.x, 100);
       expect(next.y, -100);
       expect(next.scale, isNull);
+    });
+
+    test('move snaps onto the canvas centre within the catch distance', () {
+      final d = drag(
+        part: GizmoPart.move,
+        grab: const Offset(960, 540),
+        canvasSize: const Size(1920, 1080),
+      );
+      // A 5px nudge off dead-centre still resolves onto it...
+      final caught = d.resolve(const Offset(965, 540), moveSnapDistance: 10);
+      expect(caught.x, 0);
+      expect(d.snapVerticals, [960.0]);
+
+      // ...but a nudge past the catch distance is left alone.
+      final missed = d.resolve(const Offset(985, 540), moveSnapDistance: 10);
+      expect(missed.x, 25);
+      expect(d.snapVerticals, isEmpty);
+    });
+
+    test("move snaps onto another selected clip's centre", () {
+      final d = drag(
+        part: GizmoPart.move,
+        grab: const Offset(105, 540),
+        restingX: -855,
+        canvasSize: const Size(1920, 1080),
+        companions: const [(Rect.fromLTWH(0, 0, 200, 200), 0)],
+      );
+      final next = d.resolve(const Offset(105, 540), moveSnapDistance: 10);
+      // Companion centre sits at x=100; the rect's own centre started 5px shy.
+      expect(next.x, closeTo(-860, 1e-9));
+      expect(d.snapVerticals, [100.0]);
     });
 
     test('move adds to the resting pose, not to the drawn position', () {
