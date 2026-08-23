@@ -90,15 +90,15 @@ Error openVideoDecoder(const std::string& path, DecoderSession* session) {
   }
   // Same rule the prober uses to call a file an image (media/probe.cpp): the
   // single-image demuxers, plus the still codecs by id for containers that do
-  // not name themselves. GIF counts as a still here too, matching the image
-  // clip contract — v1 does not play animated images.
+  // not name themselves. GIF stays out of this cache because its frames must
+  // be decoded at their requested timestamps.
   const std::string fmtName =
       session->format->iformat ? session->format->iformat->name : "";
   const AVCodecID codecId = session->stream->codecpar->codec_id;
   session->still = fmtName.find("image2") != std::string::npos ||
                    fmtName.find("_pipe") != std::string::npos ||
                    codecId == AV_CODEC_ID_PNG || codecId == AV_CODEC_ID_MJPEG ||
-                   codecId == AV_CODEC_ID_WEBP || codecId == AV_CODEC_ID_GIF;
+                   codecId == AV_CODEC_ID_WEBP;
   return Error::None;
 }
 

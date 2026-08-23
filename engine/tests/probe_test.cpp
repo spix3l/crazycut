@@ -21,8 +21,17 @@ std::string fixturePath() {
   return std::string(CC_SOURCE_DIR) + "/../fixtures/media/sample.mp4";
 }
 
+std::string gifFixturePath() {
+  return std::string(CC_SOURCE_DIR) + "/../fixtures/media/animated.gif";
+}
+
 bool fixtureExists() {
   std::ifstream f(fixturePath());
+  return f.good();
+}
+
+bool gifFixtureExists() {
+  std::ifstream f(gifFixturePath());
   return f.good();
 }
 
@@ -66,6 +75,18 @@ TEST(Probe, ClassifiesPipeDemuxedStillAsImage) {
   std::filesystem::remove(path, ignored);
 }
 
+TEST(Probe, ClassifiesAnimatedGifAsTimedVisualMedia) {
+  if (!gifFixtureExists()) {
+    GTEST_SKIP() << "GIF fixture not generated (run tools/make-fixture.sh)";
+  }
+  std::string json;
+  ASSERT_EQ(cc::probeFile(gifFixturePath(), &json), cc::Error::None);
+  EXPECT_NE(json.find("\"type\":\"video\""), std::string::npos);
+  EXPECT_NE(json.find("\"codec\":\"gif\""), std::string::npos);
+  EXPECT_NE(json.find("\"durationSeconds\":2.0"), std::string::npos);
+  EXPECT_NE(json.find("\"audio\":null"), std::string::npos);
+}
+
 TEST(Frame, ExtractsRgbaAtRequestedWidth) {
   if (!fixtureExists()) {
     GTEST_SKIP() << "fixture not generated";
@@ -94,6 +115,21 @@ TEST(Frame, ThumbnailProducesJpegBytes) {
   ASSERT_GE(jpeg.size(), 1000u);
   EXPECT_EQ(jpeg[0], 0xFF);
   EXPECT_EQ(jpeg[1], 0xD8);
+}
+
+TEST(Frame, AnimatedGifDecodesFrameAtRequestedTime) {
+  if (!gifFixtureExists()) {
+    GTEST_SKIP() << "GIF fixture not generated (run tools/make-fixture.sh)";
+  }
+  cc::DecodedFrame first;
+  cc::DecodedFrame second;
+  ASSERT_EQ(cc::extractFrameRgba(gifFixturePath(), 0.25, 16, &first),
+            cc::Error::None);
+  ASSERT_EQ(cc::extractFrameRgba(gifFixturePath(), 1.25, 16, &second),
+            cc::Error::None);
+  ASSERT_EQ(first.width, second.width);
+  ASSERT_EQ(first.height, second.height);
+  EXPECT_NE(first.rgba, second.rgba);
 }
 
 // Regression: playing to the end of a clip and staying there wiped the frame
