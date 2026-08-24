@@ -307,24 +307,20 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
     return '$m:${s.toString().padLeft(2, '0')} duration';
   }
 
-  /// Rough bits-per-pixel estimate, labelled as an estimate (EXP-8). A sample
-  /// encode would be more accurate but costs seconds before the dialog is
-  /// usable.
+  /// Content-calibrated estimate (EXP-8). A sample encode would be more
+  /// accurate but costs seconds before the dialog is usable.
   String _estimate(int width, int height, double seconds) {
     if (width <= 0 || seconds <= 0) return '—';
-    final bpp = switch (_preset.videoCodec) {
-      'prores' => 1.6,
-      _ => switch (_quality) {
-          ExportQuality.draft => 0.04,
-          ExportQuality.web => 0.07,
-          ExportQuality.high => 0.11,
-          ExportQuality.master => 0.18,
-        },
-    };
     final fps = AppSession.instance.project?.settings.fpsValue ?? 30;
-    final videoBits = width * height * fps * bpp;
-    final audioBits = _preset.audioCodec == 'pcm' ? 48000 * 24 * 2 : 320000;
-    final bytes = ((videoBits + audioBits) / 8) * seconds;
+    final bytes = estimateExportBytes(
+      preset: _preset,
+      quality: _quality,
+      width: width,
+      height: height,
+      fps: fps,
+      seconds: seconds,
+      hardware: _hardware,
+    );
     if (bytes >= 1024 * 1024 * 1024) {
       return '~${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
     }

@@ -94,6 +94,29 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
     await _reload();
   }
 
+  Future<void> _openExistingProject() async {
+    const types = [
+      XTypeGroup(label: 'CrazyCut project', extensions: ['crazycut']),
+    ];
+    final file = await openFile(acceptedTypeGroups: types);
+    if (file == null) return;
+    try {
+      await AppSession.instance.openPath(file.path);
+    } on Object catch (error) {
+      if (!mounted) return;
+      await showMessageDialog(
+        context,
+        title: 'Couldn’t open project',
+        message: 'CrazyCut couldn’t read this project. The file may be damaged '
+            'or from a newer version.\n\n$error',
+      );
+      return;
+    }
+    if (!mounted) return;
+    await context.router.push(EditorRoute());
+    await _reload();
+  }
+
   /// Start-from-media path: makes a default 1080p project, imports the picked
   /// files into it and drops straight into the editor.
   Future<void> _importIntoNewProject() async {
@@ -241,6 +264,7 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
                 onTap: () => setState(() => _sort = _Sort.created),
               ),
             ]),
+            onOpenProject: _openExistingProject,
             onNewProject: _newProject,
           ),
           if (_recovery.isNotEmpty)

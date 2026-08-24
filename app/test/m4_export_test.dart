@@ -67,6 +67,41 @@ void main() {
       expect(ExportQuality.draft.crf, greaterThan(ExportQuality.master.crf));
       expect(ExportQuality.web.preset, 'fast');
     });
+
+    test('software size estimate is calibrated to CRF output', () {
+      final bytes = estimateExportBytes(
+        preset: ExportPreset.youtube1080,
+        quality: ExportQuality.high,
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        seconds: 60,
+      );
+      // About 20 MB/min for ordinary 1080p30 footage, rather than the old
+      // fixed-bitrate estimate of roughly 54 MB/min.
+      expect(bytes, inInclusiveRange(18 * 1024 * 1024, 24 * 1024 * 1024));
+    });
+
+    test('hardware estimate mirrors its higher target bitrate', () {
+      final software = estimateExportBytes(
+        preset: ExportPreset.youtube1080,
+        quality: ExportQuality.high,
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        seconds: 60,
+      );
+      final hardware = estimateExportBytes(
+        preset: ExportPreset.youtube1080,
+        quality: ExportQuality.high,
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        seconds: 60,
+        hardware: true,
+      );
+      expect(hardware, greaterThan(software * 3));
+    });
   });
 
   group('queue', () {

@@ -4,12 +4,13 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../../core/design/tokens.dart';
 import '../../../../core/widgets/primitives.dart';
 
-/// 72px app header: brand mark on the left, search + sort + primary action
-/// on the right. On first launch only the primary action is shown.
+/// 72px app header: brand mark on the left, search + sort when available, then
+/// the persistent open/new project actions on the right.
 class BrowserHeader extends StatefulWidget {
   const BrowserHeader({
     super.key,
     this.showSearch = true,
+    this.onOpenProject,
     this.onNewProject,
     this.onSearchChanged,
     this.sortLabel = 'Last opened',
@@ -17,6 +18,7 @@ class BrowserHeader extends StatefulWidget {
   });
 
   final bool showSearch;
+  final VoidCallback? onOpenProject;
   final VoidCallback? onNewProject;
   final ValueChanged<String>? onSearchChanged;
   final String sortLabel;
@@ -86,6 +88,13 @@ class _BrowserHeaderState extends State<BrowserHeader> {
             ),
             const SizedBox(width: 12),
           ],
+          CcButton(
+            label: 'Open Project',
+            icon: LucideIcons.folderOpen,
+            kind: CcButtonKind.secondary,
+            onPressed: widget.onOpenProject,
+          ),
+          const SizedBox(width: 10),
           CcButton(
             label: 'New Project',
             icon: LucideIcons.plus,

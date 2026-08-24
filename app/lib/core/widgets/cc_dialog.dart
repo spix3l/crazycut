@@ -252,3 +252,45 @@ Future<bool> confirmAction(
   overlay.insert(entry);
   return completer.future;
 }
+
+/// One-action message dialog for errors and other blocking information.
+Future<void> showMessageDialog(
+  BuildContext context, {
+  required String title,
+  required String message,
+  String closeLabel = 'Close',
+}) {
+  final completer = Completer<void>();
+  final overlay = Overlay.of(context);
+  late OverlayEntry entry;
+
+  void finish() {
+    if (completer.isCompleted) return;
+    entry.remove();
+    completer.complete();
+  }
+
+  entry = OverlayEntry(
+    builder: (context) => CcModalBarrier(
+      onDismiss: finish,
+      child: CcDialogShell(
+        title: title,
+        width: 440,
+        onClose: finish,
+        sections: [
+          Text(
+            message,
+            style: CcType.style(
+              size: 13,
+              color: CcColors.textSecondary,
+              height: 1.5,
+            ),
+          ),
+        ],
+        actions: [CcButton(label: closeLabel, onPressed: finish)],
+      ),
+    ),
+  );
+  overlay.insert(entry);
+  return completer.future;
+}
