@@ -19,29 +19,6 @@ using json = nlohmann::json;
 
 double clampd(double v, double lo, double hi) { return std::min(std::max(v, lo), hi); }
 
-struct TrackInfo {
-  std::string id;
-  int index = 0;
-  bool hidden = false;
-  bool isVideo = true;
-};
-
-std::vector<TrackInfo> videoTrackOrder(const json& doc) {
-  std::vector<TrackInfo> tracks;
-  if (doc.contains("tracks") && doc["tracks"].is_array()) {
-    for (const json& t : doc["tracks"]) {
-      if (!t.is_object() || t.value("kind", "") != "video") continue;
-      tracks.push_back({t.value("id", ""), t.value("index", 0),
-                        t.value("hidden", false), true});
-    }
-  }
-  std::stable_sort(tracks.begin(), tracks.end(),
-                   [](const TrackInfo& a, const TrackInfo& b) {
-                     return a.index < b.index;
-                   });
-  return tracks;
-}
-
 RgbaSurface offlineSlate(int w, int h) {
   RgbaSurface out{w, h, std::vector<uint8_t>(static_cast<size_t>(w) * h * 4)};
   for (int y = 0; y < h; ++y) {
@@ -78,38 +55,6 @@ Error loadMediaFrame(const std::string& path, double sourceSeconds,
   // and reuses that allocation on the next call.
   out->rgba.swap(frame.rgba);
   return Error::None;
-}
-
-struct ClipRender {
-  bool active = false;
-  const json* clip = nullptr;
-};
-
-// Finds the clip on [trackId] covering [time], preferring the one bound to an
-// active transition when two overlap.
-ClipRender clipAt(const json& doc, const std::string& trackId,
-                  const RationalTime& time) {
-  ClipRender best;
-  if (!doc.contains("clips") || !doc["clips"].is_array()) return best;
-  for (const json& c : doc["clips"]) {
-    if (!c.is_object() || c.value("trackId", "") != trackId) continue;
-    const auto start = parseJsonTime(c.at("start"));
-    const auto duration = parseJsonTime(c.at("duration"));
-    if (!start || !duration) continue;
-    if (time >= *start && time < *start + *duration) best = {true, &c};
-  }
-  return best;
-}
-
-const json* findTransition(const json& doc, const std::string& aId,
-                           const std::string& bId) {
-  if (!doc.contains("transitions") || !doc["transitions"].is_array()) return nullptr;
-  for (const json& t : doc["transitions"]) {
-    if (!t.is_object()) continue;
-    if (t.value("aClipId", "") == aId && t.value("bClipId", "") == bId) return &t;
-    if (t.value("aClipId", "") == bId && t.value("bClipId", "") == aId) return &t;
-  }
-  return nullptr;
 }
 
 // EXP-15: exposure corrections are linear-light gains, same math as the
@@ -153,12 +98,216 @@ double frameLuma(const DecodedFrame& frame) {
 
 }  // namespace
 
+RenderIndex::RenderIndex(const json& document) : document_(&document) {
+  if (document.contains("tracks") && document["tracks"].is_array()) {
+    for (const json& t : document["tracks"]) {
+      if (!t.is_object() || t.value("kind", "") != "video") continue;
+      videoTracks_.push_back(
+          Track{t.value("id", ""), t.value("index", 0), t.value("hidden", false), {}});
+    }
+  }
+  std::stable_sort(videoTracks_.begin(), videoTracks_.end(),
+                   [](const Track& a, const Track& b) { return a.index < b.index; });
+
+  if (document.contains("clips") && document["clips"].is_array()) {
+    for (const json& c : document["clips"]) {
+      if (!c.is_object()) continue;
+      const std::string id = c.value("id", "");
+      if (!id.empty()) clipsById_[id] = &c;
+      const std::string trackId = c.value("trackId", "");
+      auto track = std::find_if(
+          videoTracks_.begin(), videoTracks_.end(),
+          [&](const Track& t) { return t.id == trackId; });
+      if (track == videoTracks_.end()) continue;  // audio track, or unknown
+      // Times are parsed once here; skipping a clip whose times do not parse
+      // is what the per-frame scan did, so it stays out of the index entirely.
+      const auto start = parseJsonTime(c.at("start"));
+      const auto duration = parseJsonTime(c.at("duration"));
+      if (!start || !duration) continue;
+      track->clips.push_back(ClipSpan{&c, *start, *start + *duration});
+    }
+  }
+
+  if (document.contains("transitions") && document["transitions"].is_array()) {
+    for (const json& t : document["transitions"]) {
+      if (!t.is_object()) continue;
+      transitionsAsA_[t.value("aClipId", "")] = &t;
+      transitionsAsB_[t.value("bClipId", "")] = &t;
+    }
+  }
+}
+
+const json* RenderIndex::clipAt(const Track& track,
+                                const RationalTime& time) const {
+  const json* best = nullptr;
+  for (const ClipSpan& span : track.clips) {
+    if (time >= span.start && time < span.end) best = span.clip;
+  }
+  return best;
+}
+
+const json* RenderIndex::clipById(const std::string& id) const {
+  const auto it = clipsById_.find(id);
+  return it == clipsById_.end() ? nullptr : it->second;
+}
+
+const json* RenderIndex::transitionAsA(const std::string& clipId) const {
+  const auto it = transitionsAsA_.find(clipId);
+  return it == transitionsAsA_.end() ? nullptr : it->second;
+}
+
+const json* RenderIndex::transitionAsB(const std::string& clipId) const {
+  const auto it = transitionsAsB_.find(clipId);
+  return it == transitionsAsB_.end() ? nullptr : it->second;
+}
+
+namespace {
+
+// Does this clip carry a transform that is anything other than a fixed
+// identity? Keyframed parameters are refused outright: they are identity only
+// at some instants, and the whole point of the per-clip decision is that the
+// answer cannot change part way through.
+bool hasNonIdentityTransform(const json& clip, int width, int height) {
+  if (!clip.contains("transform") || !clip["transform"].is_object()) {
+    return false;  // no transform at all
+  }
+  const json& transform = clip["transform"];
+  if (transform.value("framing", "fit") != "fit") return true;
+  for (const auto& [key, value] : transform.items()) {
+    if (value.is_object() && value.contains("keyframes")) return true;
+  }
+  RenderContext ctx;
+  ctx.sequenceWidth = width;
+  ctx.sequenceHeight = height;
+  CompositedLayer layer;
+  applyTransformJson(transform, RationalTime{}, ctx, &layer);
+  return !(layer.x == 0.0 && layer.y == 0.0 && layer.scale == 1.0 &&
+           layer.rotationDeg == 0.0 && layer.anchorX == 0.0 &&
+           layer.anchorY == 0.0 && !layer.flipH && !layer.flipV &&
+           layer.opacity >= 1.0);
+}
+
+// The lone visible clip at [time], or nullptr when there is none or more than
+// one — either way there is compositing to do.
+const json* soleVisibleClip(const RenderIndex& index, const RationalTime& time) {
+  const json* only = nullptr;
+  for (const auto& track : index.videoTracks()) {
+    if (track.hidden) continue;
+    const json* clip = index.clipAt(track, time);
+    if (clip == nullptr) continue;
+    if (only != nullptr) return nullptr;
+    only = clip;
+  }
+  return only;
+}
+
+}  // namespace
+
+std::set<std::string> passthroughClips(
+    const RenderIndex& index, int width, int height,
+    const std::function<std::optional<ClipSource>(const std::string&)>& resolve,
+    const std::map<std::string, double>* exposureStops) {
+  std::set<std::string> eligible;
+  for (const auto& track : index.videoTracks()) {
+    if (track.hidden) continue;
+    for (const auto& span : track.clips) {
+      const json& clip = *span.clip;
+      const std::string clipId = clip.value("id", "");
+      if (clipId.empty()) continue;
+      if (index.transitionAsA(clipId) || index.transitionAsB(clipId)) continue;
+      if (clip.value("mediaId", "").empty()) continue;  // text clip
+      if (clip.contains("effects") && clip["effects"].is_array() &&
+          !clip["effects"].empty()) {
+        continue;
+      }
+      if (exposureStops != nullptr) {
+        const auto it = exposureStops->find(clipId);
+        if (it != exposureStops->end() && it->second != 0.0) continue;
+      }
+      const std::string blend = clip.value("blend", "normal");
+      if (!blend.empty() && blend != "normal") continue;
+      if (hasNonIdentityTransform(clip, width, height)) continue;
+
+      // Anything else visible overlapping any part of this clip means it is
+      // composited there, so it is composited everywhere.
+      bool overlapped = false;
+      for (const auto& other : index.videoTracks()) {
+        if (other.hidden || &other == &track) continue;
+        for (const auto& against : other.clips) {
+          if (against.start < span.end && span.start < against.end) {
+            overlapped = true;
+            break;
+          }
+        }
+        if (overlapped) break;
+      }
+      if (overlapped) continue;
+
+      // It must resolve to a file the encoder can read frames from: no source
+      // is the offline slate, and a texture is RGBA the caller already holds.
+      const std::optional<ClipSource> src = resolve(clip.value("mediaId", ""));
+      if (!src || src->path.empty() || !src->texture.rgba.empty()) continue;
+
+      eligible.insert(clipId);
+    }
+  }
+  return eligible;
+}
+
+std::optional<PassthroughFrame> passthroughFrameAt(
+    const RenderIndex& index, const RationalTime& time,
+    const std::set<std::string>& eligible,
+    const std::function<std::optional<ClipSource>(const std::string&)>& resolve) {
+  if (eligible.empty()) return std::nullopt;
+  const json* only = soleVisibleClip(index, time);
+  if (only == nullptr) return std::nullopt;
+  const json& clip = *only;
+  if (eligible.count(clip.value("id", "")) == 0) return std::nullopt;
+
+  const auto start = parseJsonTime(clip.at("start"));
+  if (!start) return std::nullopt;
+  const RationalTime local = time - *start;
+
+  const std::optional<ClipSource> src = resolve(clip.value("mediaId", ""));
+  if (!src || src->path.empty()) return std::nullopt;
+
+  double speed = 1.0;
+  if (clip.contains("speed")) {
+    const auto& s = clip["speed"];
+    speed = s.is_object() ? static_cast<double>(s.value("num", 1)) /
+                                std::max(1, s.value("den", 1))
+                          : 1.0;
+  }
+  RationalTime sourceIn;
+  if (clip.contains("sourceIn")) {
+    if (const auto si = parseJsonTime(clip["sourceIn"])) sourceIn = *si;
+  }
+
+  PassthroughFrame out;
+  out.path = src->path;
+  out.sourceSeconds = sourceIn.toSeconds() + local.toSeconds() * speed;
+  return out;
+}
+
 Error renderFrame(const json& document, const RationalTime& time, int width,
                   int height,
                   const std::function<std::optional<ClipSource>(
                       const std::string&)>& resolve,
                   RgbaSurface* out,
                   const std::map<std::string, double>* exposureStops) {
+  // No index to reuse: this is a one-off frame, so build a throwaway one. It
+  // costs what the old per-frame rescan cost.
+  return renderFrame(RenderIndex(document), time, width, height, resolve, out,
+                     exposureStops);
+}
+
+Error renderFrame(const RenderIndex& index, const RationalTime& time, int width,
+                  int height,
+                  const std::function<std::optional<ClipSource>(
+                      const std::string&)>& resolve,
+                  RgbaSurface* out,
+                  const std::map<std::string, double>* exposureStops) {
+  const json& document = index.document();
   if (!out) return Error::InvalidArgument;
   RenderContext ctx;
   ctx.sequenceWidth = width;
@@ -206,45 +355,28 @@ Error renderFrame(const json& document, const RationalTime& time, int width,
     std::fill(p, p + static_cast<size_t>(width) * height, word);
   }
 
-  // Index transitions by clip for quick lookup.
-  std::map<std::string, const json*> transA, transB;
-  if (document.contains("transitions") && document["transitions"].is_array()) {
-    for (const json& t : document["transitions"]) {
-      if (!t.is_object()) continue;
-      transA[t.value("aClipId", "")] = &t;
-      transB[t.value("bClipId", "")] = &t;
-    }
-  }
-
-  const auto tracks = videoTrackOrder(document);
-  for (const auto& track : tracks) {
+  for (const auto& track : index.videoTracks()) {
     if (track.hidden) continue;
 
-    const ClipRender here = clipAt(document, track.id, time);
-    if (!here.active || here.clip == nullptr) continue;
-    const json& clip = *here.clip;
+    const json* here = index.clipAt(track, time);
+    if (here == nullptr) continue;
+    const json& clip = *here;
 
     // Transition span: this frame lies in A∩B. Find partner and blend.
     const std::string clipId = clip.value("id", "");
     const json* trans = nullptr;
     const json* partner = nullptr;
     bool incomingIsPartner = false;
-    if (auto it = transA.find(clipId); it != transA.end()) {
-      trans = it->second;
+    if (const json* asA = index.transitionAsA(clipId)) {
+      trans = asA;
       incomingIsPartner = true;  // clip is A; partner is B
-    } else if (auto it2 = transB.find(clipId); it2 != transB.end()) {
-      trans = it2->second;
+    } else if (const json* asB = index.transitionAsB(clipId)) {
+      trans = asB;
       incomingIsPartner = false;  // clip is B; partner is A
     }
     if (trans) {
-      const std::string partnerId =
-          incomingIsPartner ? trans->value("bClipId", "")
-                            : trans->value("aClipId", "");
-      if (document.contains("clips") && document["clips"].is_array()) {
-        for (const json& c : document["clips"]) {
-          if (c.is_object() && c.value("id", "") == partnerId) partner = &c;
-        }
-      }
+      partner = index.clipById(incomingIsPartner ? trans->value("bClipId", "")
+                                                 : trans->value("aClipId", ""));
     }
     // Resolve sources for both sides.
     auto loadSide = [&](const json& side, RationalTime* localOut,
@@ -446,11 +578,11 @@ std::map<std::string, double> measureClipLuma(
 
   // Same visibility rules the renderer applies: video tracks in index order,
   // hidden tracks contribute nothing.
-  for (const auto& track : videoTrackOrder(document)) {
+  const RenderIndex index(document);
+  for (const auto& track : index.videoTracks()) {
     if (track.hidden) continue;
-    if (!document.contains("clips") || !document["clips"].is_array()) continue;
-    for (const json& clip : document["clips"]) {
-      if (!clip.is_object() || clip.value("trackId", "") != track.id) continue;
+    for (const auto& span : track.clips) {
+      const json& clip = *span.clip;
       const std::string mediaId = clip.value("mediaId", "");
       if (mediaId.empty()) continue;  // text clips have no source pixels
       const auto path = assetPaths.find(mediaId);

@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <iostream>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -370,6 +371,13 @@ int runTimelineJob(const json& spec) {
   AVStream* vOut = nullptr;
   SwsContext* toYuv = nullptr;
   AVFrame* vFrame = nullptr;
+  // Passthrough path (see encodePassthrough below): a scaler for decoded
+  // frames whose geometry or pixel format the encoder cannot take as they are,
+  // a frame to carry a reference to the ones it can, and a packet to drain the
+  // encoder into.
+  SwsContext* toEnc = nullptr;
+  AVFrame* passFrame = nullptr;
+  AVPacket* passPacket = nullptr;
 
   AVCodecContext* aEnc = nullptr;
   AVStream* aOut = nullptr;
@@ -381,6 +389,9 @@ int runTimelineJob(const json& spec) {
     if (vEnc) avcodec_free_context(&vEnc);
     if (vFrame) av_frame_free(&vFrame);
     if (toYuv) sws_freeContext(toYuv);
+    if (toEnc) sws_freeContext(toEnc);
+    if (passFrame) av_frame_free(&passFrame);
+    if (passPacket) av_packet_free(&passPacket);
     if (aEnc) avcodec_free_context(&aEnc);
     if (aFrame) av_frame_free(&aFrame);
     if (fifo) av_audio_fifo_free(fifo);
@@ -689,35 +700,192 @@ int runTimelineJob(const json& spec) {
     }
 
     // --- Frame loop ---------------------------------------------------------
+    // One index for the whole export: without it every frame rescans the clip
+    // list and reparses each clip's rational times out of JSON, a cost that
+    // grows with the length of the timeline and is paid once per frame.
+    const RenderIndex renderIndex(document);
+    const std::map<std::string, double>* const exposurePtr =
+        exposureStops.empty() ? nullptr : &exposureStops;
+
+    // Hoisted out of the loop so the passthrough probe and the renderer ask
+    // the same question. frameSeconds is the only part that moves.
+    double frameSeconds = 0.0;
+    auto resolveSource =
+        [&](const std::string& key) -> std::optional<ClipSource> {
+      const auto textIt = textTextures.find(key);
+      if (textIt != textTextures.end()) {
+        const TextTextureSet& set = textIt->second;
+        if (!set.typewriter) return set.variants.front().source;
+        const int revealCount = static_cast<int>(
+            std::floor(std::max(0.0, frameSeconds - set.startSec) * 24.0));
+        if (revealCount <= 0) return std::nullopt;
+        const TextTextureVariant* selected = nullptr;
+        for (const auto& variant : set.variants) {
+          if (variant.revealCount > revealCount) break;
+          selected = &variant;
+        }
+        return selected ? std::optional<ClipSource>(selected->source)
+                        : std::nullopt;
+      }
+      const auto mediaIt = media.find(key);
+      if (mediaIt == media.end()) return std::nullopt;
+      ClipSource source;
+      source.path = mediaIt->second;
+      return source;
+    };
+
+    auto emitProgress = [&]() {
+      if (encoded % 30 != 0) return;
+      emit(json{{"type", "progress"},
+                {"frame", encoded},
+                {"totalFrames", totalFrames},
+                {"percent",
+                 totalFrames > 0
+                     ? std::min(100.0, 100.0 * static_cast<double>(encoded) /
+                                           static_cast<double>(totalFrames))
+                     : 100.0}});
+    };
+
+    // The decoded frame covers the canvas exactly when scaling it to sequence
+    // width — the same arithmetic extractFrameRgba applies — lands on the
+    // sequence height. Anything else letterboxes, and the bars come from the
+    // background the compositor paints.
+    auto fillsCanvas = [&](const AVFrame* native) {
+      if (native->width <= 0 || native->height <= 0) return false;
+      int dstW = renderWidth - renderWidth % 2;
+      int dstH = static_cast<int>(std::llround(
+          static_cast<double>(native->height) * dstW / native->width));
+      dstH -= dstH % 2;
+      return dstW == renderWidth && dstH == renderHeight;
+    };
+
+    // Colour handling the two paths agree on. A full-range or wide-gamut
+    // source is converted by the compositor's RGBA round trip and would not
+    // survive being copied straight through, so it goes the long way.
+    auto plainSdr = [&](const AVFrame* native) {
+      if (native->color_range == AVCOL_RANGE_JPEG) return false;
+      switch (native->colorspace) {
+        case AVCOL_SPC_UNSPECIFIED:
+        case AVCOL_SPC_BT709:
+        case AVCOL_SPC_BT470BG:
+        case AVCOL_SPC_SMPTE170M:
+          return true;
+        default:
+          return false;
+      }
+    };
+
+    int toEncW = 0, toEncH = 0, toEncFmt = -1;
+    auto encodeNative = [&](AVFrame* native, int64_t pts) {
+      auto sendAndDrain = [&](AVFrame* frame) {
+        if (avcodec_send_frame(vEnc, frame) < 0)
+          throw std::runtime_error("send_frame failed");
+        while (avcodec_receive_packet(vEnc, passPacket) == 0) {
+          writePacket(passPacket, vEnc, vOut);
+          av_packet_unref(passPacket);
+        }
+      };
+      if (!passPacket) passPacket = av_packet_alloc();
+
+      if (native->format == vEnc->pix_fmt && native->width == width &&
+          native->height == height) {
+        // Nothing to convert. Hand the encoder a reference rather than the
+        // decoder's own frame: it is refcounted, so the decoder can move on to
+        // the next frame while the encoder still holds these pixels.
+        if (!passFrame) passFrame = av_frame_alloc();
+        av_frame_unref(passFrame);
+        if (av_frame_ref(passFrame, native) < 0)
+          throw std::runtime_error("frame ref failed");
+        passFrame->pts = pts;
+        sendAndDrain(passFrame);
+        return;
+      }
+
+      if (!toEnc || toEncW != native->width || toEncH != native->height ||
+          toEncFmt != native->format) {
+        if (toEnc) sws_freeContext(toEnc);
+        toEnc = sws_alloc_context();
+        if (!toEnc) throw std::runtime_error("passthrough scaler alloc failed");
+        av_opt_set_int(toEnc, "srcw", native->width, 0);
+        av_opt_set_int(toEnc, "srch", native->height, 0);
+        av_opt_set_int(toEnc, "src_format", native->format, 0);
+        av_opt_set_int(toEnc, "dstw", width, 0);
+        av_opt_set_int(toEnc, "dsth", height, 0);
+        av_opt_set_int(toEnc, "dst_format", vEnc->pix_fmt, 0);
+        av_opt_set_int(toEnc, "sws_flags",
+                       native->width > width ? SWS_BICUBIC : SWS_BILINEAR, 0);
+        av_opt_set_int(toEnc, "threads", 0, 0);
+        if (sws_init_context(toEnc, nullptr, nullptr) < 0)
+          throw std::runtime_error("passthrough scaler init failed");
+        toEncW = native->width;
+        toEncH = native->height;
+        toEncFmt = native->format;
+      }
+      if (av_frame_make_writable(vFrame) < 0)
+        throw std::runtime_error("frame not writable");
+      sws_scale(toEnc, native->data, native->linesize, 0, native->height,
+                vFrame->data, vFrame->linesize);
+      vFrame->pts = pts;
+      sendAndDrain(vFrame);
+    };
+
+    // Returns false when this frame has to be composited after all, in which
+    // case nothing has been encoded and the caller falls through to the
+    // ordinary path. The decode is not wasted: the session holds the frame, so
+    // renderFrame finds it already decoded.
+    // Which clips never need compositing, decided once for the whole export.
+    std::set<std::string> passthroughEligible;
+    if (vEnc) {
+      passthroughEligible = passthroughClips(renderIndex, renderWidth,
+                                             renderHeight, resolveSource,
+                                             exposurePtr);
+    }
+    // Whether each eligible clip's decoded frames can actually go straight to
+    // the encoder — geometry, rotation and colour are properties of the
+    // stream, so the first frame settles it for the whole clip. Deciding once
+    // also keeps a clip from switching paths part way through.
+    std::map<std::string, bool> passthroughUsable;
+
+    auto encodePassthrough = [&](const RationalTime& time, int64_t pts) {
+      const auto candidate = passthroughFrameAt(renderIndex, time,
+                                                passthroughEligible,
+                                                resolveSource);
+      if (!candidate) return false;
+      AVFrame* native = nullptr;
+      int rotation = 0;
+      if (extractFrameNative(candidate->path, candidate->sourceSeconds, &native,
+                             &rotation) != Error::None) {
+        return false;  // let the compositor report it and draw the slate
+      }
+      const auto settled = passthroughUsable.find(candidate->path);
+      if (settled != passthroughUsable.end()) {
+        if (!settled->second) return false;
+      } else {
+        const bool usable =
+            rotation == 0 && fillsCanvas(native) && plainSdr(native);
+        passthroughUsable[candidate->path] = usable;
+        if (!usable) return false;
+      }
+      encodeNative(native, pts);
+      return true;
+    };
+
     for (int64_t f = 0; f < totalFrames; ++f) {
       const RationalTime t = RationalTime::fromSeconds(
           exportStart + static_cast<double>(f) / av_q2d(fps));
-      const double frameSeconds = t.toSeconds();
-      const Error err = renderFrame(
-          document, t.normalized(), renderWidth, renderHeight,
-          [&](const std::string& key) -> std::optional<ClipSource> {
-            const auto textIt = textTextures.find(key);
-            if (textIt != textTextures.end()) {
-              const TextTextureSet& set = textIt->second;
-              if (!set.typewriter) return set.variants.front().source;
-              const int revealCount = static_cast<int>(std::floor(
-                  std::max(0.0, frameSeconds - set.startSec) * 24.0));
-              if (revealCount <= 0) return std::nullopt;
-              const TextTextureVariant* selected = nullptr;
-              for (const auto& variant : set.variants) {
-                if (variant.revealCount > revealCount) break;
-                selected = &variant;
-              }
-              return selected ? std::optional<ClipSource>(selected->source)
-                              : std::nullopt;
-            }
-            const auto mediaIt = media.find(key);
-            if (mediaIt == media.end()) return std::nullopt;
-            ClipSource source;
-            source.path = mediaIt->second;
-            return source;
-          },
-          &canvas, exposureStops.empty() ? nullptr : &exposureStops);
+      frameSeconds = t.toSeconds();
+
+      // EXP: a frame that is one plain full-canvas clip goes straight from the
+      // decoder to the encoder. See passthroughFrameAt() and encodeNative().
+      if (vEnc && encodePassthrough(t.normalized(), f)) {
+        ++encoded;
+        emitProgress();
+        continue;
+      }
+
+      const Error err = renderFrame(renderIndex, t.normalized(), renderWidth,
+                                    renderHeight, resolveSource, &canvas,
+                                    exposurePtr);
       if (err != Error::None) throw std::runtime_error("renderFrame failed");
 
       if (vEnc) {
@@ -738,16 +906,7 @@ int runTimelineJob(const json& spec) {
         av_packet_free(&pkt);
       }
       ++encoded;
-      if (encoded % 30 == 0) {
-        emit(json{{"type", "progress"},
-                  {"frame", encoded},
-                  {"totalFrames", totalFrames},
-                  {"percent",
-                   totalFrames > 0
-                       ? std::min(100.0, 100.0 * static_cast<double>(encoded) /
-                                             static_cast<double>(totalFrames))
-                       : 100.0}});
-      }
+      emitProgress();
     }
 
     if (vEnc) {

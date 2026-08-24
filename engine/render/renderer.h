@@ -1,7 +1,9 @@
 #pragma once
 
+#include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -29,6 +31,96 @@ struct ClipFrameRequest {
   ClipSource* source = nullptr;
 };
 
+// Everything about a document that the renderer would otherwise rederive on
+// every single frame: which video tracks are visible and in what order, each
+// track's clips with their rational times already parsed out of the JSON, and
+// the transition and clip-id lookups.
+//
+// Rebuilding this per frame is what a plain renderFrame(document, ...) call
+// does, and for a preview scrub that is the right trade. An export renders the
+// same document thousands of times, so it builds one index up front and hands
+// it to every frame.
+//
+// The index borrows the document: it stores pointers into it, so it must not
+// outlive the document and the document must not be mutated while it is alive.
+class RenderIndex {
+ public:
+  explicit RenderIndex(const nlohmann::json& document);
+
+  struct ClipSpan {
+    const nlohmann::json* clip = nullptr;
+    RationalTime start;
+    RationalTime end;
+  };
+  struct Track {
+    std::string id;
+    int index = 0;
+    bool hidden = false;
+    std::vector<ClipSpan> clips;  // document order, as the renderer sees them
+  };
+
+  const nlohmann::json& document() const { return *document_; }
+  const std::vector<Track>& videoTracks() const { return videoTracks_; }
+  // The clip covering [time] on [track]: the last one in document order, which
+  // is how an overlap bound to a transition resolves.
+  const nlohmann::json* clipAt(const Track& track, const RationalTime& time) const;
+  const nlohmann::json* clipById(const std::string& id) const;
+  // The transition this clip is the A (outgoing) or B (incoming) side of.
+  const nlohmann::json* transitionAsA(const std::string& clipId) const;
+  const nlohmann::json* transitionAsB(const std::string& clipId) const;
+
+ private:
+  const nlohmann::json* document_ = nullptr;
+  std::vector<Track> videoTracks_;
+  std::map<std::string, const nlohmann::json*> clipsById_;
+  std::map<std::string, const nlohmann::json*> transitionsAsA_;
+  std::map<std::string, const nlohmann::json*> transitionsAsB_;
+};
+
+// A frame that needs no compositing at all: one visible clip, nothing applied
+// to it, its pixels filling the canvas. Reported by passthroughFrameAt().
+struct PassthroughFrame {
+  std::string path;             // the clip's media file
+  double sourceSeconds = 0.0;   // where in it this frame lives
+};
+
+// The ids of clips that can skip compositing for their entire length, so a
+// caller that only wants pixels to encode can decode each frame and use it as
+// it is instead of paying for the RGBA round trip: decode → convert to RGBA →
+// composite onto a canvas → convert back. That round trip is most of the cost
+// of an export, and an ordinary cut between two full-frame clips needs none of
+// it.
+//
+// A clip is out if the compositor has real work to do on it anywhere: another
+// visible layer overlaps it, it is in a transition, it is text, it carries
+// effects or an exposure correction, it has a non-normal blend or partial
+// opacity, or it has any transform that is not a fixed identity.
+//
+// The decision is per clip and never per frame, because the two paths do not
+// produce identical pixels: compositing resamples chroma through RGB and
+// passthrough keeps the source's. Alternating between them inside one clip
+// would show as the picture shifting the moment a title appeared over it, so
+// a clip that needs compositing for one frame is composited for all of them,
+// and the only place the two paths ever meet is a cut.
+//
+// Membership does not by itself mean a frame can be used: the caller must
+// still confirm the decoded frame fills the canvas and is not rotated. Those
+// need the decoded frame, which this call deliberately does not touch.
+std::set<std::string> passthroughClips(
+    const RenderIndex& index, int width, int height,
+    const std::function<std::optional<ClipSource>(const std::string& assetId)>&
+        resolve,
+    const std::map<std::string, double>* exposureStops = nullptr);
+
+// Where in its media the clip covering [time] sits, for a clip that
+// passthroughClips() approved. Returns nothing when this frame is not a lone
+// visible clip from that set.
+std::optional<PassthroughFrame> passthroughFrameAt(
+    const RenderIndex& index, const RationalTime& time,
+    const std::set<std::string>& eligible,
+    const std::function<std::optional<ClipSource>(const std::string& assetId)>&
+        resolve);
+
 // Renders one composited frame of a validated project document at [time].
 //
 // The document must have passed ProjectSnapshot::load (clips/transitions
@@ -46,6 +138,15 @@ struct ClipFrameRequest {
 // clip's own effects stack. Clips without an entry are untouched.
 Error renderFrame(const nlohmann::json& document, const RationalTime& time,
                   int width, int height,
+                  const std::function<std::optional<ClipSource>(
+                      const std::string& assetId)>& resolve,
+                  RgbaSurface* out,
+                  const std::map<std::string, double>* exposureStops = nullptr);
+
+// Same render against a prebuilt index, for callers that draw many frames of
+// one unchanging document.
+Error renderFrame(const RenderIndex& index, const RationalTime& time, int width,
+                  int height,
                   const std::function<std::optional<ClipSource>(
                       const std::string& assetId)>& resolve,
                   RgbaSurface* out,

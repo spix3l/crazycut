@@ -409,6 +409,28 @@ Error extractFrameRgba(const std::string& path, double seconds, int targetWidth,
   return Error::None;
 }
 
+Error extractFrameNative(const std::string& path, double seconds,
+                         AVFrame** outFrame, int* outRotation) {
+  if (!outFrame || path.empty()) {
+    setLastError("extractFrameNative: invalid arguments");
+    return Error::InvalidArgument;
+  }
+  seconds = std::max(0.0, seconds);
+
+  DecoderSession* session = nullptr;
+  Error err = acquireDecoder(path, &session);
+  if (err != Error::None) return err;
+
+  AVFrame* frame = nullptr;  // borrowed from the session
+  // Same rule as extractFrameRgba: a still holds one frame and must not be
+  // seeked.
+  err = decodeFrameNear(session, session->still ? 0.0 : seconds, &frame);
+  if (err != Error::None) return err;
+  if (outRotation) *outRotation = displayRotationFor(session->stream);
+  *outFrame = frame;
+  return Error::None;
+}
+
 Error extractThumbnailJpeg(const std::string& path, double seconds, int width,
                            std::vector<uint8_t>* outJpeg) {
   if (!outJpeg || path.empty()) {
