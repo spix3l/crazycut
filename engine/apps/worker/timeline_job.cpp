@@ -23,6 +23,7 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
+#include "ffmpeg_compat.h"
 #include "audio/mixer.h"
 #include "core/time.h"
 #include "media/frame.h"
@@ -493,8 +494,8 @@ int runTimelineJob(const json& spec) {
       aEnc->sample_rate = static_cast<int>(kMixRate);
       AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
       av_channel_layout_copy(&aEnc->ch_layout, &stereo);
-      aEnc->sample_fmt = codec->sample_fmts ? codec->sample_fmts[0]
-                                            : AV_SAMPLE_FMT_FLTP;
+      aEnc->sample_fmt =
+          firstSupportedSampleFormat(codec, AV_SAMPLE_FMT_FLTP);
       // PCM is uncompressed; a bitrate request would be meaningless.
       if (audioCodec.rfind("pcm", 0) != 0) aEnc->bit_rate = as->bitrate;
       if (outFmt->oformat->flags & AV_CODEC_FLAG_GLOBAL_HEADER)

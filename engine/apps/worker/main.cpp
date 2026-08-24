@@ -17,6 +17,7 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
+#include "ffmpeg_compat.h"
 #include "timeline_job.hpp"
 
 using nlohmann::json;
@@ -248,7 +249,8 @@ int run(const Job& job) {
       aEnc->sample_rate = aDec->sample_rate > 0 ? aDec->sample_rate : 48000;
       av_channel_layout_copy(&aEnc->ch_layout, &aDec->ch_layout);
       if (aEnc->ch_layout.nb_channels == 0) av_channel_layout_default(&aEnc->ch_layout, 2);
-      aEnc->sample_fmt = encoder->sample_fmts ? encoder->sample_fmts[0] : AV_SAMPLE_FMT_FLTP;
+      aEnc->sample_fmt =
+          cc::firstSupportedSampleFormat(encoder, AV_SAMPLE_FMT_FLTP);
       aEnc->bit_rate = job.audio->bitrate;
       if (outFmt->oformat->flags & AVFMT_GLOBALHEADER)
         aEnc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;

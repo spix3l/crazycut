@@ -33,6 +33,7 @@ jobs:
           7z x ffmpeg.7z -offmpeg-extract -y
           $dir = Get-ChildItem ffmpeg-extract -Directory | Select-Object -First 1
           Move-Item $dir.FullName ffmpeg
+          "$env:FFMPEG_DIR\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Configure
         run: cmake -S engine -B engine/build -DCMAKE_BUILD_TYPE=Release
       - name: Build
