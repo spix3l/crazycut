@@ -7,9 +7,8 @@ import '../../../../../core/widgets/primitives.dart';
 import '../../../../../data/project.dart';
 import '../../../../../data/text_content.dart';
 import '../../../../../state/editor_controller.dart';
-import '../../../../../state/timeline_edits.dart';
 
-/// A focused text workflow: content, one explicit animation choice, then type.
+/// A focused text workflow: content, then type.
 /// Less common paint effects remain available without dominating every edit.
 class TextTab extends StatelessWidget {
   const TextTab({super.key, required this.controller, required this.clip});
@@ -83,42 +82,6 @@ class TextTab extends StatelessWidget {
               initial: text.content,
               autofocus: text.content.isEmpty,
               onCommitted: (value) => c.setTextContent(clip.id, value),
-            ),
-          ),
-          _sectionHeader(
-            'Animation',
-            trailing:
-                text.animation.isEmpty
-                    ? Text('None', style: CcType.micro)
-                    : Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const CcIcon(
-                          LucideIcons.check,
-                          size: 11,
-                          color: CcColors.accent,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          _presetLabel(text.animation),
-                          style: CcType.style(
-                            size: 10,
-                            weight: CcType.semibold,
-                            color: CcColors.accent,
-                          ),
-                        ),
-                      ],
-                    ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: _PresetGrid(
-              selected: text.animation,
-              onSelected:
-                  (id) =>
-                      id.isEmpty
-                          ? c.clearTextPreset(clip.id)
-                          : c.applyTextPreset(clip.id, id),
             ),
           ),
           _sectionHeader('Typography'),
@@ -553,13 +516,6 @@ class TextTab extends StatelessWidget {
           ? value.round().toString()
           : value.toStringAsFixed(1);
 
-  static String _presetLabel(String id) {
-    for (final entry in TimelineEdits.kTextPresets.entries) {
-      if (entry.value == id) return entry.key;
-    }
-    return id;
-  }
-
   static TextStyle _previewStyle(
     String family,
     String weight, {
@@ -593,131 +549,6 @@ class TextTab extends StatelessWidget {
         height: 1,
       );
     }
-  }
-}
-
-class _PresetGrid extends StatelessWidget {
-  const _PresetGrid({required this.selected, required this.onSelected});
-
-  final String selected;
-  final ValueChanged<String> onSelected;
-
-  static const _icons = <String, IconData>{
-    '': LucideIcons.minus,
-    'fade': LucideIcons.circle,
-    'pop': LucideIcons.zoomIn,
-    'slideLeft': LucideIcons.arrowLeft,
-    'slideRight': LucideIcons.arrowRight,
-    'slideUp': LucideIcons.arrowUp,
-    'slideDown': LucideIcons.arrowDown,
-    'rise': LucideIcons.moveUp,
-    'blink': LucideIcons.eye,
-    'typewriter': LucideIcons.textCursorInput,
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final entries = <MapEntry<String, String>>[
-      const MapEntry('None', ''),
-      ...TimelineEdits.kTextPresets.entries,
-    ];
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = (constraints.maxWidth - 12) / 3;
-        return Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: [
-            for (final entry in entries)
-              _PresetTile(
-                width: width,
-                label: entry.key,
-                icon: _icons[entry.value] ?? LucideIcons.circle,
-                selected: selected == entry.value,
-                onTap: () => onSelected(entry.value),
-              ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _PresetTile extends StatelessWidget {
-  const _PresetTile({
-    required this.width,
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final double width;
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return CcTappable(
-      onTap: onTap,
-      hoverOpacity: 1,
-      builder:
-          (context, hovered, child) => AnimatedContainer(
-            duration: const Duration(milliseconds: 100),
-            width: width,
-            height: 40,
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            decoration: BoxDecoration(
-              color:
-                  selected
-                      ? CcColors.accentDim
-                      : hovered
-                      ? CcColors.elevated2
-                      : CcColors.elevated,
-              borderRadius: CcRadius.brSm,
-              border: Border.all(
-                color: selected ? CcColors.accent : CcColors.borderStrong,
-                width: selected ? 1.5 : 1,
-              ),
-            ),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 18,
-                  child: CcIcon(
-                    icon,
-                    size: 12,
-                    color: selected ? CcColors.accent : CcColors.textSecondary,
-                  ),
-                ),
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: CcType.style(
-                      size: 10,
-                      weight: selected ? CcType.semibold : CcType.medium,
-                      color:
-                          selected
-                              ? CcColors.textPrimary
-                              : CcColors.textSecondary,
-                    ),
-                  ),
-                ),
-                if (selected)
-                  const CcIcon(
-                    LucideIcons.check,
-                    size: 10,
-                    color: CcColors.accent,
-                  ),
-              ],
-            ),
-          ),
-      child: const SizedBox.shrink(),
-    );
   }
 }
 

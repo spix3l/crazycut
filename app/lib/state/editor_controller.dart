@@ -335,7 +335,7 @@ class EditorController extends ChangeNotifier
 
   Future<void> importFiles(
     List<String> paths, {
-    bool addToTimeline = true,
+    bool addToTimeline = false,
   }) async {
     for (final path in paths) {
       final name = path.split(Platform.pathSeparator).last;
