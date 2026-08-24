@@ -48,12 +48,36 @@ class _MonitorPanelState extends State<MonitorPanel> {
   Widget build(BuildContext context) {
     final c = controller;
     final empty = c.doc.clips.isEmpty;
+    final aspectRatio = c.doc.settings.width / c.doc.settings.height;
+
+    final frame = GestureDetector(
+      onDoubleTap: () => _editTextUnderPlayhead(context),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          _PreviewSizeReporter(
+            controller: c,
+            child: empty
+                ? const _Placeholder(message: 'Nothing on the timeline yet')
+                : _FramePreview(controller: c),
+          ),
+          // TXT-6: move/resize/rotate handles over the frame.
+          // Layered above the preview but only claims pointers
+          // that land on it, so the double-tap above survives.
+          if (!empty) CanvasGizmo(controller: c),
+          if (c.showCanvasGrid) const IgnorePointer(child: _GridOverlay()),
+          if (c.showSafeMargins)
+            const IgnorePointer(child: _SafeMarginsOverlay()),
+        ],
+      ),
+    );
+
     return ColoredBox(
       color: CcColors.bg,
       child: Column(
         children: [
           if (!widget.fullscreen)
-            _MonitorToolbar(onFullscreen: widget.onFullscreen)
+            _MonitorToolbar(controller: c, onFullscreen: widget.onFullscreen)
           else
             _FullscreenBar(onExit: widget.onExitFullscreen),
           Expanded(
@@ -62,30 +86,18 @@ class _MonitorPanelState extends State<MonitorPanel> {
                 horizontal: widget.fullscreen ? 0 : 24,
                 vertical: widget.fullscreen ? 0 : 20,
               ),
-              child: Center(
-                child: AspectRatio(
-                  aspectRatio: c.doc.settings.width / c.doc.settings.height,
-                  child: GestureDetector(
-                    onDoubleTap: () => _editTextUnderPlayhead(context),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        _PreviewSizeReporter(
-                          controller: c,
-                          child: empty
-                              ? const _Placeholder(
-                                  message: 'Nothing on the timeline yet')
-                              : _FramePreview(controller: c),
-                        ),
-                        // TXT-6: move/resize/rotate handles over the frame.
-                        // Layered above the preview but only claims pointers
-                        // that land on it, so the double-tap above survives.
-                        if (!empty) CanvasGizmo(controller: c),
-                      ],
+              child: c.previewZoom == PreviewZoom.fit
+                  ? Center(
+                      child: AspectRatio(
+                        aspectRatio: aspectRatio,
+                        child: frame,
+                      ),
+                    )
+                  : _ZoomedStage(
+                      width: c.doc.settings.width * c.previewZoom.scale,
+                      height: c.doc.settings.height * c.previewZoom.scale,
+                      child: frame,
                     ),
-                  ),
-                ),
-              ),
             ),
           ),
           _TransportBar(controller: c),
@@ -95,22 +107,145 @@ class _MonitorPanelState extends State<MonitorPanel> {
   }
 }
 
-class _MonitorToolbar extends StatelessWidget {
-  const _MonitorToolbar({this.onFullscreen});
+/// Non-"Fit" zoom levels: the canvas is shown at a fixed fraction of
+/// sequence resolution and scrolls if it doesn't fit the available space,
+/// rather than being squeezed back down (that would make the zoom control a
+/// no-op).
+class _ZoomedStage extends StatelessWidget {
+  const _ZoomedStage({
+    required this.width,
+    required this.height,
+    required this.child,
+  });
 
+  final double width;
+  final double height;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SingleChildScrollView(
+          child: SizedBox(width: width, height: height, child: child),
+        ),
+      ),
+    );
+  }
+}
+
+/// UIX 3.2 rule-of-thirds style reference grid over the canvas.
+class _GridOverlay extends StatelessWidget {
+  const _GridOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(painter: _GridPainter());
+  }
+}
+
+class _GridPainter extends CustomPainter {
+  static const _divisions = 3;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0x66FFFFFF)
+      ..strokeWidth = 1;
+    for (var i = 1; i < _divisions; i++) {
+      final x = size.width * i / _divisions;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+      final y = size.height * i / _divisions;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// UIX 3.2 action-safe (90%) and title-safe (80%) margin guides.
+class _SafeMarginsOverlay extends StatelessWidget {
+  const _SafeMarginsOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(painter: _SafeMarginsPainter());
+  }
+}
+
+class _SafeMarginsPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0x99FFFFFF)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    void inset(double fraction) {
+      final dx = size.width * (1 - fraction) / 2;
+      final dy = size.height * (1 - fraction) / 2;
+      canvas.drawRect(
+        Rect.fromLTWH(
+          dx,
+          dy,
+          size.width - dx * 2,
+          size.height - dy * 2,
+        ),
+        paint,
+      );
+    }
+
+    inset(0.9); // action-safe
+    inset(0.8); // title-safe
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _MonitorToolbar extends StatelessWidget {
+  const _MonitorToolbar({required this.controller, this.onFullscreen});
+
+  final EditorController controller;
   final VoidCallback? onFullscreen;
 
   @override
   Widget build(BuildContext context) {
+    final c = controller;
     return SizedBox(
       height: 40,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           children: [
-            const CcIcon(LucideIcons.squareDashed, size: 15, color: CcColors.textTertiary),
+            CcTooltip(
+              message: 'Safe margins',
+              child: CcTappable(
+                onTap: () => c.setShowSafeMargins(!c.showSafeMargins),
+                child: CcIcon(
+                  LucideIcons.squareDashed,
+                  size: 15,
+                  color: c.showSafeMargins
+                      ? CcColors.textPrimary
+                      : CcColors.textTertiary,
+                ),
+              ),
+            ),
             const SizedBox(width: 14),
-            const CcIcon(LucideIcons.grid3x3, size: 15, color: CcColors.textTertiary),
+            CcTooltip(
+              message: 'Grid',
+              child: CcTappable(
+                onTap: () => c.setShowCanvasGrid(!c.showCanvasGrid),
+                child: CcIcon(
+                  LucideIcons.grid3x3,
+                  size: 15,
+                  color: c.showCanvasGrid
+                      ? CcColors.textPrimary
+                      : CcColors.textTertiary,
+                ),
+              ),
+            ),
             const Spacer(),
             CcTooltip(
               message: 'Fullscreen preview (F)',
@@ -120,9 +255,37 @@ class _MonitorToolbar extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
-            const CcDropdown(value: 'Fit', height: 23, fontSize: 11),
+            Builder(
+              builder: (anchorContext) => CcDropdown(
+                value: c.previewZoom.label,
+                height: 23,
+                fontSize: 11,
+                onTap: () => showCcMenu(anchorContext, [
+                  for (final zoom in PreviewZoom.values)
+                    CcMenuItem(
+                      zoom.label,
+                      checked: zoom == c.previewZoom,
+                      onTap: () => c.setPreviewZoom(zoom),
+                    ),
+                ]),
+              ),
+            ),
             const SizedBox(width: 8),
-            const CcDropdown(value: 'Full', height: 23, fontSize: 11),
+            Builder(
+              builder: (anchorContext) => CcDropdown(
+                value: c.previewQuality.label,
+                height: 23,
+                fontSize: 11,
+                onTap: () => showCcMenu(anchorContext, [
+                  for (final quality in PreviewQuality.values)
+                    CcMenuItem(
+                      quality.label,
+                      checked: quality == c.previewQuality,
+                      onTap: () => c.setPreviewQuality(quality),
+                    ),
+                ]),
+              ),
+            ),
           ],
         ),
       ),

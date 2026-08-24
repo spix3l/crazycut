@@ -27,9 +27,16 @@ cmake --build "$engine_build" -j"$(sysctl -n hw.ncpu)"
 
 echo "==> Building app (release)"
 cd "$app_dir"
-flutter build macos --release
+# CC_APP_VERSION, if set (the release workflow sets it from the git tag),
+# stamps the build so About panels and crash reports show the released
+# version rather than pubspec.yaml's placeholder.
+if [[ -n "${CC_APP_VERSION:-}" ]]; then
+  flutter build macos --release --build-name="$CC_APP_VERSION"
+else
+  flutter build macos --release
+fi
 
-bundle="$app_dir/build/macos/Build/Products/Release/crazycut_app.app"
+bundle="$app_dir/build/macos/Build/Products/Release/CrazyCut.app"
 [[ -d "$bundle" ]] || { echo "error: app bundle not found at $bundle" >&2; exit 1; }
 
 echo "==> Embedding engine artifacts"

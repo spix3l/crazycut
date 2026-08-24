@@ -9,7 +9,7 @@ class NativePlayback {
 
   static const MethodChannel _channel = MethodChannel('dev.crazycut/playback');
 
-  static final bool supported = Platform.isMacOS;
+  static final bool supported = Platform.isMacOS || Platform.isWindows;
 
   static int? textureId;
   static double duration = 0;
@@ -48,7 +48,7 @@ class NativePlayback {
     try {
       await _channel.invokeMethod('play');
     } on PlatformException {
-      // channel unavailable outside macOS runner
+      // channel unavailable outside native runner
     }
   }
 
@@ -56,7 +56,7 @@ class NativePlayback {
     try {
       await _channel.invokeMethod('pause');
     } on PlatformException {
-      // channel unavailable outside macOS runner
+      // channel unavailable outside native runner
     }
   }
 
@@ -64,7 +64,7 @@ class NativePlayback {
     try {
       await _channel.invokeMethod('seek', {'seconds': seconds});
     } on PlatformException {
-      // channel unavailable outside macOS runner
+      // channel unavailable outside native runner
     }
   }
 
@@ -88,7 +88,7 @@ class NativePlayback {
     try {
       await _channel.invokeMethod('dispose');
     } on PlatformException {
-      // channel unavailable outside macOS runner
+      // channel unavailable outside native runner
     }
     textureId = null;
     openedMedia = null;

@@ -24,6 +24,44 @@ import 'package:crazycut_app/state/timeline_edits.dart';
 
 enum ImportStatus { probing, ready, failed, offline }
 
+/// UIX 3.2 monitor zoom control.
+enum PreviewZoom {
+  fit,
+  pct25,
+  pct50,
+  pct100;
+
+  String get label => switch (this) {
+    PreviewZoom.fit => 'Fit',
+    PreviewZoom.pct25 => '25%',
+    PreviewZoom.pct50 => '50%',
+    PreviewZoom.pct100 => '100%',
+  };
+
+  /// Fraction of sequence resolution shown on screen. Unused for [fit].
+  double get scale => switch (this) {
+    PreviewZoom.fit => 1,
+    PreviewZoom.pct25 => 0.25,
+    PreviewZoom.pct50 => 0.5,
+    PreviewZoom.pct100 => 1,
+  };
+}
+
+/// UIX 3.2 playback quality dropdown, reflecting engine tiers.
+enum PreviewQuality {
+  auto,
+  full,
+  half,
+  proxy;
+
+  String get label => switch (this) {
+    PreviewQuality.auto => 'Auto',
+    PreviewQuality.full => 'Full',
+    PreviewQuality.half => 'Half',
+    PreviewQuality.proxy => 'Proxy',
+  };
+}
+
 class PoolItem {
   PoolItem({
     required this.asset,
@@ -253,6 +291,47 @@ class EditorController extends ChangeNotifier
     _previewWidth = quantised;
     _previewRevision++;
     unawaited(updatePreviewFrame());
+  }
+
+  /// UIX 3.2 monitor zoom: Fit scales the canvas to the available space;
+  /// the fixed levels show it at that fraction of sequence resolution and
+  /// let the monitor scroll if it doesn't fit.
+  PreviewZoom previewZoom = PreviewZoom.fit;
+
+  void setPreviewZoom(PreviewZoom value) {
+    if (previewZoom == value) return;
+    previewZoom = value;
+    notifyListeners();
+  }
+
+  /// UIX 3.2 playback quality dropdown. Auto is the existing adaptive
+  /// behavior below (full res when parked, capped while playing or
+  /// mid-gesture); the fixed tiers hold [previewRenderWidth] at a fraction
+  /// of [_previewWidth] regardless of transport state.
+  PreviewQuality previewQuality = PreviewQuality.auto;
+
+  void setPreviewQuality(PreviewQuality value) {
+    if (previewQuality == value) return;
+    previewQuality = value;
+    _previewRevision++;
+    notifyListeners();
+    unawaited(updatePreviewFrame());
+  }
+
+  /// UIX 3.2 canvas overlay toggles.
+  bool showSafeMargins = false;
+  bool showCanvasGrid = false;
+
+  void setShowSafeMargins(bool value) {
+    if (showSafeMargins == value) return;
+    showSafeMargins = value;
+    notifyListeners();
+  }
+
+  void setShowCanvasGrid(bool value) {
+    if (showCanvasGrid == value) return;
+    showCanvasGrid = value;
+    notifyListeners();
   }
 
   @override
@@ -1327,13 +1406,24 @@ class EditorController extends ChangeNotifier
   /// Width the next preview frame renders at, given what the transport and the
   /// pointer are doing.
   int get previewRenderWidth {
-    final cap =
-        playing
-            ? maxPlaybackPreviewWidth
-            : _liveEditing
-            ? maxLiveEditPreviewWidth
-            : _previewWidth;
-    return cap < _previewWidth ? cap : _previewWidth;
+    switch (previewQuality) {
+      case PreviewQuality.full:
+        return _previewWidth;
+      case PreviewQuality.half:
+      case PreviewQuality.proxy:
+        final divisor = previewQuality == PreviewQuality.half ? 2 : 4;
+        return (_previewWidth / divisor)
+            .round()
+            .clamp(minPreviewWidth, _previewWidth);
+      case PreviewQuality.auto:
+        final cap =
+            playing
+                ? maxPlaybackPreviewWidth
+                : _liveEditing
+                ? maxLiveEditPreviewWidth
+                : _previewWidth;
+        return cap < _previewWidth ? cap : _previewWidth;
+    }
   }
 
   /// Refreshes the monitor from an *uncommitted* gesture.
