@@ -16,6 +16,7 @@ class ProjectSummary {
     required this.thumbnail,
     required this.createdAt,
     this.path,
+    this.doc,
   });
 
   /// Builds a card from a project on disk. [modified] drives the "Opened …"
@@ -33,6 +34,7 @@ class ProjectSummary {
       thumbnail: thumbGradient(paletteFor(doc.id), _panel),
       createdAt: doc.createdAt.toLocal(),
       path: path,
+      doc: doc,
     );
   }
 
@@ -47,6 +49,10 @@ class ProjectSummary {
 
   /// Absolute path of the `.crazycut` file, when the card came from disk.
   final String? path;
+
+  /// Source document, kept around so the card can render/cache a real
+  /// poster frame instead of the placeholder [thumbnail] gradient.
+  final ProjectDoc? doc;
 
   String get resolutionLabel => '$resolution · $fps';
 }

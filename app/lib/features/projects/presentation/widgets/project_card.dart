@@ -1,12 +1,16 @@
+import 'dart:io';
+
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../../core/design/tokens.dart';
 import '../../../../core/widgets/primitives.dart';
+import '../../../../data/poster_cache.dart';
 import '../models/project_summary.dart';
 
-/// 320×245 card: gradient thumbnail with badges, then name + meta row.
-class ProjectCard extends StatelessWidget {
+/// 320×245 card: poster-frame thumbnail (gradient until one renders), with
+/// badges, then name + meta row.
+class ProjectCard extends StatefulWidget {
   const ProjectCard({super.key, required this.project, this.onOpen, this.onMenu});
 
   final ProjectSummary project;
@@ -16,7 +20,42 @@ class ProjectCard extends StatelessWidget {
   final ValueChanged<BuildContext>? onMenu;
 
   @override
+  State<ProjectCard> createState() => _ProjectCardState();
+}
+
+class _ProjectCardState extends State<ProjectCard> {
+  File? _poster;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPoster();
+  }
+
+  @override
+  void didUpdateWidget(covariant ProjectCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.project.doc != widget.project.doc) {
+      _poster = null;
+      _loadPoster();
+    }
+  }
+
+  Future<void> _loadPoster() async {
+    final doc = widget.project.doc;
+    if (doc == null) return;
+    var file = await PosterCache.instance.cached(doc);
+    file ??= await PosterCache.instance.ensure(doc);
+    if (!mounted || file == null) return;
+    setState(() => _poster = file);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final project = widget.project;
+    final onOpen = widget.onOpen;
+    final onMenu = widget.onMenu;
+    final poster = _poster;
     return CcTappable(
       onTap: onOpen,
       builder: (context, hovered, child) => AnimatedContainer(
@@ -37,9 +76,15 @@ class ProjectCard extends StatelessWidget {
             child: ClipRRect(
               borderRadius: const BorderRadius.vertical(top: Radius.circular(CcRadius.lg)),
               child: DecoratedBox(
-                decoration: BoxDecoration(gradient: project.thumbnail),
+                decoration: BoxDecoration(
+                  gradient: poster == null ? project.thumbnail : null,
+                  color: poster == null ? null : CcColors.panel,
+                ),
                 child: Stack(
+                  fit: StackFit.expand,
                   children: [
+                    if (poster != null)
+                      Image.file(poster, fit: BoxFit.cover),
                     Positioned(
                       left: 12,
                       top: 12,
