@@ -21,6 +21,7 @@
 namespace {
 
 using json = nlohmann::json;
+constexpr double kPi = 3.14159265358979323846;
 
 // Writes a 48 kHz stereo 16-bit WAV of a steady sine so tests never depend on
 // licensed media (roadmap: fixtures are generated programmatically).
@@ -54,7 +55,7 @@ std::string writeToneWav(const std::string& name, double seconds,
   for (int i = 0; i < frames; ++i) {
     const double t = static_cast<double>(i) / rate;
     const auto s = static_cast<int16_t>(
-        std::lround(std::sin(2 * M_PI * frequency * t) * amplitude * 32767));
+        std::lround(std::sin(2 * kPi * frequency * t) * amplitude * 32767));
     u16(static_cast<uint16_t>(s));
     u16(static_cast<uint16_t>(s));
   }

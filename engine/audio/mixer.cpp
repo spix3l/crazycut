@@ -12,6 +12,7 @@ namespace cc {
 namespace {
 
 using json = nlohmann::json;
+constexpr double kPi = 3.14159265358979323846;
 
 double clampd(double v, double lo, double hi) {
   return std::min(std::max(v, lo), hi);
@@ -96,7 +97,7 @@ Biquad shelvingFilter(double rate) {
   const double f0 = 1681.974450955533;
   const double G = 3.999843853973347;
   const double Q = 0.7071752369554196;
-  const double K = std::tan(M_PI * f0 / rate);
+  const double K = std::tan(kPi * f0 / rate);
   const double Vh = std::pow(10.0, G / 20.0);
   const double Vb = std::pow(Vh, 0.4996667741545416);
   const double denom = 1.0 + K / Q + K * K;
@@ -113,7 +114,7 @@ Biquad highpassFilter(double rate) {
   // Stage 2 RLB high-pass at ~38 Hz.
   const double f0 = 38.13547087602444;
   const double Q = 0.5003270373238773;
-  const double K = std::tan(M_PI * f0 / rate);
+  const double K = std::tan(kPi * f0 / rate);
   Biquad f;
   f.b0 = 1.0;
   f.b1 = -2.0;
@@ -313,8 +314,8 @@ Error mixTimeline(const json& document,
         if (tSeq < xf.start || tSeq >= xf.end) continue;
         if (span.id != xf.aId && span.id != xf.bId) continue;
         const double p = (tSeq - xf.start) / std::max(1e-9, xf.end - xf.start);
-        gain *= span.id == xf.aId ? std::cos(p * M_PI / 2.0)
-                                  : std::sin(p * M_PI / 2.0);
+        gain *= span.id == xf.aId ? std::cos(p * kPi / 2.0)
+                                  : std::sin(p * kPi / 2.0);
       }
       if (gain <= 0.0) continue;
 

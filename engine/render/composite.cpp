@@ -9,6 +9,7 @@ namespace cc {
 namespace {
 
 using json = nlohmann::json;
+constexpr double kPi = 3.14159265358979323846;
 
 double clampd(double v, double lo, double hi) { return std::min(std::max(v, lo), hi); }
 
@@ -224,7 +225,7 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
   const double axp = layer.anchorX * kx;
   const double ayp = layer.anchorY * ky;
 
-  const double rad = -layer.rotationDeg * M_PI / 180.0;  // screen Y grows downward
+  const double rad = -layer.rotationDeg * kPi / 180.0;  // screen Y grows downward
   const double cosr = std::cos(rad), sinr = std::sin(rad);
 
   const int halfW = dw / 2, halfH = dh / 2;

@@ -55,6 +55,9 @@ add_library(crazycut_core STATIC
   render/renderer.cpp
 )
 target_include_directories(crazycut_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} PRIVATE ${miniaudio_SOURCE_DIR})
+if(WIN32)
+  target_compile_definitions(crazycut_core PRIVATE NOMINMAX)
+endif()
 target_link_libraries(crazycut_core
   PUBLIC
     FFMPEG::avformat FFMPEG::avcodec FFMPEG::avutil FFMPEG::swscale FFMPEG::swresample
