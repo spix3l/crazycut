@@ -108,9 +108,10 @@ Error openVideoDecoder(const std::string& path, DecoderSession* session) {
   return Error::None;
 }
 
-// Up to this many files stay open per thread; a timeline rarely composites
-// more than a handful of sources at one instant.
-constexpr size_t kMaxCachedDecoders = 6;
+// Up to this many decoders stay open per thread, and up to this many of them
+// may be reading one file at different points in it.
+constexpr size_t kMaxCachedDecoders = 8;
+constexpr size_t kMaxSessionsPerPath = 4;
 
 std::list<std::unique_ptr<DecoderSession>>& decoderCache() {
   // Thread-local so preview (UI thread) and export workers never contend.
@@ -118,18 +119,68 @@ std::list<std::unique_ptr<DecoderSession>>& decoderCache() {
   return cache;
 }
 
-// Returns an open session for [path], reusing a cached one when possible.
-// The returned pointer stays valid until the next acquireDecoder call on this
+double frameDurationOf(const DecoderSession* s) {
+  if (s->stream->avg_frame_rate.num > 0)
+    return av_q2d(av_inv_q(s->stream->avg_frame_rate));
+  return 1.0 / 30.0;
+}
+
+// Can this session reach [seconds] by decoding forward, the cheap case that
+// decodeFrameNear takes without seeking?
+bool canReachForward(const DecoderSession* s, double seconds) {
+  if (!s->heldValid || !s->held || s->held->width <= 0 || s->heldPtsSec < 0) {
+    return false;
+  }
+  const double frameDur = frameDurationOf(s);
+  return seconds >= s->heldPtsSec - frameDur * 0.5 &&
+         seconds - s->heldPtsSec <= 2.0;
+}
+
+// Returns an open session positioned to serve [path] at [seconds], reusing a
+// cached one when that is cheap and opening another when it is not. The
+// returned pointer stays valid until the next acquireDecoder call on this
 // thread evicts it.
-Error acquireDecoder(const std::string& path, DecoderSession** out) {
+//
+// Keying purely on the path was pathological whenever two clips read the same
+// file at once — a picture-in-picture, a cutaway from the same recording, the
+// same clip on two tracks. Both would land on one session sitting at the
+// other's timestamp, so every frame seeked backwards and re-decoded from a
+// keyframe, twice. An overlay from the same file made a ten second export take
+// 79 seconds against 3 seconds for the identical overlay from a second file.
+Error acquireDecoder(const std::string& path, double seconds,
+                     DecoderSession** out) {
   auto& cache = decoderCache();
+  auto best = cache.end();
+  size_t samePath = 0;
   for (auto it = cache.begin(); it != cache.end(); ++it) {
-    if ((*it)->path == path) {
-      cache.splice(cache.begin(), cache, it);  // most recently used
-      *out = cache.front().get();
-      return Error::None;
+    if ((*it)->path != path) continue;
+    ++samePath;
+    // A still has one frame and is never seeked, so any session on it serves
+    // every request equally.
+    if ((*it)->still) {
+      best = it;
+      break;
+    }
+    if (!canReachForward(it->get(), seconds)) continue;
+    // The closest one behind the request decodes the fewest frames to get
+    // there.
+    if (best == cache.end() || (*it)->heldPtsSec > (*best)->heldPtsSec) {
+      best = it;
     }
   }
+  if (best == cache.end() && samePath > 0 && samePath >= kMaxSessionsPerPath) {
+    // Already reading this file from as many places as allowed: take the least
+    // recently used of them and let it seek.
+    for (auto it = cache.begin(); it != cache.end(); ++it) {
+      if ((*it)->path == path) best = it;
+    }
+  }
+  if (best != cache.end()) {
+    cache.splice(cache.begin(), cache, best);  // most recently used
+    *out = cache.front().get();
+    return Error::None;
+  }
+
   auto session = std::make_unique<DecoderSession>();
   session->path = path;
   const Error err = openVideoDecoder(path, session.get());
@@ -189,12 +240,6 @@ void rotateRgba(std::vector<uint8_t>* data, int* width, int* height, int degrees
       for (int c = 0; c < 4; ++c) std::swap((*data)[i + c], (*data)[j + c]);
     }
   }
-}
-
-double frameDurationOf(const DecoderSession* s) {
-  if (s->stream->avg_frame_rate.num > 0)
-    return av_q2d(av_inv_q(s->stream->avg_frame_rate));
-  return 1.0 / 30.0;
 }
 
 // Pulls frames until one covers [seconds]. Never seeks; the caller decides
@@ -316,7 +361,7 @@ Error extractFrameRgba(const std::string& path, double seconds, int targetWidth,
   seconds = std::max(0.0, seconds);
 
   DecoderSession* session = nullptr;
-  Error err = acquireDecoder(path, &session);
+  Error err = acquireDecoder(path, seconds, &session);
   if (err != Error::None) return err;
 
   // A still already scaled for this output size: hand back the cached pixels
@@ -418,7 +463,7 @@ Error extractFrameNative(const std::string& path, double seconds,
   seconds = std::max(0.0, seconds);
 
   DecoderSession* session = nullptr;
-  Error err = acquireDecoder(path, &session);
+  Error err = acquireDecoder(path, seconds, &session);
   if (err != Error::None) return err;
 
   AVFrame* frame = nullptr;  // borrowed from the session
