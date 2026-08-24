@@ -83,18 +83,9 @@ class _ProjectCardState extends State<ProjectCard> {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    if (poster != null)
-                      Image.file(poster, fit: BoxFit.cover),
-                    Positioned(
-                      left: 12,
-                      top: 12,
-                      child: CcBadge(project.resolutionLabel),
-                    ),
-                    Positioned(
-                      right: 12,
-                      bottom: 12,
-                      child: CcBadge(project.duration),
-                    ),
+                    if (poster != null) Image.file(poster, fit: BoxFit.cover),
+                    Positioned(left: 12, top: 12, child: CcBadge(project.resolutionLabel)),
+                    Positioned(right: 12, bottom: 12, child: CcBadge(project.duration)),
                   ],
                 ),
               ),
@@ -118,7 +109,7 @@ class _ProjectCardState extends State<ProjectCard> {
                     const SizedBox(width: 8),
                     Builder(
                       builder: (buttonContext) => GestureDetector(
-                        onTapDown: onMenu == null ? null : (_) => onMenu!(buttonContext),
+                        onTapDown: onMenu == null ? null : (_) => onMenu(buttonContext),
                         child: const CcIcon(LucideIcons.ellipsis, size: 16),
                       ),
                     ),
@@ -131,7 +122,10 @@ class _ProjectCardState extends State<ProjectCard> {
                     const SizedBox(width: 6),
                     Text('·', style: CcType.style(size: 12, color: CcColors.textTertiary)),
                     const SizedBox(width: 6),
-                    Text(project.aspect, style: CcType.style(size: 12, color: CcColors.textTertiary)),
+                    Text(
+                      project.aspect,
+                      style: CcType.style(size: 12, color: CcColors.textTertiary),
+                    ),
                   ],
                 ),
               ],
