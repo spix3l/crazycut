@@ -83,6 +83,12 @@ Error openVideoDecoder(const std::string& path, DecoderSession* session) {
   session->stream = session->format->streams[session->streamIndex];
   session->codec = avcodec_alloc_context3(decoder);
   avcodec_parameters_to_context(session->codec, session->stream->codecpar);
+  // Decoding is the export's second-largest cost and every frame of it ran on
+  // one core. Frame threading is what makes a 4K H.264/HEVC source keep up;
+  // slice threading covers the codecs that cannot frame-thread. 0 = one thread
+  // per core, which the decoder scales down when the stream cannot use them.
+  session->codec->thread_count = 0;
+  session->codec->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
   ret = avcodec_open2(session->codec, decoder, nullptr);
   if (ret < 0) {
     setLastError("decoder open failed");

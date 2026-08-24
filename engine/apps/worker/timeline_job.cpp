@@ -502,11 +502,22 @@ int runTimelineJob(const json& spec) {
         throw std::runtime_error("video frame buffer alloc failed");
 
       // One scale, from composited sequence size to the delivered size.
-      toYuv = sws_getContext(renderWidth, renderHeight, AV_PIX_FMT_RGBA, width,
-                             height, static_cast<AVPixelFormat>(vEnc->pix_fmt),
-                             renderWidth == width ? SWS_BILINEAR : SWS_BICUBIC,
-                             nullptr, nullptr, nullptr);
-      if (!toYuv) throw std::runtime_error("rgba→yuv scaler init failed");
+      // Built by hand rather than through sws_getContext so slice threading
+      // can be turned on: this conversion runs on every exported frame and on
+      // one core it was the largest single cost left in the frame loop.
+      toYuv = sws_alloc_context();
+      if (!toYuv) throw std::runtime_error("rgba→yuv scaler alloc failed");
+      av_opt_set_int(toYuv, "srcw", renderWidth, 0);
+      av_opt_set_int(toYuv, "srch", renderHeight, 0);
+      av_opt_set_int(toYuv, "src_format", AV_PIX_FMT_RGBA, 0);
+      av_opt_set_int(toYuv, "dstw", width, 0);
+      av_opt_set_int(toYuv, "dsth", height, 0);
+      av_opt_set_int(toYuv, "dst_format", vEnc->pix_fmt, 0);
+      av_opt_set_int(toYuv, "sws_flags",
+                     renderWidth == width ? SWS_BILINEAR : SWS_BICUBIC, 0);
+      av_opt_set_int(toYuv, "threads", 0, 0);  // 0 = one slice per core
+      if (sws_init_context(toYuv, nullptr, nullptr) < 0)
+        throw std::runtime_error("rgba→yuv scaler init failed");
     }
 
     // --- Audio: pre-mix the whole sequence ---------------------------------

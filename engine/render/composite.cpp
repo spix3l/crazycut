@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 #include "graph/keyframes.h"
 
@@ -341,17 +342,28 @@ void blendComposite(RgbaSurface* base, const RgbaSurface& top, double opacity,
   // a straight copy. It is bit-identical to the general path below (alpha 1
   // makes the over-operator collapse to "take the source").
   if (normal && gOpacity >= 1.0f) {
-    for (size_t i = from; i < to; i += 4) {
+    // Opaque and transparent pixels arrive in long runs — a full-frame video
+    // layer is one opaque run the width of the canvas, a logo or a caption is
+    // transparent almost everywhere. Copying a run at a time turns the inner
+    // loop into a memcpy the compiler vectorizes, instead of four byte stores
+    // and a branch per pixel. Bit-identical to the per-pixel form.
+    size_t i = from;
+    while (i < to) {
       const uint8_t sa = top.rgba[i + 3];
-      if (sa == 0) continue;
       if (sa == 255) {
-        base->rgba[i] = top.rgba[i];
-        base->rgba[i + 1] = top.rgba[i + 1];
-        base->rgba[i + 2] = top.rgba[i + 2];
-        base->rgba[i + 3] = 255;
-        continue;
+        const size_t runStart = i;
+        do {
+          i += 4;
+        } while (i < to && top.rgba[i + 3] == 255);
+        std::memcpy(&base->rgba[runStart], &top.rgba[runStart], i - runStart);
+      } else if (sa == 0) {
+        do {
+          i += 4;
+        } while (i < to && top.rgba[i + 3] == 0);
+      } else {
+        blendPixelOver(&base->rgba[i], &top.rgba[i], sa / 255.f);
+        i += 4;
       }
-      blendPixelOver(&base->rgba[i], &top.rgba[i], sa / 255.f);
     }
     return;
   }

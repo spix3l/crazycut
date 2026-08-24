@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -178,7 +179,7 @@ Error renderFrame(const json& document, const RationalTime& time, int width,
   // Background from settings (#RRGGBB).
   out->width = width;
   out->height = height;
-  out->rgba.assign(static_cast<size_t>(width) * height * 4, 0);
+  out->rgba.resize(static_cast<size_t>(width) * height * 4);
   {
     std::string bg = document.contains("settings")
                          ? document["settings"].value("background", "#000000")
@@ -195,10 +196,14 @@ Error renderFrame(const json& document, const RationalTime& time, int width,
       return static_cast<uint8_t>(nib(bg[i]) * 16 + nib(bg[i + 1]));
     };
     if (bg.size() >= 6) { r = byte(0); g = byte(2); b = byte(4); }
-    for (size_t i = 0; i < out->rgba.size(); i += 4) {
-      out->rgba[i] = r; out->rgba[i + 1] = g; out->rgba[i + 2] = b;
-      out->rgba[i + 3] = 255;
-    }
+    // Painting the background one channel at a time was two passes over a
+    // multi-megabyte canvas every frame (the zero-fill above, then this).
+    // Build the pixel once and splat it as 32-bit words.
+    const uint8_t px[4] = {r, g, b, 255};
+    uint32_t word;
+    std::memcpy(&word, px, 4);
+    uint32_t* p = reinterpret_cast<uint32_t*>(out->rgba.data());
+    std::fill(p, p + static_cast<size_t>(width) * height, word);
   }
 
   // Index transitions by clip for quick lookup.
