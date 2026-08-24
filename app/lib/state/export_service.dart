@@ -1,15 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
 import 'package:crazycut_app/data/project.dart';
+import 'package:crazycut_app/data/text_content.dart';
 import 'package:crazycut_app/engine/engine.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/export_presets.dart';
 import 'package:crazycut_app/state/system_bridge.dart';
 import 'package:crazycut_app/state/svg_rasterizer.dart';
+import 'package:crazycut_app/state/text_rasterizer.dart';
 
 enum ExportState { queued, running, completed, failed, cancelled }
 
@@ -281,12 +284,20 @@ class ExportService extends ChangeNotifier {
       _fail(job, 'export worker binary not found — build the engine');
       return;
     }
+    job.log.add('Worker: $worker');
 
     final jobFile = File('${job.outputPath}.job.json');
+    Directory? textTextureDir;
     try {
+      textTextureDir = await _prepareTextTextures(job);
+      if (job.state == ExportState.cancelled) {
+        await _deleteTextureDir(textTextureDir);
+        return;
+      }
       await jobFile.writeAsString(jsonEncode(job.spec));
     } catch (e) {
-      _fail(job, 'cannot write job file: $e');
+      await _deleteTextureDir(textTextureDir);
+      _fail(job, 'cannot prepare export inputs: $e');
       return;
     }
 
@@ -308,8 +319,93 @@ class ExportService extends ChangeNotifier {
         // A leftover job file is harmless.
       }
     }
+    await _deleteTextureDir(textTextureDir);
     await _writeSidecar(job);
     unawaited(_pump());
+  }
+
+  /// Flutter owns text shaping, so export snapshots the resulting tight RGBA
+  /// textures into temporary raw files that the native worker can read. A
+  /// static title needs one texture; typewriter titles carry one texture per
+  /// visible character count so their per-frame reveal stays deterministic.
+  Future<Directory?> _prepareTextTextures(ExportJob job) async {
+    final document = job.spec['document'] as Map<String, dynamic>;
+    final clips = (document['clips'] as List<dynamic>? ?? const []);
+    final tracks = (document['tracks'] as List<dynamic>? ?? const []);
+    final hiddenTracks = <String>{
+      for (final value in tracks)
+        if (value is Map && value['hidden'] == true)
+          value['id']?.toString() ?? '',
+    };
+    final settings = document['settings'] as Map<String, dynamic>? ?? const {};
+    final width = (settings['width'] as num?)?.toInt() ?? 1920;
+    final height = (settings['height'] as num?)?.toInt() ?? 1080;
+
+    Directory? directory;
+    final payload = <String, dynamic>{};
+    var fileIndex = 0;
+    for (final value in clips) {
+      if (job.state == ExportState.cancelled) break;
+      if (value is! Map) continue;
+      final clip = value.cast<String, dynamic>();
+      final textJson = clip['text'];
+      if (textJson is! Map || hiddenTracks.contains(clip['trackId'])) continue;
+      final id = clip['id']?.toString() ?? '';
+      if (id.isEmpty) continue;
+      final text = TextContent.fromJson(textJson.cast<String, dynamic>());
+      if (text.content.isEmpty) continue;
+      directory ??= await Directory.systemTemp.createTemp('crazycut-text-');
+
+      final variants = <Map<String, dynamic>>[];
+      final clipDuration = Rt.parse(clip['duration'] as String).seconds;
+      final maxRevealCount = math.min(
+        text.content.runes.length,
+        (clipDuration * 24).ceil(),
+      );
+      final revealCounts = text.animation == 'typewriter'
+          ? List<int>.generate(maxRevealCount, (i) => i + 1)
+          : const <int>[-1];
+      for (final revealCount in revealCounts) {
+        if (job.state == ExportState.cancelled) break;
+        // Render safely inside the reveal interval instead of exactly on its
+        // floating-point boundary (where floor(7 / 24 * 24) can become 6).
+        final localSeconds =
+            revealCount < 0 ? null : (revealCount + 0.25) / 24.0;
+        final raster = await TextRasterizer.instance.render(
+          text,
+          canvasWidth: width,
+          sequenceHeight: height,
+          localSeconds: localSeconds,
+        );
+        if (raster == null) continue;
+        final file = File('${directory.path}/${fileIndex++}.rgba');
+        await file.writeAsBytes(raster.bytes, flush: false);
+        variants.add({
+          'revealCount': revealCount,
+          'path': file.path,
+          'width': raster.width,
+          'height': raster.height,
+        });
+      }
+      if (variants.isNotEmpty) {
+        payload['text:$id'] = {
+          'startSec': Rt.parse(clip['start'] as String).seconds,
+          'typewriter': text.animation == 'typewriter',
+          'variants': variants,
+        };
+      }
+    }
+    if (payload.isNotEmpty) job.spec['textTextures'] = payload;
+    return directory;
+  }
+
+  Future<void> _deleteTextureDir(Directory? directory) async {
+    if (directory == null || !await directory.exists()) return;
+    try {
+      await directory.delete(recursive: true);
+    } catch (_) {
+      // Temporary export inputs are best-effort cleanup, like job sidecars.
+    }
   }
 
   Future<bool> _spawn(ExportJob job, String worker, File jobFile) async {
@@ -430,7 +526,9 @@ class ExportService extends ChangeNotifier {
   /// EXP-14: a sidecar next to the output recording what produced it.
   Future<void> _writeSidecar(ExportJob job) async {
     if (job.state == ExportState.cancelled) return;
-    final spec = Map<String, dynamic>.from(job.spec)..remove('document');
+    final spec = Map<String, dynamic>.from(job.spec)
+      ..remove('document')
+      ..remove('textTextures');
     final report = {
       'output': job.outputPath,
       'state': job.state.name,

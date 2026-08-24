@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:crazycut_app/data/project.dart';
+import 'package:crazycut_app/data/text_content.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/export_presets.dart';
 import 'package:crazycut_app/state/export_service.dart';
@@ -233,6 +234,100 @@ void main() {
       expect((report['settings'] as Map<String, dynamic>).containsKey('document'),
           isFalse);
     }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test(
+      'renders text pixels into the final file',
+      () async {
+        final ffmpeg = Platform.isWindows ? 'ffmpeg.exe' : 'ffmpeg';
+        ProcessResult availability;
+        try {
+          availability = Process.runSync(ffmpeg, ['-version']);
+        } on ProcessException {
+          markTestSkipped('ffmpeg CLI missing');
+          return;
+        }
+        if (availability.exitCode != 0) {
+          markTestSkipped('ffmpeg CLI missing');
+          return;
+        }
+        final doc = ProjectDoc.empty(
+          'Text export',
+          width: 320,
+          height: 180,
+          fps: 30,
+        );
+        doc.clips.add(
+          Clip(
+            id: 'title',
+            trackId: doc.videoTrack()!.id,
+            mediaId: '',
+            label: 'Visible title',
+            start: Rt.zero(),
+            duration: Rt.fromSeconds(1),
+            sourceIn: Rt.zero(),
+            text: TextContent(content: 'EXPORTED', fontSize: 72),
+          ),
+        );
+
+        final output = '${temp.path}/text.mp4';
+        final job = ExportService.instance.submit(
+          doc: doc,
+          preset: ExportPreset.youtube1080,
+          outputPath: output,
+          quality: ExportQuality.draft,
+        );
+        final deadline = DateTime.now().add(const Duration(seconds: 90));
+        while (job.state == ExportState.queued ||
+            job.state == ExportState.running) {
+          if (DateTime.now().isAfter(deadline)) break;
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+
+        expect(job.state, ExportState.completed, reason: job.error ?? '');
+        final decoded = await Process.run(
+            ffmpeg,
+            [
+              '-v',
+              'error',
+              '-ss',
+              '0.5',
+              '-i',
+              output,
+              '-frames:v',
+              '1',
+              '-f',
+              'rawvideo',
+              '-pix_fmt',
+              'gray',
+              '-',
+            ],
+            stdoutEncoding: null);
+        expect(decoded.exitCode, 0, reason: '${decoded.stderr}');
+        final pixels = decoded.stdout as List<int>;
+        expect(
+          pixels.any((value) => value > 32),
+          isTrue,
+          reason:
+              'max=${pixels.fold<int>(0, (a, b) => a > b ? a : b)} log=${job.log} spec=${job.spec['textTextures']}',
+        );
+        expect(
+          (job.spec['textTextures'] as Map<String, dynamic>).containsKey(
+            'text:title',
+          ),
+          isTrue,
+        );
+        final texture = ((job.spec['textTextures'] as Map<String, dynamic>)[
+                'text:title'] as Map<String, dynamic>);
+        final variants = texture['variants'] as List<dynamic>;
+        expect(
+          variants.every((value) =>
+              !File((value as Map<String, dynamic>)['path'] as String)
+                  .existsSync()),
+          isTrue,
+        );
+      },
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
 
     test('a job that cannot run fails cleanly and leaves no partial', () async {
       final service = ExportService.instance;

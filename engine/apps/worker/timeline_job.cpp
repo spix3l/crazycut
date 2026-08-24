@@ -65,6 +65,34 @@ struct AudioSettings {
   bool levelClips = false;
 };
 
+struct TextTextureVariant {
+  int revealCount = -1;
+  ClipSource source;
+};
+
+struct TextTextureSet {
+  double startSec = 0.0;
+  bool typewriter = false;
+  std::vector<TextTextureVariant> variants;
+};
+
+std::optional<RgbaSurface> loadRawRgba(const std::string& path, int width,
+                                       int height) {
+  if (width <= 0 || height <= 0) return std::nullopt;
+  const size_t byteCount = static_cast<size_t>(width) * height * 4;
+  FILE* file = fopen(path.c_str(), "rb");
+  if (!file) return std::nullopt;
+  RgbaSurface surface;
+  surface.width = width;
+  surface.height = height;
+  surface.rgba.resize(byteCount);
+  const size_t read = fread(surface.rgba.data(), 1, byteCount, file);
+  const int trailing = fgetc(file);
+  fclose(file);
+  if (read != byteCount || trailing != EOF) return std::nullopt;
+  return surface;
+}
+
 void fitEven(int* w, int* h) {
   *w -= *w % 2;
   *h -= *h % 2;
@@ -256,6 +284,41 @@ int runTimelineJob(const json& spec) {
   // EXP-1: entire sequence, or the in/out range when the caller sets one.
   const double rangeStartSec = std::max(0.0, spec.value("startSec", 0.0));
   const double rangeEndSec = spec.value("endSec", 0.0);
+
+  // Text is shaped by Flutter before the worker starts. Load each tight RGBA
+  // texture once; the frame resolver below selects the correct typewriter
+  // reveal without doing disk I/O inside the encode loop.
+  std::map<std::string, TextTextureSet> textTextures;
+  if (spec.contains("textTextures") && spec["textTextures"].is_object()) {
+    for (const auto& [key, value] : spec["textTextures"].items()) {
+      if (!value.is_object()) continue;
+      TextTextureSet set;
+      set.startSec = value.value("startSec", 0.0);
+      set.typewriter = value.value("typewriter", false);
+      if (value.contains("variants") && value["variants"].is_array()) {
+        for (const auto& variantJson : value["variants"]) {
+          if (!variantJson.is_object()) continue;
+          const int textureWidth = variantJson.value("width", 0);
+          const int textureHeight = variantJson.value("height", 0);
+          const std::string texturePath = variantJson.value("path", "");
+          auto surface = loadRawRgba(texturePath, textureWidth, textureHeight);
+          if (!surface) {
+            throw std::runtime_error("cannot load text texture: " + texturePath);
+          }
+          TextTextureVariant variant;
+          variant.revealCount = variantJson.value("revealCount", -1);
+          variant.source.texture = std::move(*surface);
+          set.variants.push_back(std::move(variant));
+        }
+      }
+      if (!set.variants.empty()) textTextures[key] = std::move(set);
+    }
+  }
+  if (!textTextures.empty()) {
+    emit(json{{"type", "note"},
+              {"message", "Text layers: " +
+                              std::to_string(textTextures.size())}});
+  }
 
   ProjectSnapshot snapshot;
   const Error loadErr =
@@ -618,10 +681,32 @@ int runTimelineJob(const json& spec) {
     for (int64_t f = 0; f < totalFrames; ++f) {
       const RationalTime t = RationalTime::fromSeconds(
           exportStart + static_cast<double>(f) / av_q2d(fps));
-      const Error err = renderFrame(document, t.normalized(), renderWidth,
-                                    renderHeight, media, &canvas,
-                                    exposureStops.empty() ? nullptr
-                                                          : &exposureStops);
+      const double frameSeconds = t.toSeconds();
+      const Error err = renderFrame(
+          document, t.normalized(), renderWidth, renderHeight,
+          [&](const std::string& key) -> std::optional<ClipSource> {
+            const auto textIt = textTextures.find(key);
+            if (textIt != textTextures.end()) {
+              const TextTextureSet& set = textIt->second;
+              if (!set.typewriter) return set.variants.front().source;
+              const int revealCount = static_cast<int>(std::floor(
+                  std::max(0.0, frameSeconds - set.startSec) * 24.0));
+              if (revealCount <= 0) return std::nullopt;
+              const TextTextureVariant* selected = nullptr;
+              for (const auto& variant : set.variants) {
+                if (variant.revealCount > revealCount) break;
+                selected = &variant;
+              }
+              return selected ? std::optional<ClipSource>(selected->source)
+                              : std::nullopt;
+            }
+            const auto mediaIt = media.find(key);
+            if (mediaIt == media.end()) return std::nullopt;
+            ClipSource source;
+            source.path = mediaIt->second;
+            return source;
+          },
+          &canvas, exposureStops.empty() ? nullptr : &exposureStops);
       if (err != Error::None) throw std::runtime_error("renderFrame failed");
 
       if (vEnc) {

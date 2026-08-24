@@ -146,9 +146,12 @@ class ExportJobCard extends StatelessWidget {
                 children: [
                   const Positioned.fill(
                       child: ColoredBox(color: CcColors.elevated2)),
-                  FractionallySizedBox(
-                    widthFactor: job.progress.clamp(0, 1),
-                    child: ColoredBox(color: barColor),
+                  Positioned.fill(
+                    child: FractionallySizedBox(
+                      alignment: Alignment.centerLeft,
+                      widthFactor: job.progress.clamp(0, 1),
+                      child: ColoredBox(color: barColor),
+                    ),
                   ),
                 ],
               ),
