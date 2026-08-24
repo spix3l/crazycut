@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/data/text_content.dart';
 import 'package:crazycut_app/models/rational.dart';
+import 'package:crazycut_app/features/export/presentation/widgets/export_queue_panel.dart';
 import 'package:crazycut_app/state/export_presets.dart';
 import 'package:crazycut_app/state/export_service.dart';
 
@@ -218,6 +220,102 @@ void main() {
       service.cancel(job.id);
       expect(job.state, ExportState.cancelled);
       expect(service.activeCount, 0);
+    });
+  });
+
+  group('time remaining', () {
+    ExportJob runningJob({required int totalFrames}) {
+      final job = ExportJob(
+        id: 'j',
+        name: 'out.mp4',
+        outputPath: '/tmp/out.mp4',
+        spec: const {},
+        totalFrames: totalFrames,
+        durationSeconds: 10,
+      );
+      job.state = ExportState.running;
+      job.startedAt = DateTime.now().subtract(const Duration(seconds: 10));
+      return job;
+    }
+
+    test('the rate follows recent frames, not the whole job', () {
+      final job = runningJob(totalFrames: 1000);
+      // Ten seconds of startup with nothing encoded, then a steady 30fps: the
+      // ETA should describe the 30fps, not the average that includes the wait.
+      final start = DateTime.now();
+      job.observeProgress(start);
+      for (var i = 1; i <= 4; i++) {
+        job.framesDone = i * 30;
+        job.observeProgress(start.add(Duration(seconds: i)));
+      }
+      expect(job.fps, closeTo(30, 2));
+      // 880 frames left at ~30fps ≈ 29s, not the ~2.5fps a lifetime average
+      // would have reported.
+      expect(job.etaSeconds, closeTo(29, 3));
+    });
+
+    test('an unknown frame count still estimates from the fraction done', () {
+      final job = runningJob(totalFrames: 0);
+      job.progress = 0.25;  // a quarter done after ten seconds
+      expect(job.etaSeconds, closeTo(30, 2));
+      expect(job.statusLine, contains('left'));
+    });
+
+    test('no estimate before there is anything to estimate from', () {
+      final job = runningJob(totalFrames: 0);
+      expect(job.etaSeconds, isNull);
+      expect(job.statusLine, isNot(contains('left')));
+    });
+
+    test('remaining time is phrased at the coarseness it deserves', () {
+      expect(ExportJob.formatRemaining(4), 'a few seconds');
+      expect(ExportJob.formatRemaining(42), '40s');
+      expect(ExportJob.formatRemaining(90), '1m 30s');
+      expect(ExportJob.formatRemaining(20 * 60), '20m');
+      expect(ExportJob.formatRemaining(85 * 60), '1h 25m');
+      expect(ExportJob.formatRemaining(2 * 3600), '2h');
+    });
+
+    test('the worker frame count replaces a wrong estimate', () {
+      final job = runningJob(totalFrames: 0);
+      expect(job.etaSeconds, isNull, reason: 'nothing to divide by yet');
+      job.totalFrames = 900;  // what the worker reports on start
+      job.framesDone = 300;
+      job.fps = 30;
+      expect(job.etaSeconds, closeTo(20, 0.1));
+    });
+  });
+
+  group('the running card', () {
+    testWidgets('shows one progress reading, with the time left', (
+      tester,
+    ) async {
+      final job = ExportJob(
+        id: 'j',
+        name: 'building-a-daw [YouTube 1080p].mp4',
+        outputPath: '/tmp/out.mp4',
+        spec: const {},
+        totalFrames: 1000,
+        durationSeconds: 33,
+      );
+      job.state = ExportState.running;
+      job.startedAt = DateTime.now();
+      job.framesDone = 100;
+      job.progress = 0.1;
+      job.fps = 30;
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: ExportJobCard(job: job, service: ExportService.instance),
+        ),
+      );
+
+      // 900 frames left at 30fps.
+      expect(find.textContaining('30s left'), findsOneWidget);
+      expect(find.textContaining('10%'), findsOneWidget);
+      // The bar is the only progress indicator: no ring alongside it.
+      expect(find.byType(CustomPaint), findsNothing);
     });
   });
 

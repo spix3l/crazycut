@@ -38,13 +38,25 @@ class ExportJob {
   /// The full worker job, document snapshot included.
   final Map<String, dynamic> spec;
 
-  final int totalFrames;
+  /// Estimated when the job is queued, then replaced by the count the worker
+  /// reports once it has opened the timeline — that one is authoritative, and
+  /// without it a wrong estimate here silently suppressed the ETA.
+  int totalFrames;
   final double durationSeconds;
 
   ExportState state = ExportState.queued;
   double progress = 0;
   int framesDone = 0;
+
+  /// Recent encoding rate, not the average since the job started. An export
+  /// opens with work that produces no frames at all (probing, the loudness and
+  /// exposure passes, the audio pre-mix), and frames themselves are not
+  /// uniform — a plain cut encodes far faster than one under a title. A
+  /// lifetime average carries that slow start for minutes and reads as a
+  /// wildly pessimistic ETA; this follows what the encoder is doing now.
   double fps = 0;
+  DateTime? _rateAt;
+  int _rateFrames = 0;
   String? error;
   final List<String> log = [];
   DateTime? startedAt;
@@ -52,10 +64,39 @@ class ExportJob {
   int outputBytes = 0;
   bool retried = false;
 
-  /// Seconds left at the current rate, or null before there is a rate.
+  /// Folds one progress report into the rate, smoothing it so a single slow
+  /// or fast stretch does not make the ETA jump around.
+  void observeProgress(DateTime now) {
+    final since = _rateAt;
+    if (since != null) {
+      final seconds = now.difference(since).inMilliseconds / 1000;
+      final frames = framesDone - _rateFrames;
+      if (seconds >= 0.5 && frames > 0) {
+        final sample = frames / seconds;
+        fps = fps <= 0 ? sample : fps * 0.7 + sample * 0.3;
+        _rateAt = now;
+        _rateFrames = framesDone;
+      }
+      return;
+    }
+    _rateAt = now;
+    _rateFrames = framesDone;
+  }
+
+  /// Seconds left at the current rate, or null while there is nothing to
+  /// estimate from.
   double? get etaSeconds {
-    if (fps <= 0 || totalFrames <= 0 || framesDone >= totalFrames) return null;
-    return (totalFrames - framesDone) / fps;
+    if (totalFrames > 0 && framesDone > 0) {
+      if (framesDone >= totalFrames) return null;
+      if (fps > 0) return (totalFrames - framesDone) / fps;
+    }
+    // No frame count to work from — fall back to how long the fraction done
+    // has taken. Slower to settle, but it always gives the user a number.
+    final started = startedAt;
+    if (started == null || progress <= 0 || progress >= 1) return null;
+    final elapsed = DateTime.now().difference(started).inMilliseconds / 1000;
+    if (elapsed <= 0) return null;
+    return elapsed * (1 - progress) / progress;
   }
 
   String get statusLine => switch (state) {
@@ -71,10 +112,25 @@ class ExportJob {
   String get _runningStatus {
     final percent = (progress * 100).clamp(0, 100).toStringAsFixed(0);
     final rate = fps > 0 ? ' · ${fps.toStringAsFixed(0)} fps' : '';
-    final eta = etaSeconds != null
-        ? ' · ETA ${_formatDuration(Duration(seconds: etaSeconds!.round()))}'
-        : '';
+    final remaining = etaSeconds;
+    final eta = remaining != null ? ' · ${formatRemaining(remaining)} left' : '';
     return 'Encoding · $percent%$rate$eta';
+  }
+
+  /// Time left, at the coarseness the number deserves: an hour-long export
+  /// does not need its seconds, and "85:00" reads as a timecode rather than as
+  /// an hour and a half.
+  static String formatRemaining(double seconds) {
+    if (seconds < 10) return 'a few seconds';
+    if (seconds < 60) return '${(seconds / 5).round() * 5}s';
+    if (seconds < 3600) {
+      final m = seconds ~/ 60;
+      final s = (seconds % 60).round();
+      return m < 5 ? '${m}m ${s}s' : '${m}m';
+    }
+    final h = seconds ~/ 3600;
+    final m = ((seconds % 3600) / 60).round();
+    return m > 0 ? '${h}h ${m}m' : '${h}h';
   }
 
   static String _formatDuration(Duration d) {
@@ -409,7 +465,6 @@ class ExportService extends ChangeNotifier {
   }
 
   Future<bool> _spawn(ExportJob job, String worker, File jobFile) async {
-    final stopwatch = Stopwatch()..start();
     Process process;
     try {
       process = await Process.start(worker, ['--job', jobFile.path]);
@@ -435,6 +490,8 @@ class ExportService extends ChangeNotifier {
         }
         switch (event['type']) {
           case 'started':
+            final reported = (event['totalFrames'] as num?)?.toInt() ?? 0;
+            if (reported > 0) job.totalFrames = reported;
             job.log.add(
               'Rendering ${event['width']}×${event['height']} · '
               '${event['totalFrames']} frames',
@@ -449,10 +506,11 @@ class ExportService extends ChangeNotifier {
           case 'progress':
             job.framesDone =
                 (event['frame'] as num?)?.toInt() ?? job.framesDone;
+            final reportedTotal = (event['totalFrames'] as num?)?.toInt() ?? 0;
+            if (reportedTotal > 0) job.totalFrames = reportedTotal;
             job.progress = (((event['percent'] as num?) ?? 0).toDouble() / 100)
                 .clamp(0, 1);
-            final elapsed = stopwatch.elapsedMilliseconds / 1000;
-            if (elapsed > 0) job.fps = job.framesDone / elapsed;
+            job.observeProgress(DateTime.now());
             notifyListeners();
           case 'done':
             job.outputBytes = (event['bytes'] as num?)?.toInt() ?? 0;

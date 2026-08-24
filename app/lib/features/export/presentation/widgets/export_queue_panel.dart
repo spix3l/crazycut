@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -132,9 +131,14 @@ class ExportJobCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              job.state == ExportState.running
-                  ? _ProgressRing(value: job.progress, color: iconColor)
-                  : CcIcon(icon, size: 14, color: iconColor),
+              // Running jobs show no icon here: the bar below and the line
+              // under it already say how far along this job is, and a ring
+              // saying it a third time was both redundant and unreadable —
+              // at 1% it renders as a stray dot rather than as progress.
+              if (job.state != ExportState.running)
+                CcIcon(icon, size: 14, color: iconColor)
+              else
+                const SizedBox(width: 14, height: 14),
             ],
           ),
           const SizedBox(height: 8),
@@ -241,76 +245,4 @@ class _Actions extends StatelessWidget {
       Process.run('xdg-open', [path]);
     }
   }
-}
-
-/// Small ring that fills to [value] (0–1), replacing the static loader glyph
-/// so the header icon actually reads as the job's real encode progress.
-class _ProgressRing extends StatelessWidget {
-  const _ProgressRing({required this.value, required this.color});
-
-  static const double _size = 14;
-  static const double _strokeWidth = 2;
-
-  final double value;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: _size,
-      height: _size,
-      child: CustomPaint(
-        painter: _ProgressRingPainter(
-          value: value.clamp(0, 1),
-          color: color,
-          trackColor: CcColors.elevated2,
-          strokeWidth: _strokeWidth,
-        ),
-      ),
-    );
-  }
-}
-
-class _ProgressRingPainter extends CustomPainter {
-  _ProgressRingPainter({
-    required this.value,
-    required this.color,
-    required this.trackColor,
-    required this.strokeWidth,
-  });
-
-  final double value;
-  final Color color;
-  final Color trackColor;
-  final double strokeWidth;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = (size.shortestSide - strokeWidth) / 2;
-    canvas.drawCircle(
-      center,
-      radius,
-      Paint()
-        ..color = trackColor
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeWidth,
-    );
-    if (value <= 0) return;
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      -math.pi / 2,
-      value * 2 * math.pi,
-      false,
-      Paint()
-        ..color = color
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeWidth
-        ..strokeCap = StrokeCap.round,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _ProgressRingPainter oldDelegate) =>
-      oldDelegate.value != value || oldDelegate.color != color;
 }
