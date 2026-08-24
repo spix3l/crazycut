@@ -30,8 +30,8 @@ jobs:
         shell: pwsh
         run: |
           curl.exe -L -o ffmpeg.7z https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z
-          7z x ffmpeg.7z -offf -y
-          $dir = Get-ChildItem offf -Directory | Select-Object -First 1
+          7z x ffmpeg.7z -offmpeg-extract -y
+          $dir = Get-ChildItem ffmpeg-extract -Directory | Select-Object -First 1
           Move-Item $dir.FullName ffmpeg
       - name: Configure
         run: cmake -S engine -B engine/build -DCMAKE_BUILD_TYPE=Release
