@@ -6,12 +6,7 @@ import '../../../../core/widgets/primitives.dart';
 
 /// First-launch hero: badge, headline, and three ways to get started.
 class WelcomePanel extends StatelessWidget {
-  const WelcomePanel({
-    super.key,
-    this.onOpenSample,
-    this.onNewProject,
-    this.onImportFiles,
-  });
+  const WelcomePanel({super.key, this.onOpenSample, this.onNewProject, this.onImportFiles});
 
   final VoidCallback? onOpenSample;
   final VoidCallback? onNewProject;
@@ -58,13 +53,10 @@ class WelcomePanel extends StatelessWidget {
           child: const CcIcon(LucideIcons.clapperboard, size: 26, color: CcColors.accent),
         ),
         const SizedBox(height: 10),
-        Text(
-          "Let's make something",
-          style: CcType.style(size: 24, weight: CcType.bold),
-        ),
+        Text("Let's make something", style: CcType.style(size: 24, weight: CcType.bold)),
         const SizedBox(height: 10),
         Text(
-          'Start editing in seconds — no account, no watermark.',
+          'Start editing in seconds. No account, no watermark.',
           style: CcType.style(size: 14, color: CcColors.textSecondary),
         ),
         const SizedBox(height: 32),

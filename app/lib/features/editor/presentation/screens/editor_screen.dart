@@ -474,7 +474,10 @@ class _EditorScreenState extends State<EditorScreen> {
       title: 'Rename project',
       initialValue: c.doc.name,
     );
-    if (name != null && name.isNotEmpty) await c.rename(name);
+    if (name == null || name.isEmpty) return;
+    final previous = c.path;
+    await c.rename(name);
+    await AppSession.instance.noteRenamed(previous, c.path);
   }
 }
 

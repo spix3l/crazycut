@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:auto_route/auto_route.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/widgets.dart';
@@ -38,7 +40,24 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
   @override
   void initState() {
     super.initState();
+    AppSession.instance.addListener(_sessionChanged);
     _reload();
+  }
+
+  @override
+  void dispose() {
+    AppSession.instance.removeListener(_sessionChanged);
+    super.dispose();
+  }
+
+  /// The editor hands control back by closing its project. Awaiting the
+  /// navigation instead would miss the "new project" path: that route is
+  /// replaced by the editor rather than popped, so its push future never
+  /// completes and the browser would keep showing the list it loaded before
+  /// the project existed.
+  void _sessionChanged() {
+    if (AppSession.instance.hasProject) return;
+    unawaited(_reload());
   }
 
   Future<void> _reload() async {
@@ -89,9 +108,11 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
     await _reload();
   }
 
-  Future<void> _newProject() async {
-    await context.router.push(const NewProjectRoute());
-    await _reload();
+  /// The dialog replaces its own route with the editor, so this push only
+  /// ever completes when the dialog is dismissed. The refreshed list comes
+  /// from [_sessionChanged] instead.
+  void _newProject() {
+    unawaited(context.router.push(const NewProjectRoute()));
   }
 
   Future<void> _openExistingProject() async {
@@ -185,7 +206,8 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
       initialValue: summary.name,
     );
     if (name == null || name.isEmpty) return;
-    await ProjectRepository.rename(path, name);
+    final renamed = await ProjectRepository.rename(path, name);
+    await AppSession.instance.noteRenamed(path, renamed.path);
     await _reload();
   }
 
@@ -199,6 +221,7 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
     );
     if (!confirmed) return;
     await ProjectRepository.delete(path);
+    await AppSession.instance.forgetRecent(path);
     await _reload();
   }
 
