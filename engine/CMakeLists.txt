@@ -37,6 +37,22 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(miniaudio)
 
+# Speech-to-text (AI-18). Optional so the engine still builds where the extra
+# compile time is unwanted; `transcribe.cpp` compiles either way and reports a
+# clear "not built with transcription support" instead of vanishing.
+option(CC_WITH_WHISPER "Build with local speech-to-text (whisper.cpp)" ON)
+if(CC_WITH_WHISPER)
+  set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+  set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    whisper
+    GIT_REPOSITORY https://github.com/ggml-org/whisper.cpp.git
+    GIT_TAG v1.7.4
+  )
+  FetchContent_MakeAvailable(whisper)
+endif()
+
 add_library(crazycut_core STATIC
   core/time.cpp
   core/log.cpp
@@ -45,6 +61,7 @@ add_library(crazycut_core STATIC
   graph/keyframes.cpp
   media/probe.cpp
   media/prepare.cpp
+  media/transcribe.cpp
   media/frame.cpp
   audio/decode.cpp
   audio/mixer.cpp
@@ -63,6 +80,12 @@ target_link_libraries(crazycut_core
     FFMPEG::avformat FFMPEG::avcodec FFMPEG::avutil FFMPEG::swscale FFMPEG::swresample
     nlohmann_json::nlohmann_json
 )
+if(CC_WITH_WHISPER)
+  target_link_libraries(crazycut_core PRIVATE whisper)
+  # PUBLIC: callers (the worker, the tests) branch on this too, so it has to
+  # cross the library boundary rather than stopping at crazycut_core.
+  target_compile_definitions(crazycut_core PUBLIC CC_HAS_WHISPER)
+endif()
 
 add_library(crazycut SHARED bindings/crazycut.cpp)
 target_link_libraries(crazycut PRIVATE crazycut_core)
@@ -80,7 +103,7 @@ if(CC_BUILD_TESTS)
   )
   set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(googletest)
-  add_executable(cc_tests tests/time_test.cpp tests/project_test.cpp tests/keyframes_test.cpp tests/prepare_test.cpp tests/probe_test.cpp tests/playback_test.cpp tests/golden_test.cpp tests/audio_test.cpp)
+  add_executable(cc_tests tests/time_test.cpp tests/project_test.cpp tests/keyframes_test.cpp tests/prepare_test.cpp tests/probe_test.cpp tests/playback_test.cpp tests/golden_test.cpp tests/audio_test.cpp tests/transcribe_test.cpp)
   target_compile_definitions(cc_tests PRIVATE CC_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
   target_link_libraries(cc_tests PRIVATE crazycut_core GTest::gtest_main)
   include(GoogleTest)

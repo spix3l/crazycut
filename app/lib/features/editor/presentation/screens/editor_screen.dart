@@ -18,6 +18,7 @@ import '../../../../engine/engine.dart' show PlatformHelper;
 import '../../../../state/editor_controller.dart';
 import '../../../../state/project_tools.dart';
 import '../models/editor_models.dart';
+import '../../../../ai/ai_settings.dart';
 import '../widgets/editor_toolbar.dart';
 import '../widgets/inspector/inspector_panel.dart';
 import '../widgets/media_pool.dart';
@@ -354,7 +355,10 @@ class _EditorScreenState extends State<EditorScreen> {
     final controller = _controller;
     if (controller == null) return const _NoProjectOpen();
     return ListenableBuilder(
-      listenable: controller,
+      // Also the AI configuration: turning a provider on or off changes
+      // whether the Find shorts affordance exists at all (AI-1), and without
+      // this the toolbar would not notice until some unrelated edit rebuilt it.
+      listenable: Listenable.merge([controller, AiSettings.instance]),
       builder: (context, _) => _buildEditor(context, controller),
     );
   }
@@ -392,6 +396,11 @@ class _EditorScreenState extends State<EditorScreen> {
                       },
                       onExport: () =>
                           context.router.push(ExportRoute(empty: empty)),
+                      onFindShorts: AiSettings.instance.configured && !empty
+                          ? () => context.router.push(
+                              const ShortsReviewRoute(),
+                            )
+                          : null,
                       onUndo: c.undo,
                       onRedo: c.redo,
                       canUndo: c.canUndo,

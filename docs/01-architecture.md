@@ -195,7 +195,8 @@ Nightly benchmarks run on fixed runners; > 10% regression fails the build (see `
 
 ## 15. Security & privacy
 
-- No network access required for core editing; the only outbound calls are explicit update checks and opt-in crash reporting.
+- No network access required for core editing. Outbound calls are limited to: explicit update checks, opt-in crash reporting, an LLM endpoint the user configured (absent until then), and a one-time user-confirmed speech-model download. Core editing is fully offline, and with a local LLM provider AI assist is offline too — see `03-features/ai-assist.md` (**AI-1**, **AI-18/19**).
+- LLM API keys live in the OS keychain, never in project files, preferences, logs or the diagnostics bundle (**AI-3**). Only transcript text and project metadata are ever sent to a configured endpoint — never media, frames or audio.
 - Project files reference absolute/relative local paths; no telemetry about media contents ever leaves the machine.
 - Export worker accepts jobs only over its own stdio pipe (no sockets), spawned from the app bundle path.
 

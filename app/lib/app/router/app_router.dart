@@ -9,34 +9,50 @@ import 'app_router.gr.dart';
 class AppRouter extends RootStackRouter {
   @override
   List<AutoRoute> get routes => [
-        CustomRoute(
-          page: ProjectBrowserRoute.page,
-          path: '/',
-          initial: true,
-          transitionsBuilder: TransitionsBuilders.fadeIn,
-          duration: const Duration(milliseconds: 150),
-        ),
-        CustomRoute(
-          page: EditorRoute.page,
-          path: '/editor',
-          transitionsBuilder: TransitionsBuilders.fadeIn,
-          duration: const Duration(milliseconds: 150),
-        ),
-        CustomRoute(
-          page: NewProjectRoute.page,
-          path: '/new-project',
-          opaque: false,
-          barrierDismissible: true,
-          transitionsBuilder: TransitionsBuilders.fadeIn,
-          duration: const Duration(milliseconds: 120),
-        ),
-        CustomRoute(
-          page: ExportRoute.page,
-          path: '/editor/export',
-          opaque: false,
-          barrierDismissible: true,
-          transitionsBuilder: TransitionsBuilders.fadeIn,
-          duration: const Duration(milliseconds: 120),
-        ),
-      ];
+    CustomRoute(
+      page: ProjectBrowserRoute.page,
+      path: '/',
+      initial: true,
+      transitionsBuilder: TransitionsBuilders.fadeIn,
+      duration: const Duration(milliseconds: 150),
+    ),
+    CustomRoute(
+      page: EditorRoute.page,
+      path: '/editor',
+      transitionsBuilder: TransitionsBuilders.fadeIn,
+      duration: const Duration(milliseconds: 150),
+    ),
+    CustomRoute(
+      page: NewProjectRoute.page,
+      path: '/new-project',
+      opaque: false,
+      barrierDismissible: true,
+      transitionsBuilder: TransitionsBuilders.fadeIn,
+      duration: const Duration(milliseconds: 120),
+    ),
+    CustomRoute(
+      page: ExportRoute.page,
+      path: '/editor/export',
+      opaque: false,
+      barrierDismissible: true,
+      transitionsBuilder: TransitionsBuilders.fadeIn,
+      duration: const Duration(milliseconds: 120),
+    ),
+    CustomRoute(
+      page: ShortsReviewRoute.page,
+      path: '/editor/shorts',
+      opaque: false,
+      barrierDismissible: true,
+      transitionsBuilder: TransitionsBuilders.fadeIn,
+      duration: const Duration(milliseconds: 120),
+    ),
+    CustomRoute(
+      page: SettingsRoute.page,
+      path: '/settings',
+      opaque: false,
+      barrierDismissible: true,
+      transitionsBuilder: TransitionsBuilders.fadeIn,
+      duration: const Duration(milliseconds: 120),
+    ),
+  ];
 }

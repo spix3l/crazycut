@@ -1,6 +1,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -18,6 +19,7 @@ extern "C" {
 }
 
 #include "ffmpeg_compat.h"
+#include "media/transcribe.h"
 #include "timeline_job.hpp"
 
 using nlohmann::json;
@@ -446,6 +448,90 @@ int run(const Job& job) {
   }
 }
 
+/// Speech-to-text job (AI-20).
+///
+/// Lives in the worker rather than on the UI isolate for the same reason
+/// export does: it runs for minutes and has to report progress and stay
+/// cancellable while the user keeps editing. It speaks the same JSON-lines
+/// protocol, so the Dart side reuses the export queue's parsing and ETA.
+int runTranscribeJob(const json& spec) {
+  const std::string input = spec.value("input", "");
+  const std::string output = spec.value("output", "");
+  const std::string model = spec.value("model", "");
+  const std::string language = spec.value("language", "auto");
+  const int threads = spec.value("threads", 0);
+
+  if (input.empty() || output.empty()) {
+    emitFail("transcribe job needs both input and output paths");
+    return 2;
+  }
+  if (!cc::transcriptionAvailable()) {
+    emitFail(
+        "this build of CrazyCut has no speech-to-text support "
+        "(configure the engine with -DCC_WITH_WHISPER=ON)");
+    return 2;
+  }
+
+  emit(json{{"type", "started"}, {"input", input}, {"model", model}});
+
+  const auto begin = std::chrono::steady_clock::now();
+  int lastPercent = -1;
+  std::string transcript;
+
+  const cc::Error error = cc::transcribe(
+      input, model, language, threads, &transcript,
+      [&](double fraction) {
+        const int percent = static_cast<int>(fraction * 100.0);
+        // Emit on whole-percent changes only: at ~250 ms cadence the UI cannot
+        // use more, and a flood of lines is its own kind of slow.
+        if (percent != lastPercent) {
+          lastPercent = percent;
+          emit(json{{"type", "progress"}, {"percent", percent}});
+        }
+        return true;
+      });
+
+  if (error == cc::Error::Cancelled) {
+    emitFail("transcription cancelled");
+    return 1;
+  }
+  if (error != cc::Error::None) {
+    emitFail(cc::lastError());
+    return 1;
+  }
+
+  // Written .part-then-renamed, like every other artefact the worker produces
+  // (EXP-13), so a killed run never leaves a half transcript in the cache for
+  // the next session to trust.
+  const std::string partial = output + ".part";
+  {
+    std::ofstream file(partial, std::ios::binary | std::ios::trunc);
+    if (!file) {
+      emitFail("cannot write transcript to " + partial);
+      return 1;
+    }
+    file << transcript;
+    if (!file) {
+      emitFail("failed while writing " + partial);
+      return 1;
+    }
+  }
+  std::remove(output.c_str());
+  if (std::rename(partial.c_str(), output.c_str()) != 0) {
+    std::remove(partial.c_str());
+    emitFail("cannot move transcript into place at " + output);
+    return 1;
+  }
+
+  const double elapsed =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - begin)
+          .count();
+  emit(json{{"type", "done"},
+            {"seconds", elapsed},
+            {"bytes", static_cast<long long>(transcript.size())}});
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -474,6 +560,9 @@ int main(int argc, char** argv) {
                   {"bytes", cc::lastJobBytes()}});
       }
       return rc;
+    }
+    if (spec.value("type", "") == "transcribe") {
+      return runTranscribeJob(spec);
     }
     const Job job = loadJob(spec);
     return run(job);

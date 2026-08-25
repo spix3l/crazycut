@@ -1,4 +1,5 @@
 import Cocoa
+import Security
 import FlutterMacOS
 
 @main
@@ -87,8 +88,72 @@ class AppDelegate: FlutterAppDelegate {
       activeExports = (call.arguments as? [String]) ?? []
       updateSleepAssertion()
       result(nil)
+    case "storeSecret":
+      guard let args = call.arguments as? [String: Any],
+        let account = args["account"] as? String,
+        let secret = args["secret"] as? String
+      else {
+        result(false)
+        return
+      }
+      result(Keychain.store(account: account, secret: secret))
+    case "readSecret":
+      guard let args = call.arguments as? [String: Any],
+        let account = args["account"] as? String
+      else {
+        result(nil)
+        return
+      }
+      result(Keychain.read(account: account))
+    case "deleteSecret":
+      if let args = call.arguments as? [String: Any],
+        let account = args["account"] as? String
+      {
+        Keychain.delete(account: account)
+      }
+      result(nil)
     default:
       result(FlutterMethodNotImplemented)
+    }
+  }
+
+  /// Keychain-backed secret storage for LLM API keys (AI-3).
+  ///
+  /// Keys must never reach a project file, preferences, a log, or the
+  /// diagnostics bundle, so the keychain is the only place they are written.
+  private enum Keychain {
+    private static let service = "dev.crazycut.ai"
+
+    private static func query(_ account: String) -> [String: Any] {
+      [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: service,
+        kSecAttrAccount as String: account,
+      ]
+    }
+
+    static func store(account: String, secret: String) -> Bool {
+      guard let data = secret.data(using: .utf8) else { return false }
+      SecItemDelete(query(account) as CFDictionary)
+      var item = query(account)
+      item[kSecValueData as String] = data
+      item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+      return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
+    }
+
+    static func read(account: String) -> String? {
+      var item = query(account)
+      item[kSecReturnData as String] = true
+      item[kSecMatchLimit as String] = kSecMatchLimitOne
+      var out: CFTypeRef?
+      guard SecItemCopyMatching(item as CFDictionary, &out) == errSecSuccess,
+        let data = out as? Data
+      else { return nil }
+      return String(data: data, encoding: .utf8)
+    }
+
+    static func delete(account: String) {
+      SecItemDelete(query(account) as CFDictionary)
     }
   }
 

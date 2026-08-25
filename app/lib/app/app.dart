@@ -1,4 +1,6 @@
 import 'package:file_selector/file_selector.dart';
+
+import 'package:crazycut_app/ai/ai_settings.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -20,6 +22,17 @@ class CrazyCutApp extends StatefulWidget {
 
 class _CrazyCutAppState extends State<CrazyCutApp> {
   final _router = AppRouter();
+
+  @override
+  void initState() {
+    super.initState();
+    // Read the AI configuration once at startup so the editor knows whether to
+    // show any AI affordance at all (AI-1). A failure here leaves AI off,
+    // which is exactly the behaviour we want.
+    AiSettings.instance.load().whenComplete(() {
+      if (mounted) setState(() {});
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -144,6 +157,7 @@ class _CrazyCutAppState extends State<CrazyCutApp> {
         PlatformMenuItem(
           label: 'Preferences…',
           shortcut: const SingleActivator(LogicalKeyboardKey.comma, meta: true),
+          onSelected: () => _router.push(const SettingsRoute()),
         ),
         if (PlatformProvidedMenuItem.hasMenu(
           PlatformProvidedMenuItemType.servicesSubmenu,

@@ -11,6 +11,7 @@ const char* errorName(Error error) {
     case Error::None: return "None";
     case Error::InvalidArgument: return "InvalidArgument";
     case Error::IoError: return "IoError";
+    case Error::Cancelled: return "Cancelled";
     case Error::MediaOpenFailed: return "MediaOpenFailed";
     case Error::MediaDecodeFailed: return "MediaDecodeFailed";
     case Error::MediaNoStream: return "MediaNoStream";

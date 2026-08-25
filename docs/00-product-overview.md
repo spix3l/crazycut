@@ -70,7 +70,7 @@ Candidates for v1.5+ are tracked in `05-roadmap.md`.
 1. **Fast is a feature.** Every interaction has a latency budget; regressions fail CI like test failures.
 2. **Simple surface, deep core.** Defaults do the right thing; advanced controls appear in context (progressive disclosure), never in modal walls.
 3. **WYSIWYG, guaranteed by construction.** Preview and export run through the same render pipeline — what you see is byte-for-byte what renders.
-4. **Yours.** Local-first files, open source (MIT), no account, no watermark, no telemetry without opt-in.
+4. **Yours.** Local-first files, open source (MIT), no account, no watermark, no telemetry without opt-in. AI assist keeps this promise: speech-to-text runs locally, and the LLM layer is vendor-neutral with a fully local provider option. CrazyCut never holds an account or an API key of its own — the user points it at an endpoint they chose, and only transcript text ever leaves the machine, never media. See `03-features/ai-assist.md`.
 
 ## 7. Competitive landscape
 
@@ -121,6 +121,8 @@ Adoption proxies (open source): GitHub stars, release downloads, issue responsiv
 | Text & keyframes | `03-features/text-keyframes.md` |
 | Audio | `03-features/audio.md` |
 | Export | `03-features/export.md` |
+| AI assist (transcription + LLM providers) | `03-features/ai-assist.md` |
+| Shorts | `03-features/shorts.md` |
 | UI/UX system | `04-ui-ux.md` |
 | Roadmap, risks, testing | `05-roadmap.md` |
 

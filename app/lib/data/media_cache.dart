@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 
 import 'package:crazycut_app/data/project.dart';
+import 'package:crazycut_app/data/transcript.dart';
 import 'package:crazycut_app/engine/media_worker.dart';
 import 'package:crazycut_app/state/svg_rasterizer.dart';
 
@@ -155,4 +156,26 @@ class MediaCache {
     if (d.existsSync()) d.deleteSync(recursive: true);
     _dir = null;
   }
+
+  /// Where the worker writes this asset's transcript (AI-21).
+  ///
+  /// Keyed by content hash beside the thumbnails, peaks and proxy, so
+  /// re-importing the same file never re-transcribes it and moving the file on
+  /// disk does not orphan the result.
+  Future<File> transcriptFile(MediaAsset asset) async =>
+      _file(asset, 'transcript.json');
+
+  /// The cached transcript, or null when there is not one yet.
+  Future<Transcript?> transcript(MediaAsset asset) async {
+    try {
+      final file = await transcriptFile(asset);
+      if (!file.existsSync()) return null;
+      return Transcript.decode(await file.readAsString());
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<bool> hasTranscript(MediaAsset asset) async =>
+      (await transcriptFile(asset)).existsSync();
 }

@@ -89,13 +89,20 @@ Fixtures are generated programmatically (synthetic color bars, moving gradients,
 
 ## 4. Post-v1 candidates (backlog seeds)
 
-Custom LUT import · curves/wheels · bezier graph editor · volume automation lanes · audio FX (EQ/comp) · auto-captions (local whisper-class model) · speed ramps/time remap · nested sequences · direct upload integrations · Linux support · HDR delivery.
+Custom LUT import · curves/wheels · bezier graph editor · volume automation lanes · audio FX (EQ/comp) · speed ramps/time remap · nested sequences · direct upload integrations · Linux support · HDR delivery.
 
 Nothing here enters v1 scope; each gets a feature-spec doc before implementation.
 
 Reusable templates left this list early and shipped against its own spec
 (`03-features/templates.md`, **TPL**), driven by the section-announcement
 workflow: build a bumper once, re-announce each section by typing a title.
+
+Local transcription left the list the same way, pulled out by the shorts
+workflow. It ships as half of `03-features/ai-assist.md` (**AI**) — the other
+half being a vendor-neutral LLM provider layer — with
+`03-features/shorts.md` (**SHT**) as its first consumer. Both amend
+`00-product-overview.md` §6 and `01-architecture.md` §15, which previously
+assumed no outbound calls beyond update checks and crash reporting.
 
 ## Changelog
 

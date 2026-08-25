@@ -32,6 +32,7 @@ class EditorToolbar extends StatelessWidget {
     this.onToggleMixer,
     this.onCollectMedia,
     this.onDiagnostics,
+    this.onFindShorts,
   });
 
   static const _tools = [
@@ -44,6 +45,11 @@ class EditorToolbar extends StatelessWidget {
   final ValueChanged<int>? onToolChanged;
   final VoidCallback? onBack;
   final VoidCallback? onExport;
+
+  /// Null when no AI provider is configured — the affordance is absent
+  /// rather than disabled, so an unconfigured app looks like it always did
+  /// (AI-1).
+  final VoidCallback? onFindShorts;
   final VoidCallback? onUndo;
   final VoidCallback? onRedo;
   final bool canUndo;
@@ -246,6 +252,17 @@ class EditorToolbar extends StatelessWidget {
                 const SizedBox(width: 11),
                 const CcDivider(),
                 const SizedBox(width: 11),
+                if (onFindShorts != null) ...[
+                  CcTooltip(
+                    message: 'Find shorts in this recording',
+                    child: CcIconButton(
+                      icon: LucideIcons.sparkles,
+                      outlined: true,
+                      onPressed: onFindShorts,
+                    ),
+                  ),
+                  const SizedBox(width: 11),
+                ],
                 _ExportButton(onPressed: onExport),
               ],
             ),
