@@ -6,6 +6,7 @@ import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 
 import 'package:crazycut_app/data/autosave.dart';
+import 'package:crazycut_app/data/caption.dart';
 import 'package:crazycut_app/data/media_cache.dart';
 import 'package:crazycut_app/data/param_value.dart';
 import 'package:crazycut_app/data/project.dart';
@@ -14,6 +15,8 @@ import 'package:crazycut_app/data/template.dart';
 import 'package:crazycut_app/engine/engine.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/audio_edits.dart';
+import 'package:crazycut_app/state/caption_edits.dart';
+import 'package:crazycut_app/state/caption_rasterizer.dart';
 import 'package:crazycut_app/state/canvas_geometry.dart';
 import 'package:crazycut_app/state/preview_renderer.dart';
 import 'package:crazycut_app/state/proxy_service.dart';
@@ -98,7 +101,7 @@ const kSupportedExtensions = {
 /// document edits (via [TimelineEdits]), the media pool, playback, the preview
 /// frame, autosave and proxies.
 class EditorController extends ChangeNotifier
-    with TimelineEdits, AudioEdits, TemplateEdits {
+    with TimelineEdits, CaptionEdits, AudioEdits, TemplateEdits {
   EditorController(this.doc, {required String path, ProxyService? proxies})
     : proxies = proxies ?? ProxyService(),
       _ownsProxies = proxies == null {
@@ -207,11 +210,12 @@ class EditorController extends ChangeNotifier
   ///
   /// On its own channel for the same reason as [playhead]: meter ballistics
   /// need every tick, and the rest of the editor does not.
-  final ValueNotifier<(double, double)> audioLevelsNotifier =
-      ValueNotifier((0, 0));
+  final ValueNotifier<(double, double)> audioLevelsNotifier = ValueNotifier((
+    0,
+    0,
+  ));
   (double, double) get audioLevels => audioLevelsNotifier.value;
-  set audioLevels((double, double) value) =>
-      audioLevelsNotifier.value = value;
+  set audioLevels((double, double) value) => audioLevelsNotifier.value = value;
 
   /// Output device chosen in settings; empty means system default (AUD-14).
   String outputDeviceName = '';
@@ -704,6 +708,9 @@ class EditorController extends ChangeNotifier
     unawaited(updatePreviewFrame());
   }
 
+  @override
+  void seekToCaption(CaptionItem item) => seekTo(item.start);
+
   static const Duration _playbackNotifyInterval = Duration(milliseconds: 100);
   final Stopwatch _sinceNotify = Stopwatch()..start();
   Timer? _notifyTrailing;
@@ -1159,7 +1166,11 @@ class EditorController extends ChangeNotifier
     if (clips.isEmpty) return;
     _applyLayoutDeltas(
       clips,
-      alignDeltas(bounds, edge, frame: _isSingleObject(clips) ? sequenceRect : null),
+      alignDeltas(
+        bounds,
+        edge,
+        frame: _isSingleObject(clips) ? sequenceRect : null,
+      ),
       'Align clips',
     );
   }
@@ -1331,6 +1342,30 @@ class EditorController extends ChangeNotifier
         textures['text:${clip.id}'] = raster.bytes;
         textureSizes['text:${clip.id}'] = (raster.width, raster.height);
       }
+      // Captions are timeline-native overlays rather than synthetic clips.
+      // Only active cues are shaped for this request; the engine reads their
+      // normalized placement from the same project snapshot.
+      for (final track in doc.captionTracks) {
+        for (final item in track.items) {
+          if (!(requested >= item.start && requested < item.end)) continue;
+          final highlightedWord = activeCaptionWord(track, item, requested);
+          final raster = await CaptionRasterizer.instance.render(
+            track,
+            item,
+            canvasWidth: width,
+            sequenceHeight: height,
+            highlightedWord: highlightedWord,
+          );
+          if (raster == null) continue;
+          final key = captionTextureKey(
+            track,
+            item,
+            highlightedWord: highlightedWord,
+          );
+          textures[key] = raster.bytes;
+          textureSizes[key] = (raster.width, raster.height);
+        }
+      }
 
       final renderWatch = Stopwatch()..start();
       final frame = await renderer.render(
@@ -1412,9 +1447,10 @@ class EditorController extends ChangeNotifier
       case PreviewQuality.half:
       case PreviewQuality.proxy:
         final divisor = previewQuality == PreviewQuality.half ? 2 : 4;
-        return (_previewWidth / divisor)
-            .round()
-            .clamp(minPreviewWidth, _previewWidth);
+        return (_previewWidth / divisor).round().clamp(
+          minPreviewWidth,
+          _previewWidth,
+        );
       case PreviewQuality.auto:
         final cap =
             playing

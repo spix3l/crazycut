@@ -51,6 +51,9 @@ jobs:
       - name: Package Windows app
         shell: pwsh
         run: ./tools/package-windows.ps1
+      - name: Smoke packaged Windows contracts
+        shell: pwsh
+        run: ./tools/smoke-windows.ps1 -Bundle app/build/windows/x64/runner/Release
       - uses: actions/upload-artifact@v4
         with:
           name: CrazyCut-Windows

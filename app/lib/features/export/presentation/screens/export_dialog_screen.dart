@@ -22,7 +22,10 @@ import '../widgets/export_queue_panel.dart';
 /// while the job renders in the worker process (EXP-10).
 @RoutePage(name: 'ExportRoute')
 class ExportDialogScreen extends StatefulWidget {
-  const ExportDialogScreen({super.key, @QueryParam('empty') this.empty = false});
+  const ExportDialogScreen({
+    super.key,
+    @QueryParam('empty') this.empty = false,
+  });
 
   /// The timeline is empty: exporting is disabled and the reason is shown.
   final bool empty;
@@ -50,6 +53,8 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
   bool _matchExposure = false;
   bool _hardware = false;
   bool _rangeOnly = false;
+  bool _burnCaptions = true;
+  CaptionSidecarFormat _captionSidecar = CaptionSidecarFormat.none;
   String? _outputPath;
 
   ExportPreset get _preset => ExportPreset.all[_presetIndex];
@@ -79,7 +84,7 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
       _presetIndex = index;
       _quality = _preset.quality;
       _loudness = _preset.loudnessDefault;
-      _outputPath = null;  // recompute the default name for the new preset
+      _outputPath = null; // recompute the default name for the new preset
     });
   }
 
@@ -87,9 +92,10 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
     final session = AppSession.instance;
     final name = session.project?.name ?? 'Sequence';
     final projectPath = session.path;
-    final directory = projectPath != null
-        ? File(projectPath).parent.path
-        : (Platform.environment['HOME'] ?? '.');
+    final directory =
+        projectPath != null
+            ? File(projectPath).parent.path
+            : (Platform.environment['HOME'] ?? '.');
     return '$directory${Platform.pathSeparator}'
         '${_preset.defaultFilename(name)}';
   }
@@ -100,8 +106,10 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
     final location = await getSaveLocation(
       suggestedName: _path.split(Platform.pathSeparator).last,
       acceptedTypeGroups: [
-        XTypeGroup(label: _preset.container.toUpperCase(),
-            extensions: [_preset.container]),
+        XTypeGroup(
+          label: _preset.container.toUpperCase(),
+          extensions: [_preset.container],
+        ),
       ],
     );
     if (location == null) return;
@@ -112,8 +120,7 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
     final session = AppSession.instance;
     if (!session.hasProject) return;
     final controller = session.editor;
-    final hasRange =
-        controller.inPoint != null || controller.outPoint != null;
+    final hasRange = controller.inPoint != null || controller.outPoint != null;
 
     _service.submit(
       doc: controller.doc,
@@ -125,6 +132,8 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
       loudness: _loudness,
       levelClips: _levelClips,
       matchExposure: _matchExposure,
+      burnCaptions: _burnCaptions,
+      captionSidecar: _captionSidecar,
       rangeStart: _rangeOnly && hasRange ? controller.rangeStart : null,
       rangeEnd: _rangeOnly && hasRange ? controller.rangeEnd : Rt.zero(),
     );
@@ -137,13 +146,18 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
     final settings = session.project?.settings;
     final controller = session.hasProject ? session.editor : null;
     final hasRange =
-        controller != null && (controller.inPoint != null || controller.outPoint != null);
+        controller != null &&
+        (controller.inPoint != null || controller.outPoint != null);
     final offline = controller?.offlineAssets ?? const [];
+    final hasCaptions =
+        controller?.doc.captionTracks.any((track) => track.items.isNotEmpty) ??
+        false;
     final (outWidth, outHeight) =
         settings == null ? (0, 0) : _preset.outputSize(settings);
-    final duration = _rangeOnly && hasRange
-        ? controller.rangeEnd.seconds - controller.rangeStart.seconds
-        : (controller?.duration.seconds ?? 0);
+    final duration =
+        _rangeOnly && hasRange
+            ? controller.rangeEnd.seconds - controller.rangeStart.seconds
+            : (controller?.duration.seconds ?? 0);
 
     final blocked = widget.empty || duration <= 0;
 
@@ -229,14 +243,52 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
                   _Option(
                     label: 'Match clip exposure',
                     checked: _matchExposure,
-                    onTap: () =>
-                        setState(() => _matchExposure = !_matchExposure),
+                    onTap:
+                        () => setState(() => _matchExposure = !_matchExposure),
                   ),
                 ],
               ),
+              if (hasCaptions) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _Option(
+                      label: 'Burn captions into video',
+                      checked: _burnCaptions,
+                      onTap:
+                          () => setState(() => _burnCaptions = !_burnCaptions),
+                    ),
+                    const SizedBox(width: 24),
+                    _Option(
+                      label: 'SRT sidecar',
+                      checked: _captionSidecar == CaptionSidecarFormat.srt,
+                      onTap:
+                          () => setState(() {
+                            _captionSidecar =
+                                _captionSidecar == CaptionSidecarFormat.srt
+                                    ? CaptionSidecarFormat.none
+                                    : CaptionSidecarFormat.srt;
+                          }),
+                    ),
+                    const SizedBox(width: 24),
+                    _Option(
+                      label: 'WebVTT sidecar',
+                      checked: _captionSidecar == CaptionSidecarFormat.webVtt,
+                      onTap:
+                          () => setState(() {
+                            _captionSidecar =
+                                _captionSidecar == CaptionSidecarFormat.webVtt
+                                    ? CaptionSidecarFormat.none
+                                    : CaptionSidecarFormat.webVtt;
+                          }),
+                    ),
+                  ],
+                ),
+              ],
               if (hasRange)
                 _Option(
-                  label: 'In/out range only '
+                  label:
+                      'In/out range only '
                       '(${Rt.toTimecode(controller.rangeStart, controller.fps)} → '
                       '${Rt.toTimecode(controller.rangeEnd, controller.fps)})',
                   checked: _rangeOnly,
@@ -244,7 +296,8 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
                 ),
               if (offline.isNotEmpty)
                 _Warning(
-                  message: '${offline.length} offline '
+                  message:
+                      '${offline.length} offline '
                       '${offline.length == 1 ? 'clip renders' : 'clips render'} '
                       'as slates. Relink them first for a clean export.',
                 ),
@@ -345,17 +398,23 @@ class _QualitySlider extends StatelessWidget {
           children: [
             Text('Quality', style: CcType.label),
             const Spacer(),
-            Text(quality.label,
-                style: CcType.style(size: 12, weight: CcType.semibold)),
+            Text(
+              quality.label,
+              style: CcType.style(size: 12, weight: CcType.semibold),
+            ),
           ],
         ),
         const SizedBox(height: 10),
         CcSlider(
           value: index / (values.length - 1),
           handleSize: 12,
-          onChanged: (v) => onChanged(
-            values[(v * (values.length - 1)).round().clamp(0, values.length - 1)],
-          ),
+          onChanged:
+              (v) => onChanged(
+                values[(v * (values.length - 1)).round().clamp(
+                  0,
+                  values.length - 1,
+                )],
+              ),
         ),
         const SizedBox(height: 8),
         Row(
@@ -366,7 +425,8 @@ class _QualitySlider extends StatelessWidget {
                 values[i].label,
                 style: CcType.style(
                   size: 10,
-                  color: i == index ? CcColors.textPrimary : CcColors.textTertiary,
+                  color:
+                      i == index ? CcColors.textPrimary : CcColors.textTertiary,
                 ),
               ),
             ],
@@ -415,7 +475,11 @@ class _Warning extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const CcIcon(LucideIcons.triangleAlert, size: 13, color: CcColors.warning),
+          const CcIcon(
+            LucideIcons.triangleAlert,
+            size: 13,
+            color: CcColors.warning,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(

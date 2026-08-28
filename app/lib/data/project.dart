@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:collection/collection.dart';
 
+import 'package:crazycut_app/data/caption.dart';
 import 'package:crazycut_app/data/clip_transform.dart';
 import 'package:crazycut_app/data/param_value.dart';
 import 'package:crazycut_app/data/text_content.dart';
@@ -635,6 +636,7 @@ class ProjectDoc {
        clips = [],
        markers = [],
        transitions = [],
+       captionTracks = [],
        extra = extra ?? {};
 
   factory ProjectDoc.empty(
@@ -685,6 +687,7 @@ class ProjectDoc {
         'clips',
         'transitions',
         'markers',
+        'captionTracks',
       }),
     );
     void quarantine(String what, Object error) =>
@@ -725,6 +728,18 @@ class ProjectDoc {
         quarantine('marker', e);
       }
     }
+    for (final t in (j['captionTracks'] as List<dynamic>? ?? const [])) {
+      try {
+        doc.captionTracks.add(
+          CaptionTrack.fromJson(
+            t as Map<String, dynamic>,
+            onError: (what, error) => quarantine('caption $what', error),
+          ),
+        );
+      } catch (e) {
+        quarantine('caption track', e);
+      }
+    }
     if (doc.tracks.isEmpty) doc._initDefaultTracks();
     doc._repair(report);
     return doc;
@@ -752,6 +767,86 @@ class ProjectDoc {
     }
     _repairTransitions(report);
     _repairParamValues(report);
+    _repairCaptions(report);
+  }
+
+  /// Caption cues are ordered and non-overlapping. Every cue occupies at
+  /// least one sequence frame. When a later cue overlaps an earlier one it is
+  /// moved to the earlier cue's end; its duration and word offsets are kept.
+  void _repairCaptions(RepairReport? report) {
+    final trackIds = <String>{};
+    captionTracks.removeWhere((track) {
+      if (trackIds.add(track.id)) return false;
+      report?.issues.add('caption track ${track.id}: duplicate id');
+      return true;
+    });
+    for (final track in captionTracks) {
+      track.items.sort((a, b) => a.start.compareTo(b.start));
+      Rt? previousEnd;
+      final itemIds = <String>{};
+      track.items.removeWhere((item) {
+        if (itemIds.add(item.id)) return false;
+        report?.issues.add('caption ${item.id}: duplicate id');
+        return true;
+      });
+      for (final item in track.items) {
+        var shift = Rt.zero();
+        if (item.start < Rt.zero()) {
+          shift = Rt.zero().minus(item.start);
+          item.start = Rt.zero();
+          report?.issues.add('caption ${item.id}: negative start clamped');
+        }
+        if (previousEnd != null && item.start < previousEnd) {
+          shift = shift.plus(previousEnd.minus(item.start));
+          item.start = previousEnd;
+          report?.issues.add('caption ${item.id}: overlap moved forward');
+        }
+        if (shift > Rt.zero()) {
+          for (final word in item.words) {
+            word.start = word.start.plus(shift);
+            word.end = word.end.plus(shift);
+          }
+        }
+        if (item.duration < frameDuration) {
+          item.duration = frameDuration;
+          report?.issues.add(
+            'caption ${item.id}: duration raised to one frame',
+          );
+        }
+        _repairCaptionWords(item, report);
+        previousEnd = item.end;
+      }
+    }
+  }
+
+  void _repairCaptionWords(CaptionItem item, RepairReport? report) {
+    item.words.sort((a, b) => a.start.compareTo(b.start));
+    final wordIds = <String>{};
+    item.words.removeWhere((word) {
+      if (word.id == null || wordIds.add(word.id!)) return false;
+      report?.issues.add('caption ${item.id} word ${word.id}: duplicate id');
+      return true;
+    });
+    Rt? previousEnd;
+    item.words.removeWhere((word) {
+      var start = word.start.clampTo(item.start, item.end);
+      final end = word.end.clampTo(item.start, item.end);
+      if (previousEnd != null && start < previousEnd!) start = previousEnd!;
+      if (end <= start) {
+        report?.issues.add('caption ${item.id} word ${word.id}: invalid span');
+        return true;
+      }
+      if (start != word.start || end != word.end) {
+        report?.issues.add('caption ${item.id} word ${word.id}: span clamped');
+      }
+      word.start = start;
+      word.end = end;
+      if (word.confidence != null) {
+        word.confidence = word.confidence!.clamp(0.0, 1.0);
+      }
+      previousEnd = end;
+      return false;
+    });
   }
 
   static Rt _overlap(Clip a, Clip b) {
@@ -874,6 +969,7 @@ class ProjectDoc {
   final List<Clip> clips;
   final List<Marker> markers;
   final List<Transition> transitions;
+  final List<CaptionTrack> captionTracks;
   final Map<String, dynamic> extra;
 
   Rt get frameDuration => settings.frameDuration;
@@ -891,6 +987,8 @@ class ProjectDoc {
   Track? trackById(String id) => tracks.firstWhereOrNull((t) => t.id == id);
   Clip? clipById(String id) => clips.firstWhereOrNull((c) => c.id == id);
   MediaAsset? assetById(String id) => media.firstWhereOrNull((m) => m.id == id);
+  CaptionTrack? captionTrackById(String id) =>
+      captionTracks.firstWhereOrNull((t) => t.id == id);
 
   List<Clip> clipsOn(String trackId) => clips
       .where((c) => c.trackId == trackId)
@@ -907,6 +1005,11 @@ class ProjectDoc {
     var end = Rt.zero();
     for (final c in clips) {
       if (c.end > end) end = c.end;
+    }
+    for (final track in captionTracks) {
+      for (final item in track.items) {
+        if (item.end > end) end = item.end;
+      }
     }
     return end;
   }
@@ -929,6 +1032,8 @@ class ProjectDoc {
     'clips': clips.map((c) => c.toJson()).toList(),
     'transitions': [for (final t in transitions) t.toJson()],
     'markers': markers.map((m) => m.toJson()).toList(),
+    if (captionTracks.isNotEmpty)
+      'captionTracks': [for (final track in captionTracks) track.toJson()],
   };
 
   String encode({bool touchModified = true}) {
@@ -988,6 +1093,19 @@ class ProjectDoc {
           bClipId: clipIds[tr.bClipId] ?? tr.bClipId,
         ),
       );
+    }
+    for (final track in copy.captionTracks) {
+      final json = track.toJson();
+      json['id'] = generateId();
+      final items = json['items'] as List<dynamic>;
+      for (final item in items.cast<Map<String, dynamic>>()) {
+        item['id'] = generateId();
+        final words = item['words'] as List<dynamic>? ?? const [];
+        for (final word in words.cast<Map<String, dynamic>>()) {
+          if (word.containsKey('id')) word['id'] = generateId();
+        }
+      }
+      clone.captionTracks.add(CaptionTrack.fromJson(json));
     }
     return clone;
   }

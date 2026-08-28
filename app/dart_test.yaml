@@ -1,0 +1,6 @@
+# Declared suite tags keep optional environment-dependent coverage visible
+# without emitting warnings during the ordinary test run.
+tags:
+  engine:
+  perf:
+  fixed-runner:

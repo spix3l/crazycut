@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:crazycut_app/data/project.dart';
+import 'package:crazycut_app/data/caption.dart';
 import 'package:crazycut_app/data/transition.dart';
 
 /// A reversible document mutation (TIM-20). Commands own the *data* needed to
@@ -45,6 +46,7 @@ class DocumentEdit implements Command {
     this.tracks = const {},
     this.markers = const {},
     this.transitions = const {},
+    this.captionTracks = const {},
     this.nameBefore,
     this.nameAfter,
     this.settingsBefore,
@@ -60,6 +62,7 @@ class DocumentEdit implements Command {
 
   /// Transition deltas so transition ops undo in ONE step (TRA-2/4/6).
   final Map<String, EntityDelta> transitions;
+  final Map<String, EntityDelta> captionTracks;
 
   final String? nameBefore;
   final String? nameAfter;
@@ -71,6 +74,7 @@ class DocumentEdit implements Command {
       tracks.values.every((d) => d.isNoop) &&
       markers.values.every((d) => d.isNoop) &&
       transitions.values.every((d) => d.isNoop) &&
+      captionTracks.values.every((d) => d.isNoop) &&
       nameBefore == nameAfter &&
       (settingsBefore == null ||
           jsonEncode(settingsBefore) == jsonEncode(settingsAfter));
@@ -88,6 +92,9 @@ class DocumentEdit implements Command {
       total += d.sizeBytes;
     }
     for (final d in transitions.values) {
+      total += d.sizeBytes;
+    }
+    for (final d in captionTracks.values) {
       total += d.sizeBytes;
     }
     return total;
@@ -114,6 +121,11 @@ class DocumentEdit implements Command {
     });
     transitions.forEach((id, delta) {
       if (side(delta) == null) doc.transitions.removeWhere((t) => t.id == id);
+    });
+    captionTracks.forEach((id, delta) {
+      if (side(delta) == null) {
+        doc.captionTracks.removeWhere((t) => t.id == id);
+      }
     });
 
     tracks.forEach((id, delta) {
@@ -149,6 +161,17 @@ class DocumentEdit implements Command {
         doc.transitions.add(transition);
       }
     });
+    captionTracks.forEach((id, delta) {
+      final json = side(delta);
+      if (json == null) return;
+      final track = CaptionTrack.fromJson(json);
+      final at = doc.captionTracks.indexWhere((t) => t.id == id);
+      if (at >= 0) {
+        doc.captionTracks[at] = track;
+      } else {
+        doc.captionTracks.add(track);
+      }
+    });
 
     final name = forward ? nameAfter : nameBefore;
     if (name != null) doc.name = name;
@@ -182,11 +205,12 @@ class EditTransaction {
   final Map<String, Map<String, dynamic>?> _tracks = {};
   final Map<String, Map<String, dynamic>?> _markers = {};
   final Map<String, Map<String, dynamic>?> _transitions = {};
+  final Map<String, Map<String, dynamic>?> _captionTracks = {};
   String? _nameBefore;
   Map<String, dynamic>? _settingsBefore;
 
-  void clip(String id) => _clips.putIfAbsent(
-      id, () => _deepCopyJson(doc.clipById(id)?.toJson()));
+  void clip(String id) =>
+      _clips.putIfAbsent(id, () => _deepCopyJson(doc.clipById(id)?.toJson()));
 
   /// `Clip.toJson` hands out the live [Clip.effects] list; a shallow copy
   /// would alias it and make every effect edit look like a no-op. Copies the
@@ -197,14 +221,10 @@ class EditTransaction {
 
     dynamic copyValue(dynamic value) {
       if (value is Map<String, dynamic>) {
-        return {
-          for (final e in value.entries) e.key: copyValue(e.value),
-        };
+        return {for (final e in value.entries) e.key: copyValue(e.value)};
       }
       if (value is Map) {
-        return {
-          for (final e in value.entries) e.key: copyValue(e.value),
-        };
+        return {for (final e in value.entries) e.key: copyValue(e.value)};
       }
       if (value is List) return [for (final e in value) copyValue(e)];
       return value;
@@ -231,6 +251,13 @@ class EditTransaction {
 
   void transition(String id) =>
       _transitions.putIfAbsent(id, () => doc.transitionById(id)?.toJson());
+
+  /// Snapshots a whole caption track. Text, timing and style mutations can
+  /// therefore be committed as one command without retaining live objects.
+  void captionTrack(String id) => _captionTracks.putIfAbsent(
+    id,
+    () => _deepCopyJson(doc.captionTrackById(id)?.toJson()),
+  );
 
   /// The "before" JSON snapshotted for [id], or null when untouched/absent.
   /// Sanitize passes read these to see the pre-op geometry of a clip without
@@ -278,6 +305,13 @@ class EditTransaction {
           entry.key: EntityDelta(
             entry.value,
             doc.transitionById(entry.key)?.toJson(),
+          ),
+      },
+      captionTracks: {
+        for (final entry in _captionTracks.entries)
+          entry.key: EntityDelta(
+            entry.value,
+            _deepCopyJson(doc.captionTrackById(entry.key)?.toJson()),
           ),
       },
       nameBefore: _nameBefore,

@@ -21,11 +21,13 @@ jobs:
 
   engine-windows:
     runs-on: windows-2022
-    continue-on-error: true
     env:
       FFMPEG_DIR: ${{ github.workspace }}\ffmpeg
     steps:
       - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
       - name: Fetch ffmpeg shared dev build
         shell: pwsh
         run: |
@@ -35,9 +37,37 @@ jobs:
           Move-Item $dir.FullName ffmpeg
           "$env:FFMPEG_DIR\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Configure
-        run: cmake -S engine -B engine/build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S engine -B engine/build-release -DCMAKE_BUILD_TYPE=Release -DCC_WITH_WHISPER=OFF
       - name: Build
-        run: cmake --build engine/build --config Release -j
+        run: cmake --build engine/build-release --config Release -j
+      - name: Test engine
+        run: ctest --test-dir engine/build-release -C Release --output-on-failure
+      - name: Stage native runtime for Flutter tests
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force engine/build/Release | Out-Null
+          Copy-Item engine/build-release/Release/crazycut.dll engine/build/Release/
+          Copy-Item engine/build-release/Release/crazycut_worker.exe engine/build/Release/
+      - name: Analyze app
+        working-directory: app
+        run: flutter analyze
+      - name: Test app
+        working-directory: app
+        shell: pwsh
+        run: |
+          $worker = (Resolve-Path "..\engine\build-release\Release\crazycut_worker.exe").Path.Replace('\', '/')
+          flutter test --dart-define="CRAZYCUT_WORKER_BIN=$worker"
+      - name: Build and assemble Windows app
+        shell: pwsh
+        run: ./tools/package-windows.ps1 -SkipEngineBuild
+      - name: Smoke packaged Windows contracts
+        shell: pwsh
+        run: ./tools/smoke-windows.ps1 -Bundle app/build/windows/x64/runner/Release
+      - name: Upload Windows CI bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: CrazyCut-Windows-CI
+          path: dist/CrazyCut-Windows.zip
 
   app:
     runs-on: macos-14

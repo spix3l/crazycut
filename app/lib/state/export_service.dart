@@ -6,15 +6,54 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 
 import 'package:crazycut_app/data/project.dart';
+import 'package:crazycut_app/data/caption.dart';
+import 'package:crazycut_app/data/caption_interchange.dart';
 import 'package:crazycut_app/data/text_content.dart';
 import 'package:crazycut_app/engine/engine.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/export_presets.dart';
 import 'package:crazycut_app/state/system_bridge.dart';
+import 'package:crazycut_app/state/caption_rasterizer.dart';
 import 'package:crazycut_app/state/svg_rasterizer.dart';
 import 'package:crazycut_app/state/text_rasterizer.dart';
 
 enum ExportState { queued, running, completed, failed, cancelled }
+
+enum CaptionSidecarFormat { none, srt, webVtt }
+
+/// Clips a sidecar to the exported in/out range and rebases it to output zero.
+/// Burn-in continues to use absolute sequence time in the worker snapshot.
+CaptionTrack captionSidecarTrack(
+  CaptionTrack source, {
+  required double startSeconds,
+  required double endSeconds,
+}) {
+  final track = source.copy();
+  track.items.removeWhere((item) {
+    final start = item.start.seconds;
+    final end = item.end.seconds;
+    return end <= startSeconds || start >= endSeconds;
+  });
+  for (final item in track.items) {
+    final clippedStart = math.max(item.start.seconds, startSeconds);
+    final clippedEnd = math.min(item.end.seconds, endSeconds);
+    item.start = Rt.fromSeconds(clippedStart - startSeconds);
+    item.duration = Rt.fromSeconds(clippedEnd - clippedStart);
+    item.words.removeWhere(
+      (word) =>
+          word.end.seconds <= startSeconds || word.start.seconds >= endSeconds,
+    );
+    for (final word in item.words) {
+      word.start = Rt.fromSeconds(
+        math.max(word.start.seconds, startSeconds) - startSeconds,
+      );
+      word.end = Rt.fromSeconds(
+        math.min(word.end.seconds, endSeconds) - startSeconds,
+      );
+    }
+  }
+  return track;
+}
 
 /// One queued export. Jobs are immutable in what they render: the document
 /// snapshot is taken at submit time (EXP-2), so editing on after pressing
@@ -100,20 +139,21 @@ class ExportJob {
   }
 
   String get statusLine => switch (state) {
-        ExportState.queued => 'Queued · waiting…',
-        ExportState.running => _runningStatus,
-        ExportState.completed =>
-          'Completed · ${_formatDuration(finishedAt!.difference(startedAt!))}'
-              ' · ${_formatBytes(outputBytes)}',
-        ExportState.failed => 'Failed · ${error ?? 'unknown error'}',
-        ExportState.cancelled => 'Cancelled',
-      };
+    ExportState.queued => 'Queued · waiting…',
+    ExportState.running => _runningStatus,
+    ExportState.completed =>
+      'Completed · ${_formatDuration(finishedAt!.difference(startedAt!))}'
+          ' · ${_formatBytes(outputBytes)}',
+    ExportState.failed => 'Failed · ${error ?? 'unknown error'}',
+    ExportState.cancelled => 'Cancelled',
+  };
 
   String get _runningStatus {
     final percent = (progress * 100).clamp(0, 100).toStringAsFixed(0);
     final rate = fps > 0 ? ' · ${fps.toStringAsFixed(0)} fps' : '';
     final remaining = etaSeconds;
-    final eta = remaining != null ? ' · ${formatRemaining(remaining)} left' : '';
+    final eta =
+        remaining != null ? ' · ${formatRemaining(remaining)} left' : '';
     return 'Encoding · $percent%$rate$eta';
   }
 
@@ -170,13 +210,15 @@ class ExportService extends ChangeNotifier {
   void notifyListeners() {
     super.notifyListeners();
     // Keep the host in step so quitting can warn and sleep stays disabled.
-    final active = jobs
-        .where(
-          (j) =>
-              j.state == ExportState.queued || j.state == ExportState.running,
-        )
-        .map((j) => j.name)
-        .toList();
+    final active =
+        jobs
+            .where(
+              (j) =>
+                  j.state == ExportState.queued ||
+                  j.state == ExportState.running,
+            )
+            .map((j) => j.name)
+            .toList();
     if (!listEquals(active, _publishedActive)) {
       _publishedActive = active;
       unawaited(SystemBridge.instance.setActiveExports(active));
@@ -190,14 +232,16 @@ class ExportService extends ChangeNotifier {
   int parallelism = 1;
 
   bool get hasActiveJobs => jobs.any(
-        (j) => j.state == ExportState.queued || j.state == ExportState.running,
-      );
+    (j) => j.state == ExportState.queued || j.state == ExportState.running,
+  );
 
-  int get activeCount => jobs
-      .where(
-        (j) => j.state == ExportState.queued || j.state == ExportState.running,
-      )
-      .length;
+  int get activeCount =>
+      jobs
+          .where(
+            (j) =>
+                j.state == ExportState.queued || j.state == ExportState.running,
+          )
+          .length;
 
   /// Builds a job from the document as it is right now (EXP-2) and queues it.
   ExportJob submit({
@@ -209,6 +253,8 @@ class ExportService extends ChangeNotifier {
     bool loudness = false,
     bool levelClips = false,
     bool matchExposure = false,
+    bool burnCaptions = true,
+    CaptionSidecarFormat captionSidecar = CaptionSidecarFormat.none,
     Rt? rangeStart,
     Rt? rangeEnd,
   }) {
@@ -226,6 +272,24 @@ class ExportService extends ChangeNotifier {
     final fps = doc.settings.fpsValue;
     final (width, height) = preset.outputSize(doc.settings);
 
+    // The worker only sees caption tracks when burn-in is requested. Keep the
+    // selected sidecar track separately so a sidecar-only export still uses
+    // the exact immutable snapshot taken at submit time.
+    final captionTracks =
+        doc.captionTracks
+            .where((track) => track.items.isNotEmpty)
+            .map(
+              (track) =>
+                  captionSidecarTrack(
+                    track,
+                    startSeconds: start,
+                    endSeconds: end,
+                  ).toJson(),
+            )
+            .where((track) => (track['items'] as List<dynamic>).isNotEmpty)
+            .toList();
+    if (!burnCaptions) snapshot.remove('captionTracks');
+
     final spec = <String, dynamic>{
       'type': 'timeline',
       'document': snapshot,
@@ -233,6 +297,14 @@ class ExportService extends ChangeNotifier {
       'output': outputPath,
       'startSec': start,
       'endSec': end,
+      'renderWidth': width,
+      'renderHeight': height,
+      if (captionTracks.isNotEmpty)
+        'captionExport': {
+          'burnIn': burnCaptions,
+          'sidecar': captionSidecar.name,
+          'track': captionTracks.first,
+        },
       'video': {
         'codec': preset.videoCodec,
         'crf': quality.crf,
@@ -376,6 +448,7 @@ class ExportService extends ChangeNotifier {
       }
     }
     await _deleteTextureDir(textTextureDir);
+    if (job.state == ExportState.completed) await _writeCaptionSidecar(job);
     await _writeSidecar(job);
     unawaited(_pump());
   }
@@ -394,8 +467,14 @@ class ExportService extends ChangeNotifier {
           value['id']?.toString() ?? '',
     };
     final settings = document['settings'] as Map<String, dynamic>? ?? const {};
-    final width = (settings['width'] as num?)?.toInt() ?? 1920;
-    final height = (settings['height'] as num?)?.toInt() ?? 1080;
+    final width =
+        (job.spec['renderWidth'] as num?)?.toInt() ??
+        (settings['width'] as num?)?.toInt() ??
+        1920;
+    final height =
+        (job.spec['renderHeight'] as num?)?.toInt() ??
+        (settings['height'] as num?)?.toInt() ??
+        1080;
 
     Directory? directory;
     final payload = <String, dynamic>{};
@@ -418,9 +497,10 @@ class ExportService extends ChangeNotifier {
         text.content.runes.length,
         (clipDuration * 24).ceil(),
       );
-      final revealCounts = text.animation == 'typewriter'
-          ? List<int>.generate(maxRevealCount, (i) => i + 1)
-          : const <int>[-1];
+      final revealCounts =
+          text.animation == 'typewriter'
+              ? List<int>.generate(maxRevealCount, (i) => i + 1)
+              : const <int>[-1];
       for (final revealCount in revealCounts) {
         if (job.state == ExportState.cancelled) break;
         // Render safely inside the reveal interval instead of exactly on its
@@ -451,6 +531,49 @@ class ExportService extends ChangeNotifier {
         };
       }
     }
+    for (final trackValue
+        in (document['captionTracks'] as List<dynamic>? ?? const [])) {
+      if (job.state == ExportState.cancelled || trackValue is! Map) break;
+      final track = CaptionTrack.fromJson(trackValue.cast<String, dynamic>());
+      for (final item in track.items) {
+        if (job.state == ExportState.cancelled || item.text.trim().isEmpty) {
+          continue;
+        }
+        directory ??= await Directory.systemTemp.createTemp('crazycut-text-');
+        final variants = <int?>[null];
+        if (track.style.highlightWords) {
+          variants.addAll(List<int>.generate(item.words.length, (i) => i));
+        }
+        for (final highlightedWord in variants) {
+          final raster = await CaptionRasterizer.instance.render(
+            track,
+            item,
+            canvasWidth: width,
+            sequenceHeight: height,
+            highlightedWord: highlightedWord,
+          );
+          if (raster == null) continue;
+          final file = File('${directory.path}/${fileIndex++}.rgba');
+          await file.writeAsBytes(raster.bytes, flush: false);
+          payload[captionTextureKey(
+            track,
+            item,
+            highlightedWord: highlightedWord,
+          )] = {
+            'startSec': item.start.seconds,
+            'typewriter': false,
+            'variants': [
+              {
+                'revealCount': -1,
+                'path': file.path,
+                'width': raster.width,
+                'height': raster.height,
+              },
+            ],
+          };
+        }
+      }
+    }
     if (payload.isNotEmpty) job.spec['textTextures'] = payload;
     return directory;
   }
@@ -479,63 +602,65 @@ class ExportService extends ChangeNotifier {
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen(
-      (line) {
-        if (line.trim().isEmpty) return;
-        Map<String, dynamic> event;
-        try {
-          event = jsonDecode(line) as Map<String, dynamic>;
-        } on Object {
-          job.log.add(line); // ffmpeg chatter, kept for diagnostics
-          return;
-        }
-        switch (event['type']) {
-          case 'started':
-            final reported = (event['totalFrames'] as num?)?.toInt() ?? 0;
-            if (reported > 0) job.totalFrames = reported;
-            job.log.add(
-              'Rendering ${event['width']}×${event['height']} · '
-              '${event['totalFrames']} frames',
-            );
-          case 'encoder':
-            job.log.add('Encoder: ${event['video']}');
-          case 'note':
-            // Analysis passes report what they adjusted (AUD-16 / EXP-15).
-            if (event['message']?.toString().isNotEmpty ?? false) {
-              job.log.add(event['message'].toString());
+          (line) {
+            if (line.trim().isEmpty) return;
+            Map<String, dynamic> event;
+            try {
+              event = jsonDecode(line) as Map<String, dynamic>;
+            } on Object {
+              job.log.add(line); // ffmpeg chatter, kept for diagnostics
+              return;
             }
-          case 'progress':
-            job.framesDone =
-                (event['frame'] as num?)?.toInt() ?? job.framesDone;
-            final reportedTotal = (event['totalFrames'] as num?)?.toInt() ?? 0;
-            if (reportedTotal > 0) job.totalFrames = reportedTotal;
-            job.progress = (((event['percent'] as num?) ?? 0).toDouble() / 100)
-                .clamp(0, 1);
-            job.observeProgress(DateTime.now());
-            notifyListeners();
-          case 'done':
-            job.outputBytes = (event['bytes'] as num?)?.toInt() ?? 0;
-            if (!finished.isCompleted) finished.complete(true);
-          case 'fail':
-            job.error = event['error']?.toString();
-            job.log.add('Error: ${job.error}');
-            if (!finished.isCompleted) finished.complete(false);
-        }
-      },
-      onDone: () {
-        if (!finished.isCompleted) {
-          finished.complete(File(job.outputPath).existsSync());
-        }
-      },
-    );
+            switch (event['type']) {
+              case 'started':
+                final reported = (event['totalFrames'] as num?)?.toInt() ?? 0;
+                if (reported > 0) job.totalFrames = reported;
+                job.log.add(
+                  'Rendering ${event['width']}×${event['height']} · '
+                  '${event['totalFrames']} frames',
+                );
+              case 'encoder':
+                job.log.add('Encoder: ${event['video']}');
+              case 'note':
+                // Analysis passes report what they adjusted (AUD-16 / EXP-15).
+                if (event['message']?.toString().isNotEmpty ?? false) {
+                  job.log.add(event['message'].toString());
+                }
+              case 'progress':
+                job.framesDone =
+                    (event['frame'] as num?)?.toInt() ?? job.framesDone;
+                final reportedTotal =
+                    (event['totalFrames'] as num?)?.toInt() ?? 0;
+                if (reportedTotal > 0) job.totalFrames = reportedTotal;
+                job.progress = (((event['percent'] as num?) ?? 0).toDouble() /
+                        100)
+                    .clamp(0, 1);
+                job.observeProgress(DateTime.now());
+                notifyListeners();
+              case 'done':
+                job.outputBytes = (event['bytes'] as num?)?.toInt() ?? 0;
+                if (!finished.isCompleted) finished.complete(true);
+              case 'fail':
+                job.error = event['error']?.toString();
+                job.log.add('Error: ${job.error}');
+                if (!finished.isCompleted) finished.complete(false);
+            }
+          },
+          onDone: () {
+            if (!finished.isCompleted) {
+              finished.complete(File(job.outputPath).existsSync());
+            }
+          },
+        );
     process.stderr
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen((line) {
-      if (line.trim().isEmpty) return;
-      // Keep the tail only; ffmpeg is chatty and the log is for diagnostics.
-      job.log.add(line);
-      if (job.log.length > 200) job.log.removeAt(0);
-    });
+          if (line.trim().isEmpty) return;
+          // Keep the tail only; ffmpeg is chatty and the log is for diagnostics.
+          job.log.add(line);
+          if (job.log.length > 200) job.log.removeAt(0);
+        });
 
     final ok = await finished.future;
     await process.exitCode;
@@ -584,9 +709,15 @@ class ExportService extends ChangeNotifier {
   /// EXP-14: a sidecar next to the output recording what produced it.
   Future<void> _writeSidecar(ExportJob job) async {
     if (job.state == ExportState.cancelled) return;
-    final spec = Map<String, dynamic>.from(job.spec)
-      ..remove('document')
-      ..remove('textTextures');
+    final spec =
+        Map<String, dynamic>.from(job.spec)
+          ..remove('document')
+          ..remove('textTextures');
+    if (spec['captionExport'] is Map) {
+      spec['captionExport'] = Map<String, dynamic>.from(
+        (spec['captionExport'] as Map).cast<String, dynamic>(),
+      )..remove('track');
+    }
     final report = {
       'output': job.outputPath,
       'state': job.state.name,
@@ -609,15 +740,43 @@ class ExportService extends ChangeNotifier {
     }
   }
 
+  Future<void> _writeCaptionSidecar(ExportJob job) async {
+    final export = job.spec['captionExport'];
+    if (export is! Map || export['track'] is! Map) return;
+    final formatName = export['sidecar']?.toString();
+    if (formatName == null || formatName == CaptionSidecarFormat.none.name) {
+      return;
+    }
+    try {
+      final track = CaptionTrack.fromJson(
+        (export['track'] as Map).cast<String, dynamic>(),
+      );
+      final (extension, contents) =
+          formatName == CaptionSidecarFormat.webVtt.name
+              ? ('vtt', CaptionInterchange.exportWebVtt(track))
+              : ('srt', CaptionInterchange.exportSrt(track));
+      final dot = job.outputPath.lastIndexOf('.');
+      final stem = dot > 0 ? job.outputPath.substring(0, dot) : job.outputPath;
+      final path = uniquePath('$stem.$extension');
+      await File(path).writeAsString(contents, flush: true);
+      job.log.add('Caption sidecar: $path');
+    } catch (error) {
+      // The video is already complete. Keep it, surface the optional sidecar
+      // failure in diagnostics, and do not mislabel a valid encode as failed.
+      job.log.add('Caption sidecar failed: $error');
+    }
+  }
+
   /// Diagnostics text for the "Copy diagnostics" action on a failed job.
   String diagnosticsFor(ExportJob job) {
-    final buffer = StringBuffer()
-      ..writeln('CrazyCut export diagnostics')
-      ..writeln('output: ${job.outputPath}')
-      ..writeln('state: ${job.state.name}')
-      ..writeln('error: ${job.error ?? '—'}')
-      ..writeln('frames: ${job.framesDone}/${job.totalFrames}')
-      ..writeln('---');
+    final buffer =
+        StringBuffer()
+          ..writeln('CrazyCut export diagnostics')
+          ..writeln('output: ${job.outputPath}')
+          ..writeln('state: ${job.state.name}')
+          ..writeln('error: ${job.error ?? '—'}')
+          ..writeln('frames: ${job.framesDone}/${job.totalFrames}')
+          ..writeln('---');
     for (final line in job.log) {
       buffer.writeln(line);
     }

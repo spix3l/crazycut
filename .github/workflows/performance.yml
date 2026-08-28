@@ -1,0 +1,61 @@
+name: performance-harness
+
+on:
+  pull_request:
+    paths:
+      - "app/test/representative_perf_test.dart"
+      - "tools/perf/**"
+      - ".github/workflows/performance.yml"
+  push:
+    branches: [main]
+    paths:
+      - "app/test/representative_perf_test.dart"
+      - "tools/perf/**"
+      - ".github/workflows/performance.yml"
+  workflow_dispatch:
+    inputs:
+      run_fixed_benchmark:
+        description: Run the benchmark on the labeled fixed macOS runner
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  harness-correctness:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate shell scripts
+        run: bash -n tools/perf/generate-fixtures.sh tools/perf/run.sh
+      - name: Test report validation and regression policy
+        run: python3 -m unittest tools/perf/test_perf_report.py
+
+  fixed-macos:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_fixed_benchmark
+    needs: harness-correctness
+    # This label must identify one stable machine image. Never point it at a
+    # pool: reports from dissimilar CPUs/GPUs are not comparable.
+    runs-on: [self-hosted, macOS, crazycut-perf]
+    timeout-minutes: 45
+    env:
+      CC_PERF_ACCELERATION: software
+      CC_PERF_BASELINE: ${{ vars.CC_PERF_BASELINE }}
+      CC_PERF_REPORT: ${{ github.workspace }}/build/perf/report.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Require the accepted same-runner baseline
+        run: test -n "$CC_PERF_BASELINE" && test -f "$CC_PERF_BASELINE"
+      - name: Configure Release engine
+        run: cmake -S engine -B engine/build -DCMAKE_BUILD_TYPE=Release
+      - name: Build Release engine and worker
+        run: cmake --build engine/build -j
+      - name: Benchmark and enforce the 10 percent gate
+        run: tools/perf/run.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: crazycut-performance-${{ github.sha }}
+          path: build/perf/

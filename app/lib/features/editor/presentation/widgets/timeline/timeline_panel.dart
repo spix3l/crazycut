@@ -10,6 +10,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../../../core/design/tokens.dart';
 import '../../../../../core/widgets/cc_dialog.dart';
 import '../../../../../core/widgets/primitives.dart';
+import '../../../../../data/caption.dart';
 import '../../../../../data/project.dart';
 import '../../../../../data/transition.dart';
 import '../../../../../models/rational.dart';
@@ -56,6 +57,8 @@ class TimelinePanel extends StatefulWidget {
 }
 
 class _TimelinePanelState extends State<TimelinePanel> {
+  static const double _captionLaneHeight = 44;
+
   /// Trackpad pan/zoom streams are navigation input. Keeping them out of edit
   /// recognizers lets the nested scroll views consume two-finger scrolling
   /// without starting a marquee, moving a clip, or retiming an edit.
@@ -85,6 +88,9 @@ class _TimelinePanelState extends State<TimelinePanel> {
   String? _dropTrackId;
   double? _dropSeconds;
   String? _draggingMarkerId;
+  Rt? _captionDragStart;
+  Rt? _captionDragDuration;
+  double _captionDragSeconds = 0;
 
   EditorController get c => widget.controller;
   ProjectDoc get doc => c.doc;
@@ -304,7 +310,9 @@ class _TimelinePanelState extends State<TimelinePanel> {
   @override
   Widget build(BuildContext context) {
     final lanes = c.laneOrder;
-    final lanesHeight = lanes.fold<double>(0, (sum, t) => sum + _laneHeight(t));
+    final captionHeight = doc.captionTracks.length * _captionLaneHeight;
+    final lanesHeight =
+        captionHeight + lanes.fold<double>(0, (sum, t) => sum + _laneHeight(t));
 
     return Container(
       decoration: const BoxDecoration(
@@ -345,6 +353,8 @@ class _TimelinePanelState extends State<TimelinePanel> {
                           controller: _headerScroll,
                           child: Column(
                             children: [
+                              for (final track in doc.captionTracks)
+                                _captionHeader(track),
                               for (final track in lanes) _header(track),
                             ],
                           ),
@@ -385,12 +395,16 @@ class _TimelinePanelState extends State<TimelinePanel> {
                                             crossAxisAlignment:
                                                 CrossAxisAlignment.stretch,
                                             children: [
+                                              for (final track
+                                                  in doc.captionTracks)
+                                                _captionLane(track),
                                               for (final track in lanes)
                                                 _lane(track),
                                               Expanded(child: _emptySpace()),
                                             ],
                                           ),
-                                          if (doc.clips.isEmpty)
+                                          if (doc.clips.isEmpty &&
+                                              doc.captionTracks.isEmpty)
                                             const Positioned.fill(
                                               child: IgnorePointer(
                                                 child: _GettingStartedHint(),
@@ -454,6 +468,208 @@ class _TimelinePanelState extends State<TimelinePanel> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _captionHeader(CaptionTrack track) {
+    final selected = c.selectedCaptionTrackId == track.id;
+    return CcTappable(
+      onTap: () => c.selectCaption(track.id, null),
+      child: Container(
+        height: _captionLaneHeight,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: selected ? CcColors.textClipPlate : CcColors.panel,
+          border: const Border(
+            right: BorderSide(color: CcColors.border),
+            bottom: BorderSide(color: CcColors.border),
+          ),
+        ),
+        child: Row(
+          children: [
+            const CcIcon(
+              LucideIcons.captions,
+              size: 13,
+              color: CcColors.textClip,
+            ),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                track.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: CcType.style(size: 11, weight: CcType.medium),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _captionLane(CaptionTrack track) {
+    final (visibleFrom, visibleTo) = _visibleRange;
+    final visible = track.items.where(
+      (item) =>
+          item.end.seconds >= visibleFrom && item.start.seconds <= visibleTo,
+    );
+    return SizedBox(
+      height: _captionLaneHeight,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapDown: (details) {
+                c.selectCaption(track.id, null);
+                c.seekTo(_time(details.localPosition.dx));
+              },
+              child: const DecoratedBox(
+                decoration: BoxDecoration(
+                  color: CcColors.bg,
+                  border: Border(bottom: BorderSide(color: CcColors.border)),
+                ),
+              ),
+            ),
+          ),
+          for (final item in visible) _captionTile(track, item),
+        ],
+      ),
+    );
+  }
+
+  Widget _captionTile(CaptionTrack track, CaptionItem item) {
+    final selected = c.selectedCaptionItemId == item.id;
+    final width = (item.duration.seconds * pxPerSec).clamp(
+      3.0,
+      double.infinity,
+    );
+
+    void begin() {
+      _captionDragStart = item.start;
+      _captionDragDuration = item.duration;
+      _captionDragSeconds = 0;
+      c.beginGesture('Retime caption');
+    }
+
+    void end() {
+      _captionDragStart = null;
+      _captionDragDuration = null;
+      _captionDragSeconds = 0;
+      c.endGesture();
+    }
+
+    Widget handle({required bool start}) => Positioned(
+      left: start ? 0 : null,
+      right: start ? null : 0,
+      top: 0,
+      bottom: 0,
+      width: 7,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.resizeLeftRight,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: (_) => begin(),
+          onHorizontalDragUpdate: (details) {
+            _captionDragSeconds += details.delta.dx / pxPerSec;
+            final originStart = _captionDragStart!;
+            final originDuration = _captionDragDuration!;
+            final delta = Rt.fromSeconds(_captionDragSeconds);
+            if (start) {
+              final nextStart = originStart.plus(delta);
+              c.retimeCaption(
+                track.id,
+                item.id,
+                start: nextStart,
+                duration: originDuration.minus(nextStart.minus(originStart)),
+              );
+            } else {
+              c.retimeCaption(
+                track.id,
+                item.id,
+                duration: originDuration.plus(delta),
+              );
+            }
+          },
+          onHorizontalDragEnd: (_) => end(),
+          onHorizontalDragCancel: end,
+        ),
+      ),
+    );
+
+    return Positioned(
+      left: _x(item.start),
+      top: 3,
+      height: _captionLaneHeight - 6,
+      width: width,
+      child: Builder(
+        builder:
+            (tileContext) => GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => c.selectCaption(track.id, item.id, seek: true),
+              onSecondaryTapDown:
+                  (_) => showCcMenu(tileContext, [
+                    CcMenuItem(
+                      'Split at playhead',
+                      onTap:
+                          () => c.splitCaption(track.id, item.id, c.playhead),
+                    ),
+                    CcMenuItem(
+                      'Merge with next',
+                      onTap: () => c.mergeCaptionWithNext(track.id, item.id),
+                    ),
+                    CcMenuItem(
+                      'Nudge left',
+                      onTap: () => c.nudgeCaption(track.id, item.id, -1),
+                    ),
+                    CcMenuItem(
+                      'Nudge right',
+                      onTap: () => c.nudgeCaption(track.id, item.id, 1),
+                    ),
+                  ]),
+              onHorizontalDragStart: (_) => begin(),
+              onHorizontalDragUpdate: (details) {
+                _captionDragSeconds += details.delta.dx / pxPerSec;
+                c.retimeCaption(
+                  track.id,
+                  item.id,
+                  start: _captionDragStart!.plus(
+                    Rt.fromSeconds(_captionDragSeconds),
+                  ),
+                  duration: _captionDragDuration,
+                );
+              },
+              onHorizontalDragEnd: (_) => end(),
+              onHorizontalDragCancel: end,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: selected ? CcColors.textClip : CcColors.textClipPlate,
+                  border: Border.all(
+                    color: selected ? CcColors.textPrimary : CcColors.textClip,
+                  ),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Stack(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      child: Text(
+                        item.text.isEmpty ? '(empty caption)' : item.text,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: CcType.style(size: 10),
+                      ),
+                    ),
+                    handle(start: true),
+                    handle(start: false),
+                  ],
+                ),
+              ),
+            ),
       ),
     );
   }
@@ -907,7 +1123,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
   }
 
   double _laneTop(Track track) {
-    var top = 0.0;
+    var top = doc.captionTracks.length * _captionLaneHeight;
     for (final t in c.laneOrder) {
       if (t.id == track.id) break;
       top += _laneHeight(t);
@@ -1502,6 +1718,21 @@ class _TimelineToolbar extends StatelessWidget {
             onTap: () => c.addTrack('audio'),
             child: Text(
               '+ Audio',
+              style: CcType.style(size: 11, color: CcColors.textSecondary),
+            ),
+          ),
+          const SizedBox(width: 10),
+          CcTappable(
+            onTap: () {
+              final track =
+                  c.doc.captionTracks.isEmpty
+                      ? c.addCaptionTrack()
+                      : c.doc.captionTracks.first;
+              c.selectCaption(track.id, track.items.firstOrNull?.id);
+              if (track.items.isEmpty) c.addCaptionItem();
+            },
+            child: Text(
+              '+ Captions',
               style: CcType.style(size: 11, color: CcColors.textSecondary),
             ),
           ),

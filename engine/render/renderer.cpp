@@ -39,6 +39,31 @@ RgbaSurface transparentSurface() {
   return RgbaSurface{1, 1, std::vector<uint8_t>(4, 0)};
 }
 
+std::string captionTextureKey(const json& track, const json& item,
+                              const RationalTime& time) {
+  std::string key = "caption:" + track.value("id", "") + ":" +
+                    item.value("id", "");
+  const json& style = track.contains("style") && track["style"].is_object()
+                          ? track["style"]
+                          : json::object();
+  if (!style.value("highlightWords", false) || !item.contains("words") ||
+      !item["words"].is_array()) {
+    return key;
+  }
+  int index = 0;
+  for (const json& word : item["words"]) {
+    if (word.is_object() && word.contains("start") && word.contains("end")) {
+      const auto start = parseJsonTime(word["start"]);
+      const auto end = parseJsonTime(word["end"]);
+      if (start && end && time >= *start && time < *end) {
+        return key + ":h:" + std::to_string(index);
+      }
+    }
+    ++index;
+  }
+  return key;
+}
+
 // Loads a still image or decodes a video frame at [sourceSeconds].
 Error loadMediaFrame(const std::string& path, double sourceSeconds,
                      const RenderContext& ctx, RgbaSurface* out) {
@@ -208,6 +233,21 @@ std::set<std::string> passthroughClips(
     const std::function<std::optional<ClipSource>(const std::string&)>& resolve,
     const std::map<std::string, double>* exposureStops) {
   std::set<std::string> eligible;
+  // Captions are composited above the video tracks. The worker's direct
+  // decode/encode fast path cannot add overlays, so a captioned document must
+  // stay on the shared compositor path. This deliberately favours correctness
+  // over a per-cue fast-path toggle, which would visibly change video sampling
+  // at cue boundaries.
+  if (index.document().contains("captionTracks") &&
+      index.document()["captionTracks"].is_array()) {
+    for (const json& track : index.document()["captionTracks"]) {
+      if (track.is_object() && !track.value("hidden", false) &&
+          track.contains("items") && track["items"].is_array() &&
+          !track["items"].empty()) {
+        return eligible;
+      }
+    }
+  }
   for (const auto& track : index.videoTracks()) {
     if (track.hidden) continue;
     for (const auto& span : track.clips) {
@@ -549,6 +589,49 @@ Error renderFrame(const RenderIndex& index, const RationalTime& time, int width,
     } else {
       Error err = renderSide(clip, out);
       (void)err;
+    }
+  }
+
+  // Caption tracks are final sequence overlays. Flutter supplies the shaped
+  // tight RGBA texture; this shared native path owns cue-boundary selection and
+  // normalized placement, so preview and export cannot disagree.
+  if (document.contains("captionTracks") &&
+      document["captionTracks"].is_array()) {
+    thread_local RgbaSurface captionScratch;
+    for (const json& track : document["captionTracks"]) {
+      if (!track.is_object() || track.value("hidden", false) ||
+          !track.contains("items") || !track["items"].is_array()) {
+        continue;
+      }
+      const json& style = track.contains("style") && track["style"].is_object()
+                              ? track["style"]
+                              : json::object();
+      for (const json& item : track["items"]) {
+        if (!item.is_object() || !item.contains("start") ||
+            !item.contains("duration")) {
+          continue;
+        }
+        const auto start = parseJsonTime(item["start"]);
+        const auto duration = parseJsonTime(item["duration"]);
+        if (!start || !duration || time < *start || time >= *start + *duration) {
+          continue;
+        }
+        const std::string key = captionTextureKey(track, item, time);
+        const std::optional<ClipSource> source = resolve(key);
+        if (!source || source->texture.rgba.empty()) continue;
+
+        CompositedLayer layer;
+        layer.image = source->texture;
+        layer.x = (clampd(style.value("positionX", 0.5), 0.0, 1.0) - 0.5) *
+                  ctx.sequenceWidth;
+        layer.y = (clampd(style.value("positionY", 0.88), 0.0, 1.0) - 0.5) *
+                  ctx.sequenceHeight;
+        LayerBounds bounds;
+        const Error err = rasterizeLayer(source->texture, layer, ctx, "native",
+                                         &captionScratch, &bounds);
+        if (err != Error::None) return err;
+        blendComposite(out, captionScratch, 1.0, "normal", &bounds);
+      }
     }
   }
   return Error::None;

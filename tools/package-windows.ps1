@@ -12,6 +12,13 @@
 # machine by a developer on this project — see README.md "Windows native
 # playback" before relying on it for a real release.
 
+param(
+  # CI builds and tests the engine before packaging. Reusing that exact build
+  # avoids compiling the same native targets twice while keeping this script
+  # self-contained for tagged releases and local packaging.
+  [switch]$SkipEngineBuild
+)
+
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -23,10 +30,14 @@ if (-not $env:FFMPEG_DIR) {
   throw "FFMPEG_DIR is not set. Point it at an ffmpeg shared dev build (bin\ + lib\ + include\)."
 }
 
-Write-Host "==> Building engine (Release)"
-cmake -S "$repoRoot\engine" -B "$engineBuild" -DCMAKE_BUILD_TYPE=Release -DCC_BUILD_TESTS=OFF | Out-Null
-cmake --build "$engineBuild" --config Release -j
-if ($LASTEXITCODE -ne 0) { throw "engine build failed" }
+if (-not $SkipEngineBuild) {
+  Write-Host "==> Building engine (Release)"
+  cmake -S "$repoRoot\engine" -B "$engineBuild" -DCMAKE_BUILD_TYPE=Release -DCC_BUILD_TESTS=OFF | Out-Null
+  cmake --build "$engineBuild" --config Release -j
+  if ($LASTEXITCODE -ne 0) { throw "engine build failed" }
+} else {
+  Write-Host "==> Reusing pre-built engine"
+}
 
 Write-Host "==> Building app (release)"
 Push-Location $appDir
@@ -52,6 +63,8 @@ $engineDll = Join-Path $engineBuild "Release\crazycut.dll"
 if (-not (Test-Path $engineDll)) { $engineDll = Join-Path $engineBuild "crazycut.dll" }
 $workerExe = Join-Path $engineBuild "Release\crazycut_worker.exe"
 if (-not (Test-Path $workerExe)) { $workerExe = Join-Path $engineBuild "crazycut_worker.exe" }
+if (-not (Test-Path $engineDll)) { throw "engine DLL not found under $engineBuild" }
+if (-not (Test-Path $workerExe)) { throw "export worker not found under $engineBuild" }
 Copy-Item $engineDll $bundle -Force
 Copy-Item $workerExe $bundle -Force
 

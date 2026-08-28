@@ -106,4 +106,8 @@ git push origin v0.3.0
 
 ## Status
 
-M0 (walking skeleton) in progress — see `docs/05-roadmap.md`.
+Pre-beta. The multi-track editing, effects, audio, export, templates, and AI
+foundations are implemented; creator captions, GPU/hardware-decode performance,
+release packaging, and beta hardening remain in progress. See the
+[capability matrix](docs/07-capability-matrix.md) and
+[implementation plan](docs/06-implementation-plan.md).

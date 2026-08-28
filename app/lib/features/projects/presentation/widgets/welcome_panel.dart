@@ -6,7 +6,12 @@ import '../../../../core/widgets/primitives.dart';
 
 /// First-launch hero: badge, headline, and three ways to get started.
 class WelcomePanel extends StatelessWidget {
-  const WelcomePanel({super.key, this.onOpenSample, this.onNewProject, this.onImportFiles});
+  const WelcomePanel({
+    super.key,
+    this.onOpenSample,
+    this.onNewProject,
+    this.onImportFiles,
+  });
 
   final VoidCallback? onOpenSample;
   final VoidCallback? onNewProject;
@@ -18,8 +23,8 @@ class WelcomePanel extends StatelessWidget {
       _WelcomeCard(
         icon: LucideIcons.circlePlay,
         title: 'Open sample project',
-        description: 'See CrazyCut in action with a guided 45s edit.',
-        cta: 'Download & open (~40 MB)',
+        description: 'See CrazyCut in action with a guided offline edit.',
+        cta: 'Create & open sample',
         onTap: onOpenSample,
       ),
       _WelcomeCard(
@@ -50,10 +55,17 @@ class WelcomePanel extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: CcColors.accent),
           ),
-          child: const CcIcon(LucideIcons.clapperboard, size: 26, color: CcColors.accent),
+          child: const CcIcon(
+            LucideIcons.clapperboard,
+            size: 26,
+            color: CcColors.accent,
+          ),
         ),
         const SizedBox(height: 10),
-        Text("Let's make something", style: CcType.style(size: 24, weight: CcType.bold)),
+        Text(
+          "Let's make something",
+          style: CcType.style(size: 24, weight: CcType.bold),
+        ),
         const SizedBox(height: 10),
         Text(
           'Start editing in seconds. No account, no watermark.',
@@ -96,16 +108,19 @@ class _WelcomeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return CcTappable(
       onTap: onTap,
-      builder: (context, hovered, child) => AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: CcColors.panel,
-          borderRadius: CcRadius.brLg,
-          border: Border.all(color: hovered ? CcColors.accent : CcColors.border),
-        ),
-        child: child,
-      ),
+      builder:
+          (context, hovered, child) => AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: CcColors.panel,
+              borderRadius: CcRadius.brLg,
+              border: Border.all(
+                color: hovered ? CcColors.accent : CcColors.border,
+              ),
+            ),
+            child: child,
+          ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -125,7 +140,11 @@ class _WelcomeCard extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             description,
-            style: CcType.style(size: 12, color: CcColors.textSecondary, height: 1.4),
+            style: CcType.style(
+              size: 12,
+              color: CcColors.textSecondary,
+              height: 1.4,
+            ),
           ),
           const SizedBox(height: 10),
           Row(
@@ -133,10 +152,18 @@ class _WelcomeCard extends StatelessWidget {
             children: [
               Text(
                 cta,
-                style: CcType.style(size: 12, weight: CcType.semibold, color: CcColors.accent),
+                style: CcType.style(
+                  size: 12,
+                  weight: CcType.semibold,
+                  color: CcColors.accent,
+                ),
               ),
               const SizedBox(width: 5),
-              const CcIcon(LucideIcons.arrowRight, size: 12, color: CcColors.accent),
+              const CcIcon(
+                LucideIcons.arrowRight,
+                size: 12,
+                color: CcColors.accent,
+              ),
             ],
           ),
         ],

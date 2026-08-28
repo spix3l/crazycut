@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:auto_route/auto_route.dart';
@@ -16,6 +17,7 @@ import '../../../../core/widgets/primitives.dart';
 import '../../../../models/rational.dart';
 import '../../../../engine/engine.dart' show PlatformHelper;
 import '../../../../state/editor_controller.dart';
+import '../../../../state/onboarding.dart';
 import '../../../../state/project_tools.dart';
 import '../models/editor_models.dart';
 import '../../../../ai/ai_settings.dart';
@@ -25,6 +27,7 @@ import '../widgets/media_pool.dart';
 import '../widgets/missing_media_dialog.dart';
 import '../widgets/mixer_panel.dart';
 import '../widgets/monitor_panel.dart';
+import '../widgets/onboarding_checklist.dart';
 import '../widgets/templates/template_dialogs.dart';
 import '../widgets/timeline/timeline_panel.dart';
 
@@ -98,6 +101,12 @@ class _EditorScreenState extends State<EditorScreen> {
 
   EditorController? get _controller =>
       AppSession.instance.hasProject ? AppSession.instance.editor : null;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(OnboardingState.instance.load());
+  }
 
   /// Text is an insert action rather than a persistent pointer mode. Creating
   /// the clip immediately makes the toolbar affordance useful on its own; the
@@ -178,10 +187,11 @@ class _EditorScreenState extends State<EditorScreen> {
       await confirmAction(
         context,
         title: 'Collect media',
-        message: plan.missing.isEmpty
-            ? 'Every asset already lives in this project folder.'
-            : '${plan.missing.length} asset(s) are offline and cannot be '
-                'collected. Relink them first.',
+        message:
+            plan.missing.isEmpty
+                ? 'Every asset already lives in this project folder.'
+                : '${plan.missing.length} asset(s) are offline and cannot be '
+                    'collected. Relink them first.',
         confirmLabel: 'OK',
       );
       return;
@@ -189,7 +199,8 @@ class _EditorScreenState extends State<EditorScreen> {
     final go = await confirmAction(
       context,
       title: 'Collect media to project folder',
-      message: 'Copy ${plan.assets.length} file(s) — ${plan.sizeLabel} — into '
+      message:
+          'Copy ${plan.assets.length} file(s) — ${plan.sizeLabel} — into '
           '${ProjectTools.mediaFolder(projectPath).path} and repoint the '
           'project at the copies?',
       confirmLabel: 'Collect',
@@ -202,10 +213,11 @@ class _EditorScreenState extends State<EditorScreen> {
     await confirmAction(
       context,
       title: 'Collect media',
-      message: result.error != null
-          ? 'Copied ${result.copied} file(s), then stopped: ${result.error}'
-          : 'Copied ${result.copied} file(s). '
-              '${result.skipped} were already in the project folder.',
+      message:
+          result.error != null
+              ? 'Copied ${result.copied} file(s), then stopped: ${result.error}'
+              : 'Copied ${result.copied} file(s). '
+                  '${result.skipped} were already in the project folder.',
       confirmLabel: 'OK',
     );
   }
@@ -358,7 +370,11 @@ class _EditorScreenState extends State<EditorScreen> {
       // Also the AI configuration: turning a provider on or off changes
       // whether the Find shorts affordance exists at all (AI-1), and without
       // this the toolbar would not notice until some unrelated edit rebuilt it.
-      listenable: Listenable.merge([controller, AiSettings.instance]),
+      listenable: Listenable.merge([
+        controller,
+        AiSettings.instance,
+        OnboardingState.instance,
+      ]),
       builder: (context, _) => _buildEditor(context, controller),
     );
   }
@@ -379,93 +395,112 @@ class _EditorScreenState extends State<EditorScreen> {
         },
         child: ColoredBox(
           color: CcColors.bg,
-          child: _fullscreen
-              ? MonitorPanel(
-                  controller: c,
-                  fullscreen: true,
-                  onExitFullscreen: () => setState(() => _fullscreen = false),
-                )
-              : Column(
-                  children: [
-                    EditorToolbar(
-                      selectedTool: _tool,
-                      onToolChanged: (i) => _changeTool(c, i),
-                      onBack: () async {
-                        await AppSession.instance.close();
-                        if (context.mounted) context.router.maybePop();
-                      },
-                      onExport: () =>
-                          context.router.push(ExportRoute(empty: empty)),
-                      onFindShorts: AiSettings.instance.configured && !empty
-                          ? () => context.router.push(
-                              const ShortsReviewRoute(),
-                            )
-                          : null,
-                      onUndo: c.undo,
-                      onRedo: c.redo,
-                      canUndo: c.canUndo,
-                      canRedo: c.canRedo,
-                      snap: _snap,
-                      onSnapChanged: (v) => setState(() => _snap = v),
-                      saveState: c.saveState,
-                      projectName: c.doc.name,
-                      onRename: () => _renameProject(c),
-                      offlineCount: c.offlineAssets.length,
-                      onRelink: () => _relinkOffline(c),
-                      mixerOpen: _mixer,
-                      onToggleMixer: () => setState(() => _mixer = !_mixer),
-                      onCollectMedia: () => _collectMedia(c),
-                      onDiagnostics: () => _writeDiagnostics(c),
-                    ),
-                    Expanded(
-                      flex: 560,
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+          child:
+              _fullscreen
+                  ? MonitorPanel(
+                    controller: c,
+                    fullscreen: true,
+                    onExitFullscreen: () => setState(() => _fullscreen = false),
+                  )
+                  : Stack(
+                    children: [
+                      Column(
                         children: [
-                          MediaPool(
-                            controller: c,
-                            dropActive: _dropActive,
-                            onImport: () => _browseForMedia(c),
-                          ),
-                          Expanded(
-                            child: MonitorPanel(
-                              controller: c,
-                              onFullscreen: () =>
-                                  setState(() => _fullscreen = true),
-                            ),
-                          ),
-                          if (_mixer)
-                            SizedBox(
-                              width: 300,
-                              child: MixerPanel(
-                                controller: c,
-                                onClose: () => setState(() => _mixer = false),
-                              ),
-                            )
-                          else
-                            InspectorPanel(controller: c),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      flex: 388,
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          _lanesWidth = constraints.maxWidth - 160;
-                          return TimelinePanel(
-                            controller: c,
-                            pxPerSec: _pxPerSec,
+                          EditorToolbar(
+                            selectedTool: _tool,
+                            onToolChanged: (i) => _changeTool(c, i),
+                            onBack: () async {
+                              await AppSession.instance.close();
+                              if (context.mounted) context.router.maybePop();
+                            },
+                            onExport:
+                                () => context.router.push(
+                                  ExportRoute(empty: empty),
+                                ),
+                            onFindShorts:
+                                AiSettings.instance.configured && !empty
+                                    ? () => context.router.push(
+                                      const ShortsReviewRoute(),
+                                    )
+                                    : null,
+                            onUndo: c.undo,
+                            onRedo: c.redo,
+                            canUndo: c.canUndo,
+                            canRedo: c.canRedo,
                             snap: _snap,
                             onSnapChanged: (v) => setState(() => _snap = v),
-                            onZoomChanged: _setZoom,
-                            onZoomAt: _zoomAt,
-                            onFit: () => _fit(c),
-                          );
-                        },
+                            saveState: c.saveState,
+                            projectName: c.doc.name,
+                            onRename: () => _renameProject(c),
+                            offlineCount: c.offlineAssets.length,
+                            onRelink: () => _relinkOffline(c),
+                            mixerOpen: _mixer,
+                            onToggleMixer:
+                                () => setState(() => _mixer = !_mixer),
+                            onCollectMedia: () => _collectMedia(c),
+                            onDiagnostics: () => _writeDiagnostics(c),
+                          ),
+                          Expanded(
+                            flex: 560,
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                MediaPool(
+                                  controller: c,
+                                  dropActive: _dropActive,
+                                  onImport: () => _browseForMedia(c),
+                                ),
+                                Expanded(
+                                  child: MonitorPanel(
+                                    controller: c,
+                                    onFullscreen:
+                                        () =>
+                                            setState(() => _fullscreen = true),
+                                  ),
+                                ),
+                                if (_mixer)
+                                  SizedBox(
+                                    width: 300,
+                                    child: MixerPanel(
+                                      controller: c,
+                                      onClose:
+                                          () => setState(() => _mixer = false),
+                                    ),
+                                  )
+                                else
+                                  InspectorPanel(controller: c),
+                              ],
+                            ),
+                          ),
+                          Expanded(
+                            flex: 388,
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                _lanesWidth = constraints.maxWidth - 160;
+                                return TimelinePanel(
+                                  controller: c,
+                                  pxPerSec: _pxPerSec,
+                                  snap: _snap,
+                                  onSnapChanged:
+                                      (v) => setState(() => _snap = v),
+                                  onZoomChanged: _setZoom,
+                                  onZoomAt: _zoomAt,
+                                  onFit: () => _fit(c),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
+                      Positioned(
+                        right: 18,
+                        bottom: 18,
+                        child: OnboardingChecklist(
+                          state: OnboardingState.instance,
+                        ),
+                      ),
+                    ],
+                  ),
         ),
       ),
     );
@@ -508,8 +543,8 @@ class _NoProjectOpen extends StatelessWidget {
             description: 'Pick a project from the browser to start editing.',
             action: CcButton(
               label: 'Go to projects',
-              onPressed: () =>
-                  context.router.replaceAll([ProjectBrowserRoute()]),
+              onPressed:
+                  () => context.router.replaceAll([ProjectBrowserRoute()]),
             ),
           ),
         ),

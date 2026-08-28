@@ -17,10 +17,7 @@ class InfoRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
         spacing: 16,
-        children: [
-          Text(label, style: CcType.small),
-          Expanded(child: value),
-        ],
+        children: [Text(label, style: CcType.small), Expanded(child: value)],
       ),
     );
   }
@@ -101,7 +98,10 @@ class _TimecodeRowState extends State<TimecodeRow> {
               radius: CcRadius.sm,
               controller: widget.enabled ? _controller : null,
               focusNode: _focus,
-              value: widget.enabled ? null : Rt.toTimecode(widget.value, widget.fps),
+              value:
+                  widget.enabled
+                      ? null
+                      : Rt.toTimecode(widget.value, widget.fps),
               onSubmitted: _submit,
             ),
           ),
@@ -156,6 +156,8 @@ class SliderRow extends StatelessWidget {
     required this.value,
     required this.display,
     this.onChanged,
+    this.onChangeStart,
+    this.onChangeEnd,
     this.labelWidth = 78,
   });
 
@@ -165,6 +167,8 @@ class SliderRow extends StatelessWidget {
   final double value;
   final String display;
   final ValueChanged<double>? onChanged;
+  final VoidCallback? onChangeStart;
+  final VoidCallback? onChangeEnd;
   final double labelWidth;
 
   @override
@@ -180,7 +184,12 @@ class SliderRow extends StatelessWidget {
               child: Text(label, style: CcType.small),
             ),
             Expanded(
-              child: CcSlider(value: value.clamp(0, 1), onChanged: onChanged),
+              child: CcSlider(
+                value: value.clamp(0, 1),
+                onChanged: onChanged,
+                onChangeStart: onChangeStart,
+                onChangeEnd: onChangeEnd,
+              ),
             ),
             const SizedBox(width: 10),
             SizedBox(

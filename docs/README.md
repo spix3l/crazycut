@@ -17,6 +17,7 @@ CrazyCut is a native desktop video editor for solo creators: Flutter UI + C++ en
 | 3 | [`03-features/effects.md`](03-features/effects.md) | Color/blur/transform/blend effect stacks (**FX**) |
 | 3 | [`03-features/transitions.md`](03-features/transitions.md) | Transition catalog + handle-consumption placement rules (**TRA**) |
 | 3 | [`03-features/text-keyframes.md`](03-features/text-keyframes.md) | Text clips, presets/animations, shared keyframe system (**TXT**/**KEY**) |
+| 3 | [`03-features/captions.md`](03-features/captions.md) | Transcript conversion, caption editing, styling, render and sidecars (**CAP**) |
 | 3 | [`03-features/audio.md`](03-features/audio.md) | Gain/fades/detach/mixer/loudness (**AUD**) |
 | 3 | [`03-features/templates.md`](03-features/templates.md) | Reusable timeline chunks with slots and edge transitions (**TPL**) |
 | 3 | [`03-features/export.md`](03-features/export.md) | Presets, queue, hardware encoders, integrity (**EXP**) |
@@ -24,6 +25,8 @@ CrazyCut is a native desktop video editor for solo creators: Flutter UI + C++ en
 | 3 | [`03-features/shorts.md`](03-features/shorts.md) | Model-proposed short moments reviewed into 9:16 projects (**SHT**) |
 | 4 | [`04-ui-ux.md`](04-ui-ux.md) | Design principles, layout, panels, shortcuts, theming, a11y (**UIX**) |
 | 5 | [`05-roadmap.md`](05-roadmap.md) | Milestones M0–M5, testing strategy, risk register |
+| 6 | [`06-implementation-plan.md`](06-implementation-plan.md) | Dependency-aware creator-ready v1 plan and agent-sized assignments |
+| 7 | [`07-capability-matrix.md`](07-capability-matrix.md) | Honest implemented/partial/missing status with verification boundaries |
 
 ## Conventions
 

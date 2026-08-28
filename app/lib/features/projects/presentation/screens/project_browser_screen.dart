@@ -12,6 +12,7 @@ import '../../../../core/widgets/cc_dialog.dart';
 import '../../../../core/widgets/primitives.dart';
 import '../../../../data/autosave.dart';
 import '../../../../data/repository.dart';
+import '../../../../state/onboarding.dart';
 import '../models/project_summary.dart';
 import '../widgets/browser_header.dart';
 import '../widgets/project_card.dart';
@@ -128,7 +129,8 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
       await showMessageDialog(
         context,
         title: 'Couldn’t open project',
-        message: 'CrazyCut couldn’t read this project. The file may be damaged '
+        message:
+            'CrazyCut couldn’t read this project. The file may be damaged '
             'or from a newer version.\n\n$error',
       );
       return;
@@ -175,6 +177,15 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
     await _reload();
   }
 
+  Future<void> _openSampleProject() async {
+    final file = await SampleProjectService.create();
+    await AppSession.instance.openPath(file.path);
+    await OnboardingState.instance.showAgain();
+    if (!mounted) return;
+    await context.router.push(EditorRoute());
+    await _reload();
+  }
+
   // --- Card actions (PRJ-2) -------------------------------------------------
 
   void _cardMenu(ProjectSummary summary, BuildContext anchorContext) {
@@ -215,7 +226,8 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
     final confirmed = await confirmAction(
       context,
       title: 'Move “${summary.name}” to Trash?',
-      message: 'The project file and its backups are removed. '
+      message:
+          'The project file and its backups are removed. '
           'Your media files are never touched.',
       confirmLabel: 'Move to Trash',
     );
@@ -270,23 +282,24 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
               _Sort.name => 'Name',
               _Sort.created => 'Created',
             },
-            onSortTapped: (anchor) => showCcMenu(anchor, [
-              CcMenuItem(
-                'Last opened',
-                checked: _sort == _Sort.lastOpened,
-                onTap: () => setState(() => _sort = _Sort.lastOpened),
-              ),
-              CcMenuItem(
-                'Name',
-                checked: _sort == _Sort.name,
-                onTap: () => setState(() => _sort = _Sort.name),
-              ),
-              CcMenuItem(
-                'Created',
-                checked: _sort == _Sort.created,
-                onTap: () => setState(() => _sort = _Sort.created),
-              ),
-            ]),
+            onSortTapped:
+                (anchor) => showCcMenu(anchor, [
+                  CcMenuItem(
+                    'Last opened',
+                    checked: _sort == _Sort.lastOpened,
+                    onTap: () => setState(() => _sort = _Sort.lastOpened),
+                  ),
+                  CcMenuItem(
+                    'Name',
+                    checked: _sort == _Sort.name,
+                    onTap: () => setState(() => _sort = _Sort.name),
+                  ),
+                  CcMenuItem(
+                    'Created',
+                    checked: _sort == _Sort.created,
+                    onTap: () => setState(() => _sort = _Sort.created),
+                  ),
+                ]),
             onOpenProject: _openExistingProject,
             onNewProject: _newProject,
           ),
@@ -297,21 +310,20 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
               onOpenBackup: _openBackup,
             ),
           Expanded(
-            child: _loading
-                ? const SizedBox.shrink()
-                : _projects.isEmpty
+            child:
+                _loading
+                    ? const SizedBox.shrink()
+                    : _projects.isEmpty
                     ? WelcomePanel(
-                        onNewProject: _newProject,
-                        // The bundled sample project lands with onboarding
-                        // (UIX-7, M5); until then this is just "new project".
-                        onOpenSample: _newProject,
-                        onImportFiles: _importIntoNewProject,
-                      )
+                      onNewProject: _newProject,
+                      onOpenSample: _openSampleProject,
+                      onImportFiles: _importIntoNewProject,
+                    )
                     : _ProjectGrid(
-                        projects: projects,
-                        onOpen: _open,
-                        onMenu: _cardMenu,
-                      ),
+                      projects: projects,
+                      onOpen: _open,
+                      onMenu: _cardMenu,
+                    ),
           ),
         ],
       ),
@@ -364,10 +376,10 @@ class _ProjectGrid extends StatelessWidget {
             builder: (context, constraints) {
               const gap = 20.0;
               const idealWidth = 320.0;
-              final columns =
-                  ((constraints.maxWidth + gap) / (idealWidth + gap))
-                      .floor()
-                      .clamp(1, 6);
+              final columns = ((constraints.maxWidth + gap) /
+                      (idealWidth + gap))
+                  .floor()
+                  .clamp(1, 6);
               final cardWidth =
                   (constraints.maxWidth - gap * (columns - 1)) / columns;
               return Wrap(

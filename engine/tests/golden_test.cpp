@@ -498,6 +498,73 @@ TEST(GoldenFrames, PreviewMatchesExportSamplingBitForBit) {
   EXPECT_EQ(r1.rgba, r3.rgba);
 }
 
+TEST(GoldenFrames, CaptionCueBoundariesHighlightAndIndexedRenderMatch) {
+  auto doc = baseDoc(json::array());
+  doc["captionTracks"] = json::array({
+      {{"id", "ct1"},
+       {"name", "English"},
+       {"language", "en"},
+       {"style",
+        {{"positionX", 0.25}, {"positionY", 0.75},
+         {"highlightWords", true}}},
+       {"items",
+        json::array({{{"id", "cue1"},
+                      {"start", "1/1"},
+                      {"duration", "1/1"},
+                      {"text", "Hello world"},
+                      {"words",
+                       json::array({{{"start", "1/1"},
+                                     {"end", "3/2"},
+                                     {"text", "Hello"}},
+                                    {{"start", "3/2"},
+                                     {"end", "2/1"},
+                                     {"text", "world"}}})}}})}}});
+  cc::RgbaSurface red{8, 4, std::vector<uint8_t>(8 * 4 * 4, 0)};
+  for (size_t i = 0; i < red.rgba.size(); i += 4) {
+    red.rgba[i] = 255;
+    red.rgba[i + 3] = 255;
+  }
+  std::vector<std::string> requested;
+  auto resolve = [&](const std::string& key) -> std::optional<cc::ClipSource> {
+    requested.push_back(key);
+    cc::ClipSource source;
+    source.texture = red;
+    return source;
+  };
+  auto render = [&](cc::RationalTime time, bool indexed) {
+    cc::RgbaSurface out;
+    const cc::Error error = indexed
+                                ? cc::renderFrame(cc::RenderIndex(doc), time, 320,
+                                                  180, resolve, &out)
+                                : cc::renderFrame(doc, time, 320, 180, resolve,
+                                                  &out);
+    EXPECT_EQ(error, cc::Error::None);
+    return out;
+  };
+
+  requested.clear();
+  const auto before = render({30, 30}, false);  // start is inclusive
+  ASSERT_FALSE(requested.empty());
+  EXPECT_EQ(requested.back(), "caption:ct1:cue1:h:0");
+  const auto exportPath = render({30, 30}, true);
+  EXPECT_EQ(before.rgba, exportPath.rgba)
+      << "one-off preview and indexed export must be bit-identical";
+
+  requested.clear();
+  render({45, 30}, false);
+  ASSERT_FALSE(requested.empty());
+  EXPECT_EQ(requested.back(), "caption:ct1:cue1:h:1");
+
+  requested.clear();
+  const auto atEnd = render({60, 30}, false);
+  EXPECT_TRUE(requested.empty()) << "cue end is exclusive";
+  EXPECT_EQ(atEnd.rgba[0], 0);
+
+  // A 0.25/0.75 normalized centre puts the 8x4 texture around (80,135).
+  const size_t placed = (static_cast<size_t>(135) * 320 + 80) * 4;
+  EXPECT_EQ(before.rgba[placed], 255);
+}
+
 TEST(GoldenFrames, BlendModesDifferFromNormal) {
   cc::RgbaSurface base = gradientFrame(64, 64, 128);
   cc::RgbaSurface top = gradientFrame(64, 64, 255);

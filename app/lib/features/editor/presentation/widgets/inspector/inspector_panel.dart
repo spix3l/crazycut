@@ -11,6 +11,7 @@ import 'inspector_rows.dart';
 import 'inspector_text_tab.dart';
 import 'inspector_transform_tab.dart';
 import 'inspector_audio_tab.dart';
+import 'caption_editor_panel.dart';
 import 'inspector_tabs.dart';
 
 /// Right rail. Binds to the current selection: sequence facts when nothing is
@@ -48,10 +49,12 @@ class _InspectorPanelState extends State<InspectorPanel> {
   @override
   Widget build(BuildContext context) {
     final selected = c.selectedClip;
+    final selectedCaptionTrack = c.selectedCaptionTrack;
     final multiple = c.selection.length > 1;
     final asset = selected == null ? null : c.doc.assetById(selected.mediaId);
     final tabs = _tabsFor(selected, asset);
-    final selectionKey = selected == null ? null : '${selected.id}:${tabs.join(',')}';
+    final selectionKey =
+        selected == null ? null : '${selected.id}:${tabs.join(',')}';
     if (_selectionKey != selectionKey) {
       _selectionKey = selectionKey;
       _tab = 0;
@@ -60,7 +63,10 @@ class _InspectorPanelState extends State<InspectorPanel> {
 
     return Container(
       width: InspectorPanel.width,
-      decoration: const BoxDecoration(color: CcColors.panel, border: CcBorders.left),
+      decoration: const BoxDecoration(
+        color: CcColors.panel,
+        border: CcBorders.left,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -86,7 +92,9 @@ class _InspectorPanelState extends State<InspectorPanel> {
                 ],
                 Expanded(
                   child: Text(
-                    selected == null
+                    selected == null && selectedCaptionTrack != null
+                        ? selectedCaptionTrack.name
+                        : selected == null
                         ? 'Sequence settings'
                         : multiple
                         ? '${c.selection.length} clips selected'
@@ -109,9 +117,12 @@ class _InspectorPanelState extends State<InspectorPanel> {
             ),
           Expanded(
             child: SingleChildScrollView(
-              child: selected == null
-                  ? SequenceSettingsTab(controller: c)
-                  : _clipBody(selected, tabs[activeTab]),
+              child:
+                  selected == null && selectedCaptionTrack != null
+                      ? CaptionEditorPanel(controller: c)
+                      : selected == null
+                      ? SequenceSettingsTab(controller: c)
+                      : _clipBody(selected, tabs[activeTab]),
             ),
           ),
         ],
@@ -126,7 +137,10 @@ class _InspectorPanelState extends State<InspectorPanel> {
       'Transform' => TransformTab(controller: c, clip: clip),
       'Effects' => EffectsTab(controller: c, clip: clip),
       'Text' => TextTab(controller: c, clip: clip),
-      _ => const PlaceholderTab(name: 'Text', note: 'Select a text clip to edit it.'),
+      _ => const PlaceholderTab(
+        name: 'Text',
+        note: 'Select a text clip to edit it.',
+      ),
     };
   }
 }
@@ -147,7 +161,14 @@ class PlaceholderTab extends StatelessWidget {
         children: [
           CcSectionHeader(name.toUpperCase()),
           const SizedBox(height: 12),
-          Text(note, style: CcType.style(size: 11, color: CcColors.textTertiary, height: 1.5)),
+          Text(
+            note,
+            style: CcType.style(
+              size: 11,
+              color: CcColors.textTertiary,
+              height: 1.5,
+            ),
+          ),
         ],
       ),
     );
@@ -174,15 +195,24 @@ class SequenceSettingsTab extends StatelessWidget {
         children: [
           Text(
             'Nothing selected. Select a clip on the timeline to edit its properties.',
-            style: CcType.style(size: 11, color: CcColors.textTertiary, height: 1.4),
+            style: CcType.style(
+              size: 11,
+              color: CcColors.textTertiary,
+              height: 1.4,
+            ),
           ),
           const SizedBox(height: 24),
           InfoRow('Resolution', value('${s.width} × ${s.height}')),
           InfoRow(
             'Frame rate',
-            value('${fps == fps.roundToDouble() ? fps.round() : fps.toStringAsFixed(2)} fps'),
+            value(
+              '${fps == fps.roundToDouble() ? fps.round() : fps.toStringAsFixed(2)} fps',
+            ),
           ),
-          InfoRow('Sample rate', value('${(s.audioSampleRate / 1000).round()} kHz')),
+          InfoRow(
+            'Sample rate',
+            value('${(s.audioSampleRate / 1000).round()} kHz'),
+          ),
           InfoRow('Duration', value(controller.durationTimecode)),
           InfoRow('Clips', value('${controller.doc.clips.length}')),
           InfoRow('Tracks', value('${controller.doc.tracks.length}')),
@@ -255,7 +285,10 @@ class _LoudnessSection extends StatelessWidget {
               style: CcType.style(
                 size: 12,
                 weight: CcType.medium,
-                color: report.truePeakDb > -1.0 ? CcColors.warning : CcColors.textPrimary,
+                color:
+                    report.truePeakDb > -1.0
+                        ? CcColors.warning
+                        : CcColors.textPrimary,
               ),
             ),
           ),
@@ -270,15 +303,19 @@ class _LoudnessSection extends StatelessWidget {
           const SizedBox(height: 8),
         ],
         CcButton(
-          label: controller.analyzingLoudness
-              ? 'Analyzing…'
-              : report == null
-              ? 'Analyze loudness'
-              : 'Re-analyze',
+          label:
+              controller.analyzingLoudness
+                  ? 'Analyzing…'
+                  : report == null
+                  ? 'Analyze loudness'
+                  : 'Re-analyze',
           kind: CcButtonKind.secondary,
           height: 30,
           radius: CcRadius.sm,
-          onPressed: controller.analyzingLoudness ? null : () => controller.analyzeLoudness(),
+          onPressed:
+              controller.analyzingLoudness
+                  ? null
+                  : () => controller.analyzeLoudness(),
         ),
       ],
     );
@@ -300,24 +337,27 @@ class _OutputDeviceRow extends StatelessWidget {
         style: CcType.style(size: 11, color: CcColors.textTertiary),
       );
     }
-    final current = controller.outputDeviceName.isEmpty
-        ? devices.first
-        : controller.outputDeviceName;
+    final current =
+        controller.outputDeviceName.isEmpty
+            ? devices.first
+            : controller.outputDeviceName;
     return Builder(
-      builder: (context) => CcDropdown(
-        value: current,
-        width: double.infinity,
-        height: 28,
-        fontSize: 11,
-        onTap: () => showCcMenu(context, [
-          for (final device in devices)
-            CcMenuItem(
-              device,
-              checked: device == current,
-              onTap: () => controller.setOutputDevice(device),
-            ),
-        ]),
-      ),
+      builder:
+          (context) => CcDropdown(
+            value: current,
+            width: double.infinity,
+            height: 28,
+            fontSize: 11,
+            onTap:
+                () => showCcMenu(context, [
+                  for (final device in devices)
+                    CcMenuItem(
+                      device,
+                      checked: device == current,
+                      onTap: () => controller.setOutputDevice(device),
+                    ),
+                ]),
+          ),
     );
   }
 }
