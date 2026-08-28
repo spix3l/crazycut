@@ -6,6 +6,9 @@ import '../../../../app/session.dart';
 import '../../../../core/design/tokens.dart';
 import '../../../../core/widgets/cc_dialog.dart';
 import '../../../../core/widgets/primitives.dart';
+import '../../../../core/widgets/rgba_frame.dart';
+import '../../../../state/editor_controller.dart';
+import '../../../../state/preview_renderer.dart';
 import '../../../../state/shorts_flow.dart';
 import '../widgets/short_candidate_card.dart';
 
@@ -61,8 +64,8 @@ class _ShortsReviewScreenState extends State<ShortsReviewScreen> {
     return CcModalBarrier(
       onDismiss: _close,
       child: CcDialogShell(
-        title: 'Find shorts',
-        width: 660,
+        title: 'Auto-cut shorts',
+        width: 1080,
         onClose: _close,
         sections: [
           if (flow == null)
@@ -106,7 +109,7 @@ class _ShortsReviewScreenState extends State<ShortsReviewScreen> {
           detail: 'Sending the transcript text to your configured provider.',
           progress: null,
         ),
-        ShortsStage.reviewing || ShortsStage.done => _results(flow),
+        ShortsStage.reviewing || ShortsStage.done => _reviewWorkspace(flow),
       },
       if (_toast != null) ...[
         const SizedBox(height: 4),
@@ -130,6 +133,17 @@ class _ShortsReviewScreenState extends State<ShortsReviewScreen> {
     ];
   }
 
+  Widget _reviewWorkspace(ShortsFlow flow) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(width: 360, child: _PreviewPane(controller: flow.controller)),
+        const SizedBox(width: 24),
+        Expanded(child: _results(flow)),
+      ],
+    );
+  }
+
   Widget _results(ShortsFlow flow) {
     final error = flow.error;
     if (flow.candidates.isEmpty) {
@@ -143,6 +157,20 @@ class _ShortsReviewScreenState extends State<ShortsReviewScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        Text(
+          'Review suggested moments',
+          style: CcType.style(size: 16, weight: CcType.semibold),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Preview each range, adjust the handles, then create only the projects you want.',
+          style: CcType.style(
+            size: 12,
+            color: CcColors.textTertiary,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 16),
         Row(
           children: [
             Text(
@@ -160,11 +188,12 @@ class _ShortsReviewScreenState extends State<ShortsReviewScreen> {
           ShortCandidateCard(
             candidate: flow.candidates[i],
             asset: media,
-            state: flow.accepted.containsKey(i)
-                ? ShortCardState.accepted
-                : flow.rejected.contains(i)
-                ? ShortCardState.rejected
-                : ShortCardState.pending,
+            state:
+                flow.accepted.containsKey(i)
+                    ? ShortCardState.accepted
+                    : flow.rejected.contains(i)
+                    ? ShortCardState.rejected
+                    : ShortCardState.pending,
             onPreview: () => flow.preview(i),
             onNudgeStart: (delta) => flow.nudge(i, startDelta: delta),
             onNudgeEnd: (delta) => flow.nudge(i, endDelta: delta),
@@ -173,8 +202,7 @@ class _ShortsReviewScreenState extends State<ShortsReviewScreen> {
               final file = await flow.accept(i);
               if (file != null && mounted) {
                 setState(
-                  () => _toast =
-                      'Created ${file.uri.pathSegments.last}',
+                  () => _toast = 'Created ${file.uri.pathSegments.last}',
                 );
               }
             },
@@ -185,6 +213,61 @@ class _ShortsReviewScreenState extends State<ShortsReviewScreen> {
           const SizedBox(height: 4),
           Text(error, style: CcType.style(size: 12, color: CcColors.error)),
         ],
+      ],
+    );
+  }
+}
+
+class _PreviewPane extends StatelessWidget {
+  const _PreviewPane({required this.controller});
+
+  final EditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Preview', style: CcType.label),
+        const SizedBox(height: 8),
+        AspectRatio(
+          aspectRatio: 9 / 16,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: const Color(0xFF08090B),
+              borderRadius: CcRadius.brMd,
+              border: CcBorders.all,
+            ),
+            child: ClipRRect(
+              borderRadius: CcRadius.brMd,
+              child: ValueListenableBuilder<PreviewFrame?>(
+                valueListenable: controller.previewImage,
+                builder: (context, frame, _) {
+                  if (frame == null) {
+                    return const Center(
+                      child: Text('Choose Preview on a suggestion'),
+                    );
+                  }
+                  return RgbaFrame(
+                    bytes: frame.rgba,
+                    width: frame.width,
+                    height: frame.height,
+                    filterQuality: FilterQuality.medium,
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'The editor playhead follows the selected range, and this monitor updates immediately.',
+          style: CcType.style(
+            size: 11,
+            color: CcColors.textTertiary,
+            height: 1.35,
+          ),
+        ),
       ],
     );
   }

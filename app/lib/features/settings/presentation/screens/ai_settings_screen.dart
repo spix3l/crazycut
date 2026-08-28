@@ -962,8 +962,8 @@ class _AiReadiness extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             ready
-                ? 'Ready. Open a project containing a clip with audio and use the sparkle button to Find shorts.'
-                : 'Both items are required before CrazyCut can Find shorts.',
+                ? 'Ready. Open a project containing a clip with audio and use Auto-cut shorts from the editor toolbar.'
+                : 'Both items are required before CrazyCut can run Auto-cut shorts.',
             style: CcType.style(
               size: 11,
               color: ready ? CcColors.success : CcColors.textTertiary,

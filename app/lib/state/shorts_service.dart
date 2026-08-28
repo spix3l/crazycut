@@ -51,6 +51,15 @@ class ShortCandidate {
   final String reason;
   final double confidence;
 
+  Map<String, dynamic> toJson() => {
+    'startSec': startSec,
+    'endSec': endSec,
+    'title': title,
+    'hook': hook,
+    'reason': reason,
+    'confidence': confidence,
+  };
+
   double get durationSec => endSec - startSec;
 
   ShortCandidate copyWith({double? startSec, double? endSec, String? title}) =>
@@ -116,6 +125,8 @@ const shortsResponseSchema = <String, dynamic>{
 };
 
 class ShortsService {
+  /// Bump when changing the selection rubric or response interpretation.
+  static const promptVersion = 'shorts-rubric-v2';
   ShortsService({this.rules = const ShortsRules()});
 
   final ShortsRules rules;
@@ -162,21 +173,30 @@ class ShortsService {
   }
 
   String _systemPrompt(int wanted) =>
-      'You find the moments in a long recording that work as standalone '
-      'short-form videos.\n\n'
-      'Return at most $wanted candidates, best first. For each one:\n'
-      '- It must make sense to someone who has seen none of the rest. No '
-      'dangling pronouns, no setup that happened earlier.\n'
-      '- It must run between ${rules.minSeconds.round()} and '
-      '${rules.maxSeconds.round()} seconds. Aim for 20–60.\n'
-      '- Start and end on the segment boundaries given in the transcript, so '
-      'the cut lands between words rather than through one.\n'
-      '- Candidates must not overlap each other.\n'
-      '- "title" is a short filename-friendly label. "hook" is the opening '
-      'line as a viewer would hear it. "reason" is one sentence on why this '
-      'stands alone. "confidence" is 0 to 1.\n\n'
-      'If nothing in the recording works as a short, return an empty list '
-      'rather than padding it with weak moments.';
+      'You are a senior short-form video editor selecting publishable clips '
+      'from a long-form recording. Optimize for viewer retention and a '
+      'complete idea, not for evenly spaced highlights.\n\n'
+      'Return at most $wanted candidates, ranked best first. Be selective: '
+      'return fewer candidates or an empty list when the material is weak. '
+      'For each candidate:\n'
+      '- Choose a self-contained story beat with a clear setup, tension or '
+      'surprise, and payoff. It must make sense to a viewer with no context.\n'
+      '- Prefer a strong first sentence, specific insight, emotional turn, '
+      'controversial claim, concrete result, or useful takeaway.\n'
+      '- Reject greetings, housekeeping, sponsorships, filler, repeated ideas, '
+      'unfinished thoughts, questions answered much later, and clips that '
+      'depend on visuals not represented in this transcript.\n'
+      '- Keep it between ${rules.minSeconds.round()} and '
+      '${rules.maxSeconds.round()} seconds; aim for 20–60 seconds and include '
+      'enough surrounding context for the payoff.\n'
+      '- Use only the exact timestamp boundaries in the transcript. Do not '
+      'invent times or cut through a spoken segment. Candidates must not '
+      'overlap.\n'
+      '- "title" is a specific, filename-safe label (not "Interesting clip"). '
+      '"hook" must quote or faithfully paraphrase the first spoken sentence. '
+      '"reason" names the payoff and why it stands alone. "confidence" is '
+      'your 0–1 editorial confidence, not a probability.\n\n'
+      'Output only the requested JSON. Never pad the list with mediocre clips.';
 
   String _minutes(double seconds) {
     final m = (seconds / 60).round();

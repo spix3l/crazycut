@@ -6,6 +6,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -68,6 +69,7 @@ class ShortsFlow extends ChangeNotifier {
   MediaAsset? asset;
   CancellationToken? _cancel;
   final List<String> _markerIds = [];
+  bool _previewing = false;
 
   bool get isBusy =>
       stage == ShortsStage.transcribing || stage == ShortsStage.proposing;
@@ -163,14 +165,25 @@ class ShortsFlow extends ChangeNotifier {
     }
 
     try {
-      final proposed = await service.propose(
-        provider,
-        text,
-        cancel: _cancel,
-      );
+      final config = _settings.config!;
+      final cacheKey = _proposalCacheKey(source, text, config);
+      final cached = await MediaCache.instance.shorts(cacheKey);
+      final proposed = cached == null
+          ? await service.propose(provider, text, cancel: _cancel)
+          : service.sanitizeCandidates(
+              [for (final item in cached) ?ShortCandidate.fromJson(item)],
+              mediaDurationSec: text.durationSeconds,
+              transcript: text,
+            );
+      if (cached == null) {
+        await MediaCache.instance.saveShorts(
+          cacheKey,
+          [for (final c in proposed) c.toJson()],
+        );
+      }
       if (_cancel?.isCancelled ?? false) return _cancelled();
       candidates = proposed;
-      _addMarkers();
+      if (cached == null) _addMarkers();
       stage = ShortsStage.reviewing;
       error = proposed.isEmpty
           ? 'No moments in this recording stand on their own.'
@@ -184,6 +197,24 @@ class ShortsFlow extends ChangeNotifier {
       provider.dispose();
       notifyListeners();
     }
+  }
+
+  String _proposalCacheKey(MediaAsset source, Transcript text, AiConfig config) {
+    final identity = [
+      ShortsService.promptVersion,
+      source.hash.isEmpty ? source.id : source.hash,
+      text.encode(),
+      config.providerId,
+      config.baseUrl,
+      config.model,
+    ].join('|');
+    // Cache filenames only need a stable, collision-resistant-enough key.
+    var hash = 0x811c9dc5;
+    for (final codeUnit in utf8.encode(identity)) {
+      hash ^= codeUnit;
+      hash = (hash * 0x01000193) & 0x7fffffff;
+    }
+    return hash.toRadixString(16);
   }
 
   void _bump() => notifyListeners();
@@ -236,6 +267,11 @@ class ShortsFlow extends ChangeNotifier {
     controller.inPoint = Rt.fromSeconds(c.startSec);
     controller.outPoint = Rt.fromSeconds(c.endSec);
     controller.seekTo(Rt.fromSeconds(c.startSec));
+    _previewing = true;
+    controller.play();
+    // If the candidate starts at the current playhead, seekTo intentionally
+    // short-circuits. The review monitor still needs a fresh composite.
+    unawaited(controller.updatePreviewFrame());
   }
 
   Future<File?> accept(int index) async {
@@ -262,6 +298,7 @@ class ShortsFlow extends ChangeNotifier {
     _cancel?.cancel();
     final source = asset;
     if (source != null) _transcription.cancel(source.id);
+    if (_previewing && controller.playing) controller.stopPlayback();
     _cancelled();
   }
 

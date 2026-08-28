@@ -20,6 +20,7 @@ class MediaCache {
   Directory? _dir;
   final Map<String, Uint8List> _thumbs = {};
   final Map<String, List<double>> _peaks = {};
+  final Map<String, List<Map<String, dynamic>>> _shorts = {};
   final Set<String> _inFlight = {};
 
   /// Keeps the decoded-tile map bounded; the timeline only ever shows a few
@@ -152,6 +153,7 @@ class MediaCache {
   Future<void> clear() async {
     _thumbs.clear();
     _peaks.clear();
+    _shorts.clear();
     final d = await dir();
     if (d.existsSync()) d.deleteSync(recursive: true);
     _dir = null;
@@ -178,4 +180,42 @@ class MediaCache {
 
   Future<bool> hasTranscript(MediaAsset asset) async =>
       (await transcriptFile(asset)).existsSync();
+
+  /// Cached AI shorts proposals. The caller owns the versioned key so prompt
+  /// and provider changes can invalidate results without deleting media data.
+  Future<List<Map<String, dynamic>>?> shorts(String key) async {
+    final memory = _shorts[key];
+    if (memory != null) return memory;
+    try {
+      final file = File(
+        '${(await dir()).path}${Platform.pathSeparator}shorts-$key.json',
+      );
+      if (!file.existsSync()) return null;
+      final decoded = jsonDecode(await file.readAsString());
+      if (decoded is! List) return null;
+      final value = [
+        for (final item in decoded)
+          if (item is Map) Map<String, dynamic>.from(item),
+      ];
+      _shorts[key] = value;
+      return value;
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<void> saveShorts(
+    String key,
+    List<Map<String, dynamic>> candidates,
+  ) async {
+    _shorts[key] = candidates;
+    try {
+      final file = File(
+        '${(await dir()).path}${Platform.pathSeparator}shorts-$key.json',
+      );
+      await file.writeAsString(jsonEncode(candidates));
+    } on Object {
+      // A cache write failure must never block the edit.
+    }
+  }
 }

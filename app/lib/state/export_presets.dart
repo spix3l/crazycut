@@ -43,36 +43,35 @@ int estimateExportBytes({
   }
 
   final videoBits = width * height * fps * videoBitsPerPixel;
-  final audioBits = preset.audioCodec == 'pcm'
-      ? 48000 * 24 * 2
-      : preset.audioBitrate;
+  final audioBits =
+      preset.audioCodec == 'pcm' ? 48000 * 24 * 2 : preset.audioBitrate;
   // Allow a small amount for mux/container overhead.
   return (((videoBits + audioBits) / 8) * seconds * 1.015).round();
 }
 
 extension ExportQualityLabel on ExportQuality {
   String get label => switch (this) {
-        ExportQuality.draft => 'Draft',
-        ExportQuality.web => 'Web',
-        ExportQuality.high => 'High',
-        ExportQuality.master => 'Master',
-      };
+    ExportQuality.draft => 'Draft',
+    ExportQuality.web => 'Web',
+    ExportQuality.high => 'High',
+    ExportQuality.master => 'Master',
+  };
 
   /// x264/x265 CRF for this rung. Lower is better quality.
   int get crf => switch (this) {
-        ExportQuality.draft => 28,
-        ExportQuality.web => 23,
-        ExportQuality.high => 19,
-        ExportQuality.master => 16,
-      };
+    ExportQuality.draft => 28,
+    ExportQuality.web => 23,
+    ExportQuality.high => 19,
+    ExportQuality.master => 16,
+  };
 
   /// x264/x265 speed preset.
   String get preset => switch (this) {
-        ExportQuality.draft => 'veryfast',
-        ExportQuality.web => 'fast',
-        ExportQuality.high => 'medium',
-        ExportQuality.master => 'slow',
-      };
+    ExportQuality.draft => 'veryfast',
+    ExportQuality.web => 'fast',
+    ExportQuality.high => 'medium',
+    ExportQuality.master => 'slow',
+  };
 }
 
 /// A delivery target from the EXP-2 preset table.
@@ -220,6 +219,17 @@ class ExportPreset {
   }
 
   /// Default filename: `<project> [<preset>].<ext>` (EXP-8).
-  String defaultFilename(String projectName) =>
-      '$projectName [$name].$container';
+  String defaultFilename(String projectName) {
+    final safeProject =
+        projectName
+            .replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1f]'), ' ')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
+    final safePreset =
+        name
+            .replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1f]'), ' ')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
+    return '$safeProject [$safePreset].$container';
+  }
 }

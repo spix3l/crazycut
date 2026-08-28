@@ -74,21 +74,22 @@ class _ShortCandidateCardState extends State<ShortCandidateCard> {
     return Opacity(
       opacity: widget.state == ShortCardState.rejected ? 0.45 : 1,
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: CcColors.elevated,
           borderRadius: CcRadius.brMd,
           border: Border.all(
-            color: widget.state == ShortCardState.accepted
-                ? CcColors.success
-                : CcColors.border,
+            color:
+                widget.state == ShortCardState.accepted
+                    ? CcColors.success
+                    : CcColors.border,
           ),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _Thumb(bytes: _thumb),
-            const SizedBox(width: 12),
+            _Thumb(bytes: _thumb, onTap: widget.onPreview),
+            const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -129,7 +130,7 @@ class _ShortCandidateCardState extends State<ShortCandidateCard> {
                       ),
                     ),
                   ],
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 14),
                   if (widget.state == ShortCardState.accepted)
                     Row(
                       children: [
@@ -157,20 +158,15 @@ class _ShortCandidateCardState extends State<ShortCandidateCard> {
                       ),
                     )
                   else ...[
-                    // Trimming and deciding are separate rows: crammed onto
-                    // one they overflow at the dialog's real width, and a
-                    // card that reflows under its own controls is worse than
-                    // one that admits it needs two lines.
                     Row(
                       children: [
-                        CcTooltip(
-                          message: 'Preview this range',
-                          child: CcIconButton(
-                            icon: LucideIcons.play,
-                            size: 26,
-                            iconSize: 13,
-                            onPressed: widget.onPreview,
-                          ),
+                        CcButton(
+                          label: 'Play preview',
+                          icon: LucideIcons.play,
+                          kind: CcButtonKind.secondary,
+                          height: 32,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          onPressed: widget.onPreview,
                         ),
                         const SizedBox(width: 10),
                         _NudgeGroup(
@@ -200,9 +196,7 @@ class _ShortCandidateCardState extends State<ShortCandidateCard> {
                         CcButton(
                           label: 'Make project',
                           height: 30,
-                          onPressed: settled
-                              ? null
-                              : () => widget.onAccept(),
+                          onPressed: settled ? null : () => widget.onAccept(),
                         ),
                       ],
                     ),
@@ -225,28 +219,33 @@ class _ShortCandidateCardState extends State<ShortCandidateCard> {
 }
 
 class _Thumb extends StatelessWidget {
-  const _Thumb({this.bytes});
+  const _Thumb({this.bytes, this.onTap});
   final Uint8List? bytes;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: CcRadius.brSm,
-      child: Container(
-        width: 72,
-        height: 96,
-        color: CcColors.panel,
-        child: bytes == null
-            ? const Center(
-                child: CcIcon(
-                  LucideIcons.image,
-                  size: 16,
-                  color: CcColors.textTertiary,
-                ),
-              )
-            // Cropped to 9:16 the same way the exported short will be, so the
-            // card previews the real framing rather than the source.
-            : Image.memory(bytes!, fit: BoxFit.cover),
+    return CcTappable(
+      onTap: onTap,
+      child: ClipRRect(
+        borderRadius: CcRadius.brSm,
+        child: Container(
+          width: 96,
+          height: 128,
+          color: CcColors.panel,
+          child:
+              bytes == null
+                  ? const Center(
+                    child: CcIcon(
+                      LucideIcons.image,
+                      size: 16,
+                      color: CcColors.textTertiary,
+                    ),
+                  )
+                  // Cropped to 9:16 the same way the exported short will be, so the
+                  // card previews the real framing rather than the source.
+                  : Image.memory(bytes!, fit: BoxFit.cover),
+        ),
       ),
     );
   }

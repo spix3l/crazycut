@@ -80,7 +80,10 @@ class EditorToolbar extends StatelessWidget {
     return Container(
       height: 52,
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: const BoxDecoration(color: CcColors.panel, border: CcBorders.bottom),
+      decoration: const BoxDecoration(
+        color: CcColors.panel,
+        border: CcBorders.bottom,
+      ),
       child: Stack(
         alignment: Alignment.center,
         children: [
@@ -110,7 +113,10 @@ class EditorToolbar extends StatelessWidget {
                     child: CcIcon(
                       LucideIcons.undo2,
                       size: 16,
-                      color: canUndo ? CcColors.textPrimary : CcColors.textTertiary,
+                      color:
+                          canUndo
+                              ? CcColors.textPrimary
+                              : CcColors.textTertiary,
                     ),
                   ),
                 ),
@@ -122,7 +128,10 @@ class EditorToolbar extends StatelessWidget {
                     child: CcIcon(
                       LucideIcons.redo2,
                       size: 16,
-                      color: canRedo ? CcColors.textPrimary : CcColors.textTertiary,
+                      color:
+                          canRedo
+                              ? CcColors.textPrimary
+                              : CcColors.textTertiary,
                     ),
                   ),
                 ),
@@ -131,44 +140,49 @@ class EditorToolbar extends StatelessWidget {
                   const CcDivider(),
                   const SizedBox(width: 14),
                   Builder(
-                    builder: (context) => CcTappable(
-                      // The project name doubles as the project menu: rename,
-                      // collect media (PRJ-14) and diagnostics live here
-                      // because there is no menu bar in this shell.
-                      onTap: () => showCcMenu(context, [
-                        CcMenuItem(
-                          'Rename project…',
-                          icon: LucideIcons.pencil,
-                          onTap: onRename,
-                        ),
-                        CcMenuItem(
-                          'Collect media to project folder…',
-                          icon: LucideIcons.folderInput,
-                          separatorBefore: true,
-                          onTap: onCollectMedia,
-                        ),
-                        CcMenuItem(
-                          'Save diagnostics…',
-                          icon: LucideIcons.lifeBuoy,
-                          onTap: onDiagnostics,
-                        ),
-                      ]),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            projectName,
-                            style: CcType.style(size: 12, weight: CcType.medium),
+                    builder:
+                        (context) => CcTappable(
+                          // The project name doubles as the project menu: rename,
+                          // collect media (PRJ-14) and diagnostics live here
+                          // because there is no menu bar in this shell.
+                          onTap:
+                              () => showCcMenu(context, [
+                                CcMenuItem(
+                                  'Rename project…',
+                                  icon: LucideIcons.pencil,
+                                  onTap: onRename,
+                                ),
+                                CcMenuItem(
+                                  'Collect media to project folder…',
+                                  icon: LucideIcons.folderInput,
+                                  separatorBefore: true,
+                                  onTap: onCollectMedia,
+                                ),
+                                CcMenuItem(
+                                  'Save diagnostics…',
+                                  icon: LucideIcons.lifeBuoy,
+                                  onTap: onDiagnostics,
+                                ),
+                              ]),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                projectName,
+                                style: CcType.style(
+                                  size: 12,
+                                  weight: CcType.medium,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const CcIcon(
+                                LucideIcons.chevronDown,
+                                size: 12,
+                                color: CcColors.textTertiary,
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 4),
-                          const CcIcon(
-                            LucideIcons.chevronDown,
-                            size: 12,
-                            color: CcColors.textTertiary,
-                          ),
-                        ],
-                      ),
-                    ),
+                        ),
                   ),
                 ],
               ],
@@ -191,7 +205,10 @@ class EditorToolbar extends StatelessWidget {
                     child: CcIconButton(
                       icon: _tools[i].$1,
                       active: i == selectedTool,
-                      onPressed: onToolChanged == null ? null : () => onToolChanged!(i),
+                      onPressed:
+                          onToolChanged == null
+                              ? null
+                              : () => onToolChanged!(i),
                     ),
                   ),
                 ],
@@ -209,11 +226,18 @@ class EditorToolbar extends StatelessWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const CcIcon(LucideIcons.unlink, size: 13, color: CcColors.warning),
+                        const CcIcon(
+                          LucideIcons.unlink,
+                          size: 13,
+                          color: CcColors.warning,
+                        ),
                         const SizedBox(width: 6),
                         Text(
                           'Relink $offlineCount',
-                          style: CcType.style(size: 11, color: CcColors.warning),
+                          style: CcType.style(
+                            size: 11,
+                            color: CcColors.warning,
+                          ),
                         ),
                       ],
                     ),
@@ -224,9 +248,10 @@ class EditorToolbar extends StatelessWidget {
                   _saveLabel,
                   style: CcType.style(
                     size: 11,
-                    color: saveState == SaveState.failed
-                        ? CcColors.error
-                        : CcColors.textTertiary,
+                    color:
+                        saveState == SaveState.failed
+                            ? CcColors.error
+                            : CcColors.textTertiary,
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -246,20 +271,23 @@ class EditorToolbar extends StatelessWidget {
                     icon: LucideIcons.magnet,
                     active: snap,
                     outlined: true,
-                    onPressed: onSnapChanged == null ? null : () => onSnapChanged!(!snap),
+                    onPressed:
+                        onSnapChanged == null
+                            ? null
+                            : () => onSnapChanged!(!snap),
                   ),
                 ),
                 const SizedBox(width: 11),
                 const CcDivider(),
                 const SizedBox(width: 11),
                 if (onFindShorts != null) ...[
-                  CcTooltip(
-                    message: 'Find shorts in this recording',
-                    child: CcIconButton(
-                      icon: LucideIcons.sparkles,
-                      outlined: true,
-                      onPressed: onFindShorts,
-                    ),
+                  CcButton(
+                    label: 'Auto-cut shorts',
+                    icon: LucideIcons.sparkles,
+                    kind: CcButtonKind.secondary,
+                    height: 31,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    onPressed: onFindShorts,
                   ),
                   const SizedBox(width: 11),
                 ],
@@ -315,10 +343,13 @@ class _ExportButtonState extends State<_ExportButton> {
         onPressed: widget.onPressed,
       );
     }
-    final running = _service.jobs.where((j) => j.state == ExportState.running).toList();
-    final progress = running.isEmpty
-        ? 0.0
-        : running.map((j) => j.progress).reduce((a, b) => a + b) / running.length;
+    final running =
+        _service.jobs.where((j) => j.state == ExportState.running).toList();
+    final progress =
+        running.isEmpty
+            ? 0.0
+            : running.map((j) => j.progress).reduce((a, b) => a + b) /
+                running.length;
     return CcTooltip(
       message: '$active export${active == 1 ? '' : 's'} in the queue',
       child: CcTappable(
@@ -363,15 +394,17 @@ class _RingPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
-    final track = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..color = CcColors.onAccent.withValues(alpha: 0.3);
-    final arc = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..strokeCap = StrokeCap.round
-      ..color = CcColors.onAccent;
+    final track =
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = CcColors.onAccent.withValues(alpha: 0.3);
+    final arc =
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..strokeCap = StrokeCap.round
+          ..color = CcColors.onAccent;
     canvas.drawArc(rect.deflate(1), 0, math.pi * 2, false, track);
     canvas.drawArc(
       rect.deflate(1),
@@ -383,5 +416,6 @@ class _RingPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_RingPainter oldDelegate) => oldDelegate.progress != progress;
+  bool shouldRepaint(_RingPainter oldDelegate) =>
+      oldDelegate.progress != progress;
 }
