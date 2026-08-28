@@ -46,12 +46,9 @@ class CcDialogShell extends StatelessWidget {
             decoration: const BoxDecoration(border: CcBorders.bottom),
             child: Row(
               children: [
-                Text(title, style: CcType.dialogTitle),
-                const Spacer(),
-                CcTappable(
-                  onTap: onClose,
-                  child: const CcIcon(LucideIcons.x, size: 18),
-                ),
+                Expanded(child: Text(title, style: CcType.dialogTitle)),
+                const SizedBox(width: 12),
+                CcTappable(onTap: onClose, child: const CcIcon(LucideIcons.x, size: 18)),
               ],
             ),
           ),
@@ -231,7 +228,10 @@ Future<bool> confirmAction(
         width: 440,
         onClose: () => finish(false),
         sections: [
-          Text(message, style: CcType.style(size: 13, color: CcColors.textSecondary, height: 1.5)),
+          Text(
+            message,
+            style: CcType.style(size: 13, color: CcColors.textSecondary, height: 1.5),
+          ),
         ],
         actions: [
           CcButton(
@@ -280,11 +280,7 @@ Future<void> showMessageDialog(
         sections: [
           Text(
             message,
-            style: CcType.style(
-              size: 13,
-              color: CcColors.textSecondary,
-              height: 1.5,
-            ),
+            style: CcType.style(size: 13, color: CcColors.textSecondary, height: 1.5),
           ),
         ],
         actions: [CcButton(label: closeLabel, onPressed: finish)],

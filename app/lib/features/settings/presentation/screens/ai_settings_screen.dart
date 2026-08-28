@@ -37,6 +37,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late String _speechModelId;
   bool _keyTouched = false;
   bool _testing = false;
+  bool _saving = false;
   String? _testResult;
   bool _testOk = false;
   bool _modelInstalled = false;
@@ -121,9 +122,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _testing = true;
       _testResult = null;
     });
-    final provider = AiSettings.buildProvider(
+    final enteredKey = _key.text.trim();
+    final provider = _settings.createDraftProvider(
       _draft(),
-      _keyTouched ? _key.text.trim() : null,
+      apiKey: enteredKey.isEmpty ? null : enteredKey,
     );
     if (provider == null) {
       setState(() {
@@ -155,6 +157,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
+    setState(() {
+      _saving = true;
+      _testResult = null;
+    });
     final editor = _editor;
     if (editor != null) {
       editor
@@ -165,11 +172,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (_outputDevice.isNotEmpty) editor.setOutputDevice(_outputDevice);
     }
     AppSession.instance.proxies.enabled = _generateProxies;
-    if (_settings.config != null || _aiTouched || _keyTouched) {
-      await _settings.save(
+    final enteredKey = _key.text.trim();
+    if (_settings.config != null ||
+        _aiTouched ||
+        _keyTouched ||
+        enteredKey.isNotEmpty) {
+      final result = await _settings.save(
         _draft(),
-        apiKey: _keyTouched ? _key.text.trim() : null,
+        apiKey: enteredKey.isEmpty ? null : enteredKey,
       );
+      if (!result.ok) {
+        if (mounted) {
+          setState(() {
+            _section = _SettingsSection.ai;
+            _testOk = false;
+            _testResult = result.error;
+            _saving = false;
+          });
+        }
+        return;
+      }
     }
     if (mounted) context.router.maybePop();
   }
@@ -193,6 +215,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         body: _section == _SettingsSection.ai ? null : _sectionBody(),
         sections: [
           const _Explainer(),
+          _AiReadiness(
+            providerReady: _settings.configured,
+            modelReady: _modelInstalled,
+            needsKey: _descriptor.needsKey,
+            hasKey: _settings.hasKey,
+          ),
           CcField(
             label: 'Provider',
             child: Column(
@@ -363,7 +391,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               kind: CcButtonKind.secondary,
               onPressed: _testing ? null : _test,
             ),
-          CcButton(label: 'Save', onPressed: _save),
+          CcButton(
+            label: _saving ? 'Saving…' : 'Save',
+            onPressed: _saving ? null : _save,
+          ),
         ],
       ),
     );
@@ -878,6 +909,90 @@ class _ShortcutsSettings extends StatelessWidget {
               ),
           ],
         ),
+      ],
+    );
+  }
+}
+
+class _AiReadiness extends StatelessWidget {
+  const _AiReadiness({
+    required this.providerReady,
+    required this.modelReady,
+    required this.needsKey,
+    required this.hasKey,
+  });
+
+  final bool providerReady;
+  final bool modelReady;
+  final bool needsKey;
+  final bool hasKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final ready = providerReady && modelReady;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: ready ? CcColors.audioPlate : CcColors.elevated,
+        borderRadius: CcRadius.brMd,
+        border: Border.all(
+          color: ready ? CcColors.success : CcColors.borderStrong,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ReadinessRow(
+            ready: providerReady,
+            label:
+                providerReady
+                    ? 'Provider configured'
+                    : needsKey && !hasKey
+                    ? 'API key is not stored'
+                    : 'Provider setup is incomplete',
+          ),
+          const SizedBox(height: 8),
+          _ReadinessRow(
+            ready: modelReady,
+            label:
+                modelReady
+                    ? 'Speech model installed'
+                    : 'Speech model download required',
+          ),
+          const SizedBox(height: 10),
+          Text(
+            ready
+                ? 'Ready. Open a project containing a clip with audio and use the sparkle button to Find shorts.'
+                : 'Both items are required before CrazyCut can Find shorts.',
+            style: CcType.style(
+              size: 11,
+              color: ready ? CcColors.success : CcColors.textTertiary,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReadinessRow extends StatelessWidget {
+  const _ReadinessRow({required this.ready, required this.label});
+
+  final bool ready;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        CcIcon(
+          ready ? LucideIcons.circleCheck : LucideIcons.circleAlert,
+          size: 15,
+          color: ready ? CcColors.success : CcColors.warning,
+        ),
+        const SizedBox(width: 8),
+        Text(label, style: CcType.body),
       ],
     );
   }

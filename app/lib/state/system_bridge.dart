@@ -1,10 +1,20 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+/// Minimal secret-store contract used by AI settings. Keeping this boundary
+/// explicit lets tests prove persistence failures without touching a real
+/// keychain.
+abstract interface class SecretStore {
+  String? get lastSecretError;
+  Future<bool> storeSecret(String account, String secret);
+  Future<String?> readSecret(String account);
+  Future<void> deleteSecret(String account);
+}
+
 /// Talks to the host app about things only the OS can do: telling it exports
 /// are in flight so quitting asks first (EXP-12), keeping the machine awake
 /// mid-render, and holding secrets in the OS keychain (AI-3).
-class SystemBridge {
+class SystemBridge implements SecretStore {
   SystemBridge._();
 
   static final SystemBridge instance = SystemBridge._();
@@ -15,6 +25,10 @@ class SystemBridge {
   VoidCallback? onCancelExports;
 
   bool _installed = false;
+  String? _lastSecretError;
+
+  @override
+  String? get lastSecretError => _lastSecretError;
 
   void _install() {
     if (_installed) return;
@@ -48,23 +62,35 @@ class SystemBridge {
   ///
   /// API keys never touch a project file, preferences, a log, or the
   /// diagnostics bundle — the keychain is the only place they live.
+  @override
   Future<bool> storeSecret(String account, String secret) async {
     _install();
+    _lastSecretError = null;
     try {
       final ok = await _channel.invokeMethod<bool>('storeSecret', {
         'account': account,
         'secret': secret,
       });
-      return ok ?? false;
+      if (ok == true) return true;
+      _lastSecretError = 'macOS did not accept the keychain item.';
+      return false;
     } on MissingPluginException {
+      _lastSecretError =
+          'The macOS keychain bridge is unavailable. Restart CrazyCut after rebuilding.';
+      return false;
+    } on PlatformException catch (e) {
+      _lastSecretError = e.message ?? 'macOS rejected the keychain item.';
+      debugPrint('keychain write failed (${e.code}): $_lastSecretError');
       return false;
     } catch (e) {
+      _lastSecretError = 'The system keychain returned an unexpected error.';
       debugPrint('keychain write failed: $e');
       return false;
     }
   }
 
   /// Reads a secret back, or null when there is none (or no keychain here).
+  @override
   Future<String?> readSecret(String account) async {
     _install();
     try {
@@ -79,6 +105,7 @@ class SystemBridge {
     }
   }
 
+  @override
   Future<void> deleteSecret(String account) async {
     _install();
     try {

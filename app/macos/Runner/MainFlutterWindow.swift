@@ -29,6 +29,8 @@ class MainFlutterWindow: NSWindow {
     standardWindowButton(.zoomButton)?.isHidden = false
 
     RegisterGeneratedPlugins(registry: flutterViewController)
+    (NSApp.delegate as? AppDelegate)?.configureChannels(
+      with: flutterViewController)
 
     super.awakeFromNib()
   }

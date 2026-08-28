@@ -25,8 +25,14 @@ class AppDelegate: FlutterAppDelegate {
 
   override func applicationDidFinishLaunching(_ notification: Notification) {
     super.applicationDidFinishLaunching(notification)
-    configurePlaybackChannel()
-    configureSystemChannel()
+  }
+
+  /// Called by MainFlutterWindow immediately after it creates the controller.
+  /// Registering channels here avoids a launch-order race where the app
+  /// delegate can run before its Flutter controller outlet is usable.
+  func configureChannels(with controller: FlutterViewController) {
+    configurePlaybackChannel(with: controller)
+    configureSystemChannel(with: controller)
   }
 
   // MARK: - Termination and export protection
@@ -62,8 +68,8 @@ class AppDelegate: FlutterAppDelegate {
 
   // MARK: - System channel
 
-  private func configureSystemChannel() {
-    guard let controller = flutterViewController else { return }
+  private func configureSystemChannel(with controller: FlutterViewController) {
+    guard systemChannel == nil else { return }
     let registrar = controller.registrar(forPlugin: "CrazyCutSystem")
     let channel = FlutterMethodChannel(
       name: "dev.crazycut/system",
@@ -96,7 +102,17 @@ class AppDelegate: FlutterAppDelegate {
         result(false)
         return
       }
-      result(Keychain.store(account: account, secret: secret))
+      let status = Keychain.store(account: account, secret: secret)
+      guard status == errSecSuccess else {
+        let message = SecCopyErrorMessageString(status, nil) as String?
+          ?? "The system keychain rejected the item."
+        result(FlutterError(
+          code: "keychain-write-\(status)",
+          message: message,
+          details: status))
+        return
+      }
+      result(true)
     case "readSecret":
       guard let args = call.arguments as? [String: Any],
         let account = args["account"] as? String
@@ -132,13 +148,13 @@ class AppDelegate: FlutterAppDelegate {
       ]
     }
 
-    static func store(account: String, secret: String) -> Bool {
-      guard let data = secret.data(using: .utf8) else { return false }
+    static func store(account: String, secret: String) -> OSStatus {
+      guard let data = secret.data(using: .utf8) else { return errSecParam }
       SecItemDelete(query(account) as CFDictionary)
       var item = query(account)
       item[kSecValueData as String] = data
       item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-      return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
+      return SecItemAdd(item as CFDictionary, nil)
     }
 
     static func read(account: String) -> String? {
@@ -176,12 +192,8 @@ class AppDelegate: FlutterAppDelegate {
 
   // MARK: - Playback channel
 
-  private var flutterViewController: FlutterViewController? {
-    mainFlutterWindow?.contentViewController as? FlutterViewController
-  }
-
-  private func configurePlaybackChannel() {
-    guard let controller = flutterViewController else { return }
+  private func configurePlaybackChannel(with controller: FlutterViewController) {
+    guard playbackChannel == nil else { return }
     let registrar = controller.registrar(forPlugin: "CrazyCutNativePlayback")
     playbackTexture = NativePlaybackTexture(registry: registrar.textures)
 

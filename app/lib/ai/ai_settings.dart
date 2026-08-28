@@ -155,12 +155,12 @@ class AiConfig {
 
 /// Holds the live configuration and hands out providers.
 class AiSettings extends ChangeNotifier {
-  AiSettings({SystemBridge? bridge, this.storageDirOverride})
+  AiSettings({SecretStore? bridge, this.storageDirOverride})
     : _bridge = bridge ?? SystemBridge.instance;
 
   static final AiSettings instance = AiSettings();
 
-  final SystemBridge _bridge;
+  final SecretStore _bridge;
   final Directory? storageDirOverride;
 
   AiConfig? _config;
@@ -228,29 +228,51 @@ class AiSettings extends ChangeNotifier {
 
   /// Saves configuration, and the key when one was entered. Passing null for
   /// [apiKey] leaves any stored key alone; passing an empty string clears it.
-  Future<void> save(AiConfig config, {String? apiKey}) async {
-    _config = config;
+  Future<AiSettingsSaveResult> save(AiConfig config, {String? apiKey}) async {
     try {
       final file = await _configFile();
       await file.parent.create(recursive: true);
       await file.writeAsString(jsonEncode(config.toJson()));
     } catch (e) {
       debugPrint('could not write AI config: $e');
+      return const AiSettingsSaveResult.failure(
+        'CrazyCut could not save the AI configuration.',
+      );
     }
 
+    String? nextKey;
     if (apiKey != null) {
       final account = _keyAccount(config.providerId);
       if (apiKey.isEmpty) {
         await _bridge.deleteSecret(account);
-        _key = null;
       } else {
-        await _bridge.storeSecret(account, apiKey);
-        _key = apiKey;
+        final stored = await _bridge.storeSecret(account, apiKey);
+        if (!stored) {
+          _config = config;
+          _key = null;
+          notifyListeners();
+          return AiSettingsSaveResult.failure(
+            _bridge.lastSecretError ??
+                'The API key could not be stored in the system keychain.',
+          );
+        }
+        nextKey = apiKey;
       }
     } else if (descriptorFor(config.providerId)?.needsKey ?? false) {
-      _key = await _bridge.readSecret(_keyAccount(config.providerId));
+      nextKey = await _bridge.readSecret(_keyAccount(config.providerId));
+      if (nextKey == null || nextKey.isEmpty) {
+        _config = config;
+        _key = null;
+        notifyListeners();
+        return const AiSettingsSaveResult.failure(
+          'Enter an API key before saving this provider.',
+        );
+      }
     }
+    _config = config;
+    _key = nextKey;
     notifyListeners();
+    return const AiSettingsSaveResult.success();
   }
 
   Future<void> clear() async {
@@ -277,12 +299,23 @@ class AiSettings extends ChangeNotifier {
     return buildProvider(c, _key);
   }
 
+  /// Builds a provider for an edited settings draft. When the provider has not
+  /// changed, a credential already loaded from the keychain is reused without
+  /// exposing it to the settings screen.
+  LlmProvider? createDraftProvider(AiConfig config, {String? apiKey}) {
+    final storedKey = config.providerId == _config?.providerId ? _key : null;
+    return buildProvider(config, apiKey ?? storedKey);
+  }
+
   /// Pure factory, exposed so the settings screen can test a configuration
   /// before committing it.
   static LlmProvider? buildProvider(AiConfig config, String? apiKey) {
     final descriptor = descriptorFor(config.providerId);
     if (descriptor == null) return null;
-    final caps = _applyOverrides(descriptor.defaults, config.capabilityOverrides);
+    final caps = _applyOverrides(
+      descriptor.defaults,
+      config.capabilityOverrides,
+    );
 
     switch (config.providerId) {
       case 'ollama':
@@ -322,4 +355,13 @@ class AiSettings extends ChangeNotifier {
       contextWindow: base.contextWindow,
     );
   }
+}
+
+@immutable
+class AiSettingsSaveResult {
+  const AiSettingsSaveResult.success() : error = null;
+  const AiSettingsSaveResult.failure(this.error);
+
+  final String? error;
+  bool get ok => error == null;
 }

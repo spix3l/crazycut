@@ -5,7 +5,35 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:crazycut_app/ai/ai_settings.dart';
+import 'package:crazycut_app/ai/providers/openai_compatible_provider.dart';
 import 'package:crazycut_app/features/editor/presentation/widgets/editor_toolbar.dart';
+import 'package:crazycut_app/state/system_bridge.dart';
+
+class FakeSecretStore implements SecretStore {
+  FakeSecretStore({this.failWrites = false});
+
+  final bool failWrites;
+  final Map<String, String> values = {};
+
+  @override
+  String? get lastSecretError =>
+      failWrites ? 'The test keychain rejected the credential.' : null;
+
+  @override
+  Future<bool> storeSecret(String account, String secret) async {
+    if (failWrites) return false;
+    values[account] = secret;
+    return true;
+  }
+
+  @override
+  Future<String?> readSecret(String account) async => values[account];
+
+  @override
+  Future<void> deleteSecret(String account) async {
+    values.remove(account);
+  }
+}
 
 Future<void> pumpToolbar(WidgetTester tester, {VoidCallback? onFindShorts}) =>
     tester.pumpWidget(
@@ -70,7 +98,8 @@ void main() {
     });
 
     test('a key-requiring provider stays off until a key is given', () async {
-      final settings = AiSettings(storageDirOverride: dir);
+      final secrets = FakeSecretStore();
+      final settings = AiSettings(storageDirOverride: dir, bridge: secrets);
       const config = AiConfig(
         providerId: 'openai-compatible',
         baseUrl: 'https://api.openai.com/v1',
@@ -83,8 +112,62 @@ void main() {
         reason: 'no key was supplied and this provider needs one',
       );
 
-      await settings.save(config, apiKey: 'sk-test');
+      final result = await settings.save(config, apiKey: 'sk-test');
+      expect(result.ok, isTrue);
       expect(settings.configured, isTrue);
+    });
+
+    test('a failed keychain write is reported and leaves AI off', () async {
+      final settings = AiSettings(
+        storageDirOverride: dir,
+        bridge: FakeSecretStore(failWrites: true),
+      );
+      final result = await settings.save(
+        const AiConfig(
+          providerId: 'openai-compatible',
+          baseUrl: 'https://api.openai.com/v1',
+          model: 'gpt-4o',
+        ),
+        apiKey: 'sk-test',
+      );
+
+      expect(result.ok, isFalse);
+      expect(result.error, contains('keychain'));
+      expect(settings.configured, isFalse);
+    });
+
+    test('a stored key is reused by test-connection drafts', () async {
+      final secrets = FakeSecretStore();
+      final settings = AiSettings(storageDirOverride: dir, bridge: secrets);
+      const config = AiConfig(
+        providerId: 'openai-compatible',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+      );
+      await settings.save(config, apiKey: 'sk-persisted');
+
+      final provider = settings.createDraftProvider(config);
+      expect(provider, isA<OpenAiCompatibleProvider>());
+      expect((provider! as OpenAiCompatibleProvider).apiKey, 'sk-persisted');
+      provider.dispose();
+    });
+
+    test('a keyed provider survives a restart', () async {
+      final secrets = FakeSecretStore();
+      const config = AiConfig(
+        providerId: 'openai-compatible',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+      );
+      await AiSettings(
+        storageDirOverride: dir,
+        bridge: secrets,
+      ).save(config, apiKey: 'sk-persisted');
+
+      final reopened = AiSettings(storageDirOverride: dir, bridge: secrets);
+      await reopened.load();
+      expect(reopened.configured, isTrue);
+      expect(reopened.hasKey, isTrue);
     });
 
     test('survives a restart', () async {
