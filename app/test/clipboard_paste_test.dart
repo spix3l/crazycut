@@ -163,12 +163,17 @@ void main() {
     );
   });
 
-  test('a clipboard untouched since a clip copy loses to the clip', () async {
-    clipboard.media = ClipboardMedia(image: redDot, sequence: 4);
+  /// Copies a clip and waits for the clipboard mark the copy takes.
+  Future<void> copyAClip() async {
     c.addTextClip();
     c.copySelection();
     // The mark is taken asynchronously, as copying does not block on the OS.
     await Future<void>.delayed(Duration.zero);
+  }
+
+  test('a clipboard untouched since a clip copy loses to the clip', () async {
+    clipboard.media = ClipboardMedia(image: redDot, sequence: 4);
+    await copyAClip();
 
     expect(
       (await c.importFromClipboard(onlyIfNewerThanCopy: true)).kind,
@@ -182,6 +187,49 @@ void main() {
       (await c.importFromClipboard(onlyIfNewerThanCopy: true)).kind,
       ClipboardImportKind.image,
     );
+  });
+
+  test('a host with no clipboard generation always yields to clips', () async {
+    // Every read looks "new" without a counter, so the timeline must win by
+    // default or a stale clipboard would hijack every paste.
+    clipboard.media = ClipboardMedia(image: redDot);
+    await copyAClip();
+
+    expect(
+      (await c.importFromClipboard(onlyIfNewerThanCopy: true)).kind,
+      ClipboardImportKind.nothing,
+    );
+  });
+
+  test('a mark still in flight yields to clips', () async {
+    clipboard.media = ClipboardMedia(image: redDot, sequence: 4);
+    await copyAClip();
+    // A second copy whose mark has not come back yet: the stale mark must not
+    // read as "the clipboard moved on".
+    clipboard.media = ClipboardMedia(image: redDot, sequence: 9);
+    c.copySelection();
+
+    expect(
+      (await c.importFromClipboard(onlyIfNewerThanCopy: true)).kind,
+      ClipboardImportKind.nothing,
+    );
+  });
+
+  test('text on the clipboard never beats a clip copy', () async {
+    await copyAClip();
+    // A URL left lying around is the likeliest thing on a clipboard; it must
+    // not turn every Cmd+V into an import.
+    clipboard.media = const ClipboardMedia(
+      text: 'https://example.com/clip.mp4',
+      sequence: 12,
+    );
+
+    expect(
+      (await c.importFromClipboard(onlyIfNewerThanCopy: true)).kind,
+      ClipboardImportKind.nothing,
+    );
+    // The explicit paste still takes it, and so does Cmd+V before any copy.
+    expect(c.hasClipboard, isTrue);
   });
 
   test('pasted files land in order at the playhead', () async {

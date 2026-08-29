@@ -745,17 +745,19 @@ class EditorController extends ChangeNotifier
   ///
   /// Returns [ClipboardImportKind.nothing] when the clipboard has nothing the
   /// editor wants, so Cmd+V can fall through to the timeline's own paste.
-  /// With [onlyIfNewerThanCopy] the fall-through also wins whenever the
-  /// clipboard has not changed since clips were copied inside the app —
-  /// otherwise an hour-old screenshot would beat the copy the user just made.
+  ///
+  /// [onlyIfNewerThanCopy] is for that shared Cmd+V, and it is deliberately
+  /// hard to satisfy: once clips have been copied inside the app the keystroke
+  /// stays theirs unless real media — a file or a bitmap, never text — landed
+  /// on the system clipboard *after* the copy, proven by the host's clipboard
+  /// generation. Anything less certain (no generation counter, a mark still in
+  /// flight, a URL sitting there since this morning) pastes the clips, because
+  /// a clip paste that silently turned into an import is the worse failure.
   Future<ClipboardImportResult> importFromClipboard({
     bool onlyIfNewerThanCopy = false,
   }) async {
     final media = await clipboard.read();
-    if (onlyIfNewerThanCopy &&
-        hasClipboard &&
-        media.sequence != null &&
-        media.sequence == _clipboardSequence) {
+    if (onlyIfNewerThanCopy && hasClipboard && !_beatsClipCopy(media)) {
       return const ClipboardImportResult(ClipboardImportKind.nothing);
     }
 
@@ -881,11 +883,28 @@ class EditorController extends ChangeNotifier
         uri.host.isNotEmpty;
   }
 
+  /// Whether [media] outranks the clips sitting on the app's own clipboard.
+  ///
+  /// Both generations have to be known and different: the host must have a
+  /// counter, the mark taken at copy time must have arrived, and the clipboard
+  /// must have moved since. Text never qualifies however new it is — a URL is
+  /// the thing most likely to be left lying on a clipboard, and it must not
+  /// hijack every paste that follows.
+  bool _beatsClipCopy(ClipboardMedia media) {
+    if (!media.hasMedia) return false;
+    final mark = _clipboardSequence;
+    return mark != null && media.sequence != null && media.sequence != mark;
+  }
+
   /// Copying clips inside the app records where the system clipboard stood, so
   /// a later paste can tell whether the user has copied something new since.
   @override
   void copySelection() {
     super.copySelection();
+    // Cleared synchronously: asking the host costs a channel round-trip, and
+    // until the answer lands the previous copy's mark would read as "the
+    // clipboard has moved on since" for a copy that just happened.
+    _clipboardSequence = null;
     unawaited(_markClipboard());
   }
 

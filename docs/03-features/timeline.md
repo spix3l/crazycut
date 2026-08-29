@@ -40,7 +40,7 @@ A real multi-track NLE timeline that feels weightless: unlimited video/audio tra
 
 ### Selection & clipboard
 - **TIM-16** Selection: click, Shift-click add, marquee (drag empty space), Select All (Cmd+A, per track with track-header click → select track clips), invert. Selected clip outlines glow accent color.
-- **TIM-17** Copy/paste (Cmd+C/V): pastes at playhead on original track(s), magnetic push. Cmd+V is shared with media paste (IMP-1) and yields to it only when the system clipboard has changed since the last in-app copy. Copy also captures the primary clip's look/audio settings; Paste Settings (Alt+Cmd+V) applies compatible transform, blend, effects, and audio controls to the selected unlocked clips.
+- **TIM-17** Copy/paste (Cmd+C/V): pastes at playhead on original track(s), magnetic push. Cmd+V is shared with media paste (IMP-1), which yields to a clip copy unless the host proves a file or bitmap reached the system clipboard after that copy. Copy also captures the primary clip's look/audio settings; Paste Settings (Alt+Cmd+V) applies compatible transform, blend, effects, and audio controls to the selected unlocked clips.
 - **TIM-18** Multi-select operations apply to all selected: move, trim (each edge independently), delete, split, group ops.
 
 ### Speed (basic)
