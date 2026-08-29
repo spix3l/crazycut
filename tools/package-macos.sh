@@ -331,7 +331,11 @@ notarize_args=()
 if [[ -n "${CC_NOTARY_PROFILE:-}" ]]; then
   notarize_args=(--keychain-profile "$CC_NOTARY_PROFILE")
 elif [[ -n "${CC_NOTARY_KEY_ID:-}" && -n "${CC_NOTARY_ISSUER:-}" && -n "${CC_NOTARY_KEY:-}" ]]; then
-  notarize_args=(--key "$CC_NOTARY_KEY" --key-id "$CC_NOTARY_KEY_ID" --issuer "$CC_NOTARY_ISSUER")
+  # The script changed directory for the Flutter build, so a relative key
+  # path from the caller resolves against the repo root, not the CWD.
+  notary_key="$CC_NOTARY_KEY"
+  [[ "$notary_key" == /* ]] || notary_key="$repo_root/$notary_key"
+  notarize_args=(--key "$notary_key" --key-id "$CC_NOTARY_KEY_ID" --issuer "$CC_NOTARY_ISSUER")
 fi
 
 if [[ ${#notarize_args[@]} -gt 0 ]]; then

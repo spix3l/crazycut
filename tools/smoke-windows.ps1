@@ -20,6 +20,17 @@ if (-not $Fixture) {
   $Fixture = Join-Path $repoRoot "fixtures\media\sample.mp4"
 }
 $Bundle = (Resolve-Path $Bundle).Path
+if (-not (Test-Path $Fixture -PathType Leaf)) {
+  # CI checkouts carry no generated fixture; synthesize the same clip
+  # tools/make-fixture.sh writes locally (ffmpeg is on PATH in CI).
+  New-Item -ItemType Directory -Force (Split-Path -Parent $Fixture) | Out-Null
+  ffmpeg -y -hide_banner -loglevel error `
+    -f lavfi -i "testsrc2=size=640x360:rate=30:duration=10" `
+    -f lavfi -i "sine=frequency=440:duration=10" `
+    -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p `
+    -c:a aac -b:a 128k `
+    $Fixture
+}
 $Fixture = (Resolve-Path $Fixture).Path
 
 $requiredFiles = @(
