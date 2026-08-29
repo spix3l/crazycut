@@ -123,6 +123,7 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
     final file = await openFile(acceptedTypeGroups: types);
     if (file == null) return;
     try {
+      await AppSession.instance.rememberProjectLocation(file.path);
       await AppSession.instance.openPath(file.path);
     } on Object catch (error) {
       if (!mounted) return;

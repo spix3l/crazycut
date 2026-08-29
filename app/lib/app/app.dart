@@ -71,6 +71,7 @@ class _CrazyCutAppState extends State<CrazyCutApp> {
     ];
     final file = await openFile(acceptedTypeGroups: types);
     if (file == null) return;
+    await AppSession.instance.rememberProjectLocation(file.path);
     await AppSession.instance.openPath(file.path);
     _router.replace(const EditorRoute());
   }

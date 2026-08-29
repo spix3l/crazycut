@@ -216,6 +216,7 @@ class MediaAsset {
     this.remoteEtag,
     this.remoteLastModified,
     this.remoteContentLength,
+    this.bookmark,
     this.offline = false,
     Map<String, dynamic>? extra,
   }) : extra = extra ?? {};
@@ -256,6 +257,7 @@ class MediaAsset {
       remoteContentLength:
           ((j['remote'] as Map<String, dynamic>?)?['contentLength'] as num?)
               ?.toInt(),
+      bookmark: j['bookmark'] as String?,
       extra: _unknown(j, {
         'id',
         'hash',
@@ -269,6 +271,7 @@ class MediaAsset {
         'thumbStatus',
         'sourceKind',
         'remote',
+        'bookmark',
       }),
     );
   }
@@ -296,6 +299,11 @@ class MediaAsset {
   String? remoteEtag;
   String? remoteLastModified;
   int? remoteContentLength;
+
+  /// macOS security-scoped bookmark for [path], so a file picked once stays
+  /// readable after the sandboxed app relaunches (IMP-15 offline detection
+  /// would otherwise misreport untouched files as missing).
+  String? bookmark;
 
   bool get isRemote => sourceKind == MediaSourceKind.url;
 
@@ -346,6 +354,7 @@ class MediaAsset {
     'proxyPath': proxyPath,
     'thumbStatus': thumbStatus.name,
     if (sourceKind != MediaSourceKind.file) 'sourceKind': sourceKind.name,
+    if (bookmark != null) 'bookmark': bookmark,
     if (isRemote)
       'remote': {
         if (remoteEtag != null) 'etag': remoteEtag,

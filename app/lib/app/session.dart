@@ -7,6 +7,7 @@ import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/data/repository.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
 import 'package:crazycut_app/state/proxy_service.dart';
+import 'package:crazycut_app/state/security_scoped_bookmarks.dart';
 
 /// App-scoped editing session: which project is open, its controller, and the
 /// recent-projects list (PRJ-4). Routes read this instead of threading models
@@ -48,9 +49,40 @@ class AppSession extends ChangeNotifier {
   }
 
   Future<ProjectDoc> openPath(String projectPath) async {
-    final doc = ProjectRepository.load(projectPath);
-    await open(doc, projectPath);
+    final resolved = await _restoreProjectAccess(projectPath);
+    final doc = ProjectRepository.load(resolved);
+    await open(doc, resolved);
     return doc;
+  }
+
+  /// Call right after the user picks a project file outside CrazyCut's own
+  /// project folder (open, "save a copy") so it stays reachable across
+  /// relaunches: a `.crazycut` there only lives inside the app's sandboxed
+  /// container when it was created with "New Project", and the sandbox only
+  /// grants access to an externally-picked path for the run it was picked in.
+  Future<void> rememberProjectLocation(String projectPath) async {
+    final bookmark = await SecurityScopedBookmarks.create(projectPath);
+    if (bookmark == null) return;
+    final bookmarks = await _readBookmarks();
+    bookmarks[projectPath] = bookmark;
+    await _writeBookmarks(bookmarks);
+  }
+
+  /// Resolves a stored bookmark for [projectPath], if there is one, so a
+  /// lapsed sandbox grant doesn't make an untouched project unreadable.
+  /// Returns the path to actually open — the bookmark's own if it moved.
+  Future<String> _restoreProjectAccess(String projectPath) async {
+    final bookmarks = await _readBookmarks();
+    final bookmark = bookmarks[projectPath];
+    if (bookmark == null) return projectPath;
+    final resolved = await SecurityScopedBookmarks.resolve(bookmark);
+    if (resolved == null) return projectPath;
+    if (resolved.refreshedBookmark != null || resolved.path != projectPath) {
+      bookmarks.remove(projectPath);
+      bookmarks[resolved.path] = resolved.refreshedBookmark ?? bookmark;
+      await _writeBookmarks(bookmarks);
+    }
+    return resolved.path;
   }
 
   Future<ProjectDoc> createNew({
@@ -91,20 +123,63 @@ class AppSession extends ChangeNotifier {
     return File('${dir.path}${Platform.pathSeparator}.recents.json');
   }
 
+  // --- Project-path bookmarks -----------------------------------------------
+  //
+  // Keyed by absolute project path, alongside the recents file so both are
+  // always inside the app's own sandboxed container and never need a
+  // bookmark themselves.
+
+  Future<File> _projectBookmarksFile() async {
+    final dir = await ProjectRepository.projectsDir();
+    return File('${dir.path}${Platform.pathSeparator}.bookmarks.json');
+  }
+
+  Future<Map<String, String>> _readBookmarks() async {
+    try {
+      final file = await _projectBookmarksFile();
+      if (!file.existsSync()) return {};
+      final decoded = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      return decoded.cast<String, String>();
+    } on Object {
+      return {};
+    }
+  }
+
+  Future<void> _writeBookmarks(Map<String, String> bookmarks) async {
+    try {
+      await (await _projectBookmarksFile()).writeAsString(jsonEncode(bookmarks));
+    } on Object {
+      // Best effort, same as the recents file.
+    }
+  }
+
+  Future<void> _forgetProjectLocation(String projectPath) async {
+    final bookmarks = await _readBookmarks();
+    if (bookmarks.remove(projectPath) == null) return;
+    await _writeBookmarks(bookmarks);
+  }
+
   Future<void> loadRecents() async {
     try {
       final file = await _recentsFile();
       if (!file.existsSync()) return;
       final stored =
           (jsonDecode(await file.readAsString()) as List<dynamic>).cast<String>();
-      final live = stored.where((p) => File(p).existsSync()).toList();
+      // A bookmarked entry may only look gone because its sandbox grant
+      // lapsed over a relaunch; re-resolving it before the existence check
+      // is what keeps that project from being pruned out from under the user.
+      final live = <String>[];
+      for (final storedPath in stored) {
+        final path = await _restoreProjectAccess(storedPath);
+        if (File(path).existsSync()) live.add(path);
+      }
       recents
         ..clear()
         ..addAll(live);
       // A project that went away behind our back — trashed in Finder, on a
       // volume that is no longer mounted — leaves its entry behind. Drop it
       // from the file as well, or it outlives the project forever.
-      if (live.length != stored.length) await _writeRecents();
+      if (!listEquals(live, stored)) await _writeRecents();
     } on Object {
       // A broken recents file is not worth surfacing.
     }
@@ -114,6 +189,7 @@ class AppSession extends ChangeNotifier {
   /// recent entry pointing at nothing.
   Future<void> forgetRecent(String projectPath) async {
     if (!recents.remove(projectPath)) return;
+    await _forgetProjectLocation(projectPath);
     await _writeRecents();
   }
 
@@ -122,6 +198,7 @@ class AppSession extends ChangeNotifier {
   Future<void> noteRenamed(String from, String to) async {
     if (from == to) return;
     if (path == from) path = to;
+    await _forgetProjectLocation(from);
     if (!recents.contains(from)) return;
     recents.removeWhere((p) => p == to);
     recents[recents.indexOf(from)] = to;

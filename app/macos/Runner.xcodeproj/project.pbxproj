@@ -30,6 +30,7 @@
 		530D24B73C14DBAFBE721836 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2451FA88EEE7A78F2E347A95 /* Pods_Runner.framework */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		8D7C1A2E2B4F4E0A9C6D2E11 /* NativePlaybackTexture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D7C1A1E2B4F4E0A9C6D2E11 /* NativePlaybackTexture.swift */; };
+		8D7C1A2F2B4F4E0A9C6D2E12 /* SecurityScopedBookmarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D7C1A1F2B4F4E0A9C6D2E12 /* SecurityScopedBookmarks.swift */; };
 		DE40ADF5214C5B3D5EF3FAE9 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B42FD4AC74DC2FA6DC87F533 /* Pods_RunnerTests.framework */; };
 /* End PBXBuildFile section */
 
@@ -86,6 +87,7 @@
 		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		8D7C1A1E2B4F4E0A9C6D2E11 /* NativePlaybackTexture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePlaybackTexture.swift; sourceTree = "<group>"; };
+		8D7C1A1F2B4F4E0A9C6D2E12 /* SecurityScopedBookmarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityScopedBookmarks.swift; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		A11463F2FBFAF03C841B6AD9 /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
 		A46E1A5D8AA2A060D08D1041 /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
@@ -183,6 +185,7 @@
 			children = (
 				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
 				8D7C1A1E2B4F4E0A9C6D2E11 /* NativePlaybackTexture.swift */,
+				8D7C1A1F2B4F4E0A9C6D2E12 /* SecurityScopedBookmarks.swift */,
 				33CC11122044BFA00003C045 /* MainFlutterWindow.swift */,
 				33E51913231747F40026EE4D /* DebugProfile.entitlements */,
 				33E51914231749380026EE4D /* Release.entitlements */,
@@ -452,6 +455,7 @@
 				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
 				8D7C1A2E2B4F4E0A9C6D2E11 /* NativePlaybackTexture.swift in Sources */,
+				8D7C1A2F2B4F4E0A9C6D2E12 /* SecurityScopedBookmarks.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

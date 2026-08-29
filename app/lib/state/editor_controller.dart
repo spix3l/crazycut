@@ -26,6 +26,7 @@ import 'package:crazycut_app/state/preview_renderer.dart';
 import 'package:crazycut_app/state/project_tools.dart';
 import 'package:crazycut_app/state/proxy_service.dart';
 import 'package:crazycut_app/state/media_url_service.dart';
+import 'package:crazycut_app/state/security_scoped_bookmarks.dart';
 import 'package:crazycut_app/state/svg_rasterizer.dart';
 import 'package:crazycut_app/state/template_edits.dart';
 import 'package:crazycut_app/state/text_rasterizer.dart';
@@ -185,8 +186,33 @@ class EditorController extends ChangeNotifier
     }
     migrateLegacyTextAnimations();
     _syncEngineGraph();
+    unawaited(_restoreFileAccess());
     unawaited(_prepareMedia());
     unawaited(_bootRenderer());
+  }
+
+  /// macOS only grants access to a picked file for the run it was picked in;
+  /// re-resolving each offline asset's stored [MediaAsset.bookmark] re-grants
+  /// it for files that never actually moved, so they don't get stuck reading
+  /// as missing after every relaunch.
+  Future<void> _restoreFileAccess() async {
+    var changed = false;
+    for (final asset in doc.media) {
+      if (!asset.offline || asset.isRemote) continue;
+      final bookmark = asset.bookmark;
+      if (bookmark == null || bookmark.isEmpty) continue;
+      final resolved = await SecurityScopedBookmarks.resolve(bookmark);
+      if (resolved == null || !File(resolved.path).existsSync()) continue;
+      asset.path = resolved.path;
+      if (resolved.refreshedBookmark != null) {
+        asset.bookmark = resolved.refreshedBookmark;
+      }
+      asset.offline = false;
+      pool[asset.id]?.status = ImportStatus.ready;
+      proxies.request(asset);
+      changed = true;
+    }
+    if (changed) notifyListeners();
   }
 
   @override
@@ -586,6 +612,7 @@ class EditorController extends ChangeNotifier
         duration: Rt.zero(),
         hasAudio: !svg,
       );
+      asset.bookmark = await SecurityScopedBookmarks.create(path);
       pool[asset.id] = PoolItem(asset: asset);
       notifyListeners();
       try {
@@ -1120,6 +1147,7 @@ class EditorController extends ChangeNotifier
     if (asset == null) return;
     asset.path = newPath;
     asset.sourceKind = MediaSourceKind.file;
+    asset.bookmark = await SecurityScopedBookmarks.create(newPath);
     asset
       ..remoteEtag = null
       ..remoteLastModified = null

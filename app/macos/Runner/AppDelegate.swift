@@ -121,6 +121,24 @@ class AppDelegate: FlutterAppDelegate {
         return
       }
       result(Keychain.read(account: account))
+    case "bookmarkCreate":
+      guard let args = call.arguments as? [String: Any],
+        let path = args["path"] as? String
+      else {
+        result(FlutterError(
+          code: "bad_args", message: "bookmarkCreate requires path", details: nil))
+        return
+      }
+      result(SecurityScopedBookmarks.create(path: path))
+    case "bookmarkResolve":
+      guard let args = call.arguments as? [String: Any],
+        let bookmark = args["bookmark"] as? String
+      else {
+        result(FlutterError(
+          code: "bad_args", message: "bookmarkResolve requires bookmark", details: nil))
+        return
+      }
+      result(SecurityScopedBookmarks.resolve(base64: bookmark))
     case "readClipboardMedia":
       result(Clipboard.read())
     case "clipboardSequence":
