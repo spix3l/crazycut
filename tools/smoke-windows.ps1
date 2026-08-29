@@ -205,9 +205,16 @@ try {
   } | ConvertTo-Json -Depth 5 | Set-Content -Path $jobPath -Encoding utf8NoBOM
 
   $worker = Join-Path $Bundle "crazycut_worker.exe"
-  $workerLog = & $worker --job $jobPath 2>&1
+  # A freshly written exe can trip over real-time AV scanning on CI runners
+  # and die before printing anything; give it a couple of tries.
+  $workerLog = @()
+  foreach ($attempt in 1..3) {
+    $workerLog = & $worker --job $jobPath 2>&1
+    if ($LASTEXITCODE -eq 0) { break }
+    Start-Sleep -Seconds 2
+  }
   if ($LASTEXITCODE -ne 0) {
-    throw "worker export failed:`n$($workerLog -join [Environment]::NewLine)"
+    throw "worker export failed (exit $LASTEXITCODE):`n$($workerLog -join [Environment]::NewLine)"
   }
   if (-not (Test-Path $output -PathType Leaf) -or (Get-Item $output).Length -lt 1000) {
     throw "worker did not produce a valid-sized output"

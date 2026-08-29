@@ -32,7 +32,9 @@ if (-not $env:FFMPEG_DIR) {
 
 if (-not $SkipEngineBuild) {
   Write-Host "==> Building engine (Release)"
-  cmake -S "$repoRoot\engine" -B "$engineBuild" -DCMAKE_BUILD_TYPE=Release -DCC_BUILD_TESTS=OFF | Out-Null
+  # Whisper stays off on Windows, matching the CI-tested configuration and
+  # keeping the packaged worker free of ggml/whisper runtime dependencies.
+  cmake -S "$repoRoot\engine" -B "$engineBuild" -DCMAKE_BUILD_TYPE=Release -DCC_BUILD_TESTS=OFF -DCC_WITH_WHISPER=OFF | Out-Null
   cmake --build "$engineBuild" --config Release -j
   if ($LASTEXITCODE -ne 0) { throw "engine build failed" }
 } else {
