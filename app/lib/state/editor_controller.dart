@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 
 import 'package:crazycut_app/data/autosave.dart';
 import 'package:crazycut_app/data/caption.dart';
+import 'package:crazycut_app/data/cache_dir.dart';
 import 'package:crazycut_app/data/media_cache.dart';
 import 'package:crazycut_app/data/param_value.dart';
 import 'package:crazycut_app/data/project.dart';
@@ -20,7 +21,9 @@ import 'package:crazycut_app/state/auto_captions.dart';
 import 'package:crazycut_app/state/caption_edits.dart';
 import 'package:crazycut_app/state/caption_rasterizer.dart';
 import 'package:crazycut_app/state/canvas_geometry.dart';
+import 'package:crazycut_app/state/clipboard_media.dart';
 import 'package:crazycut_app/state/preview_renderer.dart';
+import 'package:crazycut_app/state/project_tools.dart';
 import 'package:crazycut_app/state/proxy_service.dart';
 import 'package:crazycut_app/state/media_url_service.dart';
 import 'package:crazycut_app/state/svg_rasterizer.dart';
@@ -32,6 +35,32 @@ import 'package:crazycut_app/state/transcription_service.dart';
 enum ImportStatus { probing, ready, failed, offline }
 
 enum UrlImportKind { media, youtubeReference, duplicate }
+
+/// What a paste found on the system clipboard (IMP-1).
+enum ClipboardImportKind {
+  /// Nothing importable — the caller may fall through to its own paste.
+  nothing,
+  files,
+  image,
+  url,
+
+  /// Something was there, but nothing the editor accepts.
+  unsupported,
+}
+
+class ClipboardImportResult {
+  const ClipboardImportResult(this.kind, {this.count = 0, this.error});
+
+  final ClipboardImportKind kind;
+
+  /// How many assets the paste brought in.
+  final int count;
+
+  /// Why an otherwise valid paste failed, ready to show to the user.
+  final String? error;
+
+  bool get handled => kind != ClipboardImportKind.nothing;
+}
 
 class AutoCaptionResult {
   const AutoCaptionResult({this.track, this.error, this.cancelled = false});
@@ -129,9 +158,14 @@ const kSupportedExtensions = {
 /// frame, autosave and proxies.
 class EditorController extends ChangeNotifier
     with TimelineEdits, CaptionEdits, AudioEdits, TemplateEdits {
-  EditorController(this.doc, {required String path, ProxyService? proxies})
-    : proxies = proxies ?? ProxyService(),
-      _ownsProxies = proxies == null {
+  EditorController(
+    this.doc, {
+    required String path,
+    ProxyService? proxies,
+    ClipboardMediaReader? clipboard,
+  }) : proxies = proxies ?? ProxyService(),
+       clipboard = clipboard ?? const SystemClipboardMediaReader(),
+       _ownsProxies = proxies == null {
     autosave = ProjectAutosave(
       doc,
       path: path,
@@ -160,6 +194,7 @@ class EditorController extends ChangeNotifier
 
   late final ProjectAutosave autosave;
   final ProxyService proxies;
+  final ClipboardMediaReader clipboard;
   final MediaUrlService mediaUrls = MediaUrlService();
   final TranscriptionService transcription = TranscriptionService.instance;
 
@@ -493,8 +528,9 @@ class EditorController extends ChangeNotifier
 
   // --- Media pool -----------------------------------------------------------
 
-  /// Expands folders, drops unsupported files and imports the rest (IMP-1/2/4).
-  Future<void> importPaths(List<String> paths) async {
+  /// Expands folders, drops unsupported files and imports the rest
+  /// (IMP-1/2/4). Returns how many files were accepted.
+  Future<int> importPaths(List<String> paths) async {
     final files = <String>[];
     final skipped = <String>[];
     for (final path in paths) {
@@ -513,6 +549,7 @@ class EditorController extends ChangeNotifier
     lastSkipped = skipped;
     if (files.isNotEmpty) await importFiles(files);
     if (skipped.isNotEmpty) notifyListeners();
+    return files.length;
   }
 
   bool _supported(String path) =>
@@ -679,6 +716,160 @@ class EditorController extends ChangeNotifier
       rethrow;
     }
   }
+
+  // --- Paste (IMP-1) --------------------------------------------------------
+
+  /// Imports whatever the system clipboard is holding: files copied in a file
+  /// manager, a raw bitmap (a screenshot, an image copied out of a browser), or
+  /// a media URL.
+  ///
+  /// Returns [ClipboardImportKind.nothing] when the clipboard has nothing the
+  /// editor wants, so Cmd+V can fall through to the timeline's own paste.
+  /// With [onlyIfNewerThanCopy] the fall-through also wins whenever the
+  /// clipboard has not changed since clips were copied inside the app —
+  /// otherwise an hour-old screenshot would beat the copy the user just made.
+  Future<ClipboardImportResult> importFromClipboard({
+    bool onlyIfNewerThanCopy = false,
+  }) async {
+    final media = await clipboard.read();
+    if (onlyIfNewerThanCopy &&
+        hasClipboard &&
+        media.sequence != null &&
+        media.sequence == _clipboardSequence) {
+      return const ClipboardImportResult(ClipboardImportKind.nothing);
+    }
+
+    if (media.paths.isNotEmpty) {
+      final present =
+          media.paths
+              .where(
+                (path) =>
+                    FileSystemEntity.typeSync(path) !=
+                    FileSystemEntityType.notFound,
+              )
+              .toList();
+      if (present.isNotEmpty) {
+        final imported = await importPaths(present);
+        return ClipboardImportResult(
+          imported > 0
+              ? ClipboardImportKind.files
+              : ClipboardImportKind.unsupported,
+          count: imported,
+        );
+      }
+    }
+
+    final bytes = media.image;
+    if (bytes != null && bytes.isNotEmpty) return _importPastedImage(media);
+
+    final text = media.text?.trim();
+    if (text == null || text.isEmpty) {
+      return const ClipboardImportResult(ClipboardImportKind.nothing);
+    }
+    final local = _localPathFromText(text);
+    if (local != null) {
+      final imported = await importPaths([local]);
+      return ClipboardImportResult(
+        imported > 0
+            ? ClipboardImportKind.files
+            : ClipboardImportKind.unsupported,
+        count: imported,
+      );
+    }
+    if (!_looksLikeHttpUrl(text)) {
+      return const ClipboardImportResult(ClipboardImportKind.nothing);
+    }
+    try {
+      await importUrl(text);
+      return const ClipboardImportResult(ClipboardImportKind.url, count: 1);
+    } on Object catch (e) {
+      return ClipboardImportResult(
+        ClipboardImportKind.url,
+        error: e.toString(),
+      );
+    }
+  }
+
+  /// A pasted bitmap has no file behind it, so it is written into the project's
+  /// own `Media/` folder first — the same place "collect media" would put it,
+  /// which keeps the project folder self-contained and the paste re-openable.
+  Future<ClipboardImportResult> _importPastedImage(ClipboardMedia media) async {
+    try {
+      final directory =
+          path.isEmpty
+              ? Directory(
+                '${(await mediaCacheDirectory()).path}'
+                '${Platform.pathSeparator}Pasted',
+              )
+              : ProjectTools.mediaFolder(path);
+      final file = await writePastedImage(
+        media.image!,
+        directory: directory,
+        extension: media.imageExtension,
+      );
+      final imported = await importPaths([file.path]);
+      if (imported > 0 &&
+          !pool.values.any((item) => item.asset.path == file.path)) {
+        // The same bitmap was already in the project, so the import
+        // deduplicated onto the existing asset (IMP-3) and nothing points at
+        // the copy: pasting a screenshot twice must not litter the folder.
+        try {
+          await file.delete();
+        } on Object catch (e) {
+          debugPrint('pasted image cleanup failed: $e');
+        }
+      }
+      return ClipboardImportResult(
+        imported > 0
+            ? ClipboardImportKind.image
+            : ClipboardImportKind.unsupported,
+        count: imported,
+      );
+    } on Object catch (e) {
+      debugPrint('pasted image import failed: $e');
+      return ClipboardImportResult(
+        ClipboardImportKind.image,
+        error: 'The pasted image could not be saved: $e',
+      );
+    }
+  }
+
+  /// A path copied as text, or dropped in as a `file://` URL. Returns null for
+  /// anything that is not an existing file on this machine.
+  static String? _localPathFromText(String text) {
+    var candidate = text;
+    if (candidate.startsWith('file://')) {
+      try {
+        candidate = Uri.parse(candidate).toFilePath();
+      } on Object {
+        return null;
+      }
+    }
+    if (candidate.contains('\n')) return null;
+    return File(candidate).existsSync() ? candidate : null;
+  }
+
+  static bool _looksLikeHttpUrl(String text) {
+    final uri = Uri.tryParse(text);
+    return uri != null &&
+        (uri.scheme == 'http' || uri.scheme == 'https') &&
+        uri.host.isNotEmpty;
+  }
+
+  /// Copying clips inside the app records where the system clipboard stood, so
+  /// a later paste can tell whether the user has copied something new since.
+  @override
+  void copySelection() {
+    super.copySelection();
+    unawaited(_markClipboard());
+  }
+
+  Future<void> _markClipboard() async {
+    final sequence = await clipboard.sequence();
+    if (!_disposed) _clipboardSequence = sequence;
+  }
+
+  int? _clipboardSequence;
 
   void _applyProbe(MediaAsset asset, ProbeResult probe) {
     asset
@@ -1014,7 +1205,9 @@ class EditorController extends ChangeNotifier
       item.asset.duration.seconds > 2 ? 1.0 : 0.0,
       width: 320,
     );
-    if (bytes == null) return;
+    // The decode outlives a close: a project shut while thumbnails are still
+    // coming back must not notify a disposed controller.
+    if (bytes == null || _disposed) return;
     item.thumb = bytes;
     item.asset.thumbStatus = ThumbStatus.ready;
     notifyListeners();

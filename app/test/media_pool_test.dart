@@ -81,4 +81,59 @@ void main() {
     expect(find.text('logo.svg'), findsOneWidget);
     expect(find.text('song.wav'), findsNothing);
   });
+
+  testWidgets('the import control offers a paste action (IMP-1)', (
+    tester,
+  ) async {
+    final temp = Directory.systemTemp.createTempSync('cc_pool_paste');
+    final doc = ProjectDoc.empty('Pool', width: 1920, height: 1080, fps: 30);
+    // The drop zone only shows once the pool has something in it; an empty
+    // pool offers its own actions instead.
+    doc.media.add(
+      MediaAsset(
+        id: 'video.mp4',
+        name: 'video.mp4',
+        path: '${temp.path}/video.mp4',
+        type: 'video',
+        duration: Rt.fromSeconds(5),
+        hasAudio: true,
+      ),
+    );
+    final controller = EditorController(
+      doc,
+      path: '${temp.path}/pool.crazycut',
+    );
+    var pasted = 0;
+    addTearDown(() async {
+      await controller.close();
+      controller.dispose();
+      temp.deleteSync(recursive: true);
+    });
+
+    await tester.pumpWidget(
+      WidgetsApp(
+        color: const Color(0xFF000000),
+        pageRouteBuilder: <T>(settings, builder) => PageRouteBuilder<T>(
+          settings: settings,
+          pageBuilder: (context, _, _) => builder(context),
+        ),
+        home: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: MediaPool.width,
+            height: 700,
+            child: MediaPool(
+              controller: controller,
+              onPaste: () => pasted++,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('media-paste-control')));
+    await tester.pump();
+
+    expect(pasted, 1);
+  });
 }

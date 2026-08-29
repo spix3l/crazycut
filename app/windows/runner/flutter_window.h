@@ -41,6 +41,10 @@ class FlutterWindow : public Win32Window {
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
   void UpdateSleepAssertion();
 
+  // IMP-1: reads files, a bitmap or text off the system clipboard so a paste
+  // can import media. Mirrors AppDelegate.swift's Clipboard helper.
+  flutter::EncodableValue ReadClipboardMedia();
+
   // The project to run.
   flutter::DartProject project_;
 

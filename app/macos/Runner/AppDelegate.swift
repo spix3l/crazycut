@@ -121,6 +121,10 @@ class AppDelegate: FlutterAppDelegate {
         return
       }
       result(Keychain.read(account: account))
+    case "readClipboardMedia":
+      result(Clipboard.read())
+    case "clipboardSequence":
+      result(NSPasteboard.general.changeCount)
     case "deleteSecret":
       if let args = call.arguments as? [String: Any],
         let account = args["account"] as? String
@@ -130,6 +134,48 @@ class AppDelegate: FlutterAppDelegate {
       result(nil)
     default:
       result(FlutterMethodNotImplemented)
+    }
+  }
+
+  /// System clipboard reads for paste-to-import (IMP-1).
+  ///
+  /// Flutter's own clipboard only speaks plain text, so files and bitmaps have
+  /// to come from here.
+  private enum Clipboard {
+    static func read() -> [String: Any] {
+      let pasteboard = NSPasteboard.general
+      var payload: [String: Any] = ["sequence": pasteboard.changeCount]
+
+      // Files win over the bitmap: most apps put both on the pasteboard, and a
+      // real file is a source the project can keep pointing at, where a bitmap
+      // has to be written out somewhere first.
+      let options: [NSPasteboard.ReadingOptionKey: Any] = [
+        .urlReadingFileURLsOnly: true
+      ]
+      if let urls = pasteboard.readObjects(
+        forClasses: [NSURL.self], options: options) as? [URL], !urls.isEmpty
+      {
+        payload["paths"] = urls.map { $0.path }
+      } else if let png = pngData(from: pasteboard) {
+        payload["image"] = FlutterStandardTypedData(bytes: png)
+        payload["imageExtension"] = "png"
+      }
+
+      if let text = pasteboard.string(forType: .string) {
+        payload["text"] = text
+      }
+      return payload
+    }
+
+    /// PNG straight off the pasteboard when there is one; otherwise whatever
+    /// bitmap is there — screenshots and most drawing apps offer TIFF — is
+    /// re-encoded, so the Dart side only ever has one format to deal with.
+    private static func pngData(from pasteboard: NSPasteboard) -> Data? {
+      if let png = pasteboard.data(forType: .png) { return png }
+      guard let tiff = pasteboard.data(forType: .tiff),
+        let rep = NSBitmapImageRep(data: tiff)
+      else { return nil }
+      return rep.representation(using: .png, properties: [:])
     }
   }
 

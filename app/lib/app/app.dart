@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_selector/file_selector.dart';
 
 import 'package:crazycut_app/ai/ai_settings.dart';
@@ -161,7 +163,26 @@ class _CrazyCutAppState extends State<CrazyCutApp> {
   void _selectAll() => _editor?.selectAll();
   void _cut() => _editor?.cutSelection();
   void _copy() => _editor?.copySelection();
-  void _paste() => _editor?.paste();
+  void _paste() => unawaited(_pasteFromClipboard());
+
+  /// Edit ▸ Paste, matching Cmd+V in the editor: media sitting on the system
+  /// clipboard is imported (IMP-1), anything else pastes the copied clips.
+  Future<void> _pasteFromClipboard() async {
+    final editor = _editor;
+    if (editor == null) return;
+    final result = await editor.importFromClipboard(onlyIfNewerThanCopy: true);
+    if (!result.handled) {
+      editor.paste();
+      return;
+    }
+    final context = _router.navigatorKey.currentContext;
+    if (result.error == null || context == null || !context.mounted) return;
+    await showMessageDialog(
+      context,
+      title: 'Couldn\u2019t paste',
+      message: result.error!,
+    );
+  }
   void _pasteSettings() => _editor?.pasteAttributes();
   void _delete() => _editor?.deleteSelected();
   void _togglePlay() => _editor?.togglePlay();

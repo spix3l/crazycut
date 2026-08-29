@@ -181,6 +181,44 @@ class _EditorScreenState extends State<EditorScreen> {
     }
   }
 
+  /// Cmd+V. Media on the system clipboard is imported (IMP-1); anything else
+  /// falls through to the timeline's own paste, so copying clips inside the app
+  /// still behaves exactly as it did.
+  Future<void> _paste(EditorController c) async {
+    final result = await c.importFromClipboard(onlyIfNewerThanCopy: true);
+    if (!result.handled) {
+      c.paste();
+      return;
+    }
+    await _reportPaste(result);
+  }
+
+  /// The explicit affordance in the pool: this one never pastes clips, so it
+  /// says so when the clipboard held nothing importable.
+  Future<void> _pasteMedia(EditorController c) async {
+    final result = await c.importFromClipboard();
+    if (result.kind == ClipboardImportKind.nothing) {
+      if (!mounted) return;
+      await showMessageDialog(
+        context,
+        title: 'Nothing to paste',
+        message:
+            'Copy a file, an image, or a media URL and try again.',
+      );
+      return;
+    }
+    await _reportPaste(result);
+  }
+
+  Future<void> _reportPaste(ClipboardImportResult result) async {
+    if (result.error == null || !mounted) return;
+    await showMessageDialog(
+      context,
+      title: 'Couldn\u2019t paste',
+      message: result.error!,
+    );
+  }
+
   Future<void> _generateAutoCaptions(EditorController c) async {
     if (c.autoCaptionBusy) return;
     final source = c.autoCaptionSource;
@@ -373,7 +411,7 @@ class _EditorScreenState extends State<EditorScreen> {
       case LogicalKeyboardKey.keyV when meta && alt:
         c.pasteAttributes();
       case LogicalKeyboardKey.keyV when meta:
-        c.paste();
+        unawaited(_paste(c));
       case LogicalKeyboardKey.keyT when meta && shift:
         _saveAsTemplate(c);
       case LogicalKeyboardKey.keyD when meta:
@@ -526,6 +564,7 @@ class _EditorScreenState extends State<EditorScreen> {
                                   dropActive: _dropActive,
                                   onImport: () => _browseForMedia(c),
                                   onImportUrl: () => _addMediaUrl(c),
+                                  onPaste: () => _pasteMedia(c),
                                 ),
                                 Expanded(
                                   child: MonitorPanel(

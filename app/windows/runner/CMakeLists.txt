@@ -39,6 +39,8 @@ target_link_libraries(${BINARY_NAME} PRIVATE
   flutter_wrapper_plugin
 )
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
+# Clipboard paste (IMP-1): shell file lists and WIC PNG re-encoding.
+target_link_libraries(${BINARY_NAME} PRIVATE "shlwapi.lib" "windowscodecs.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
