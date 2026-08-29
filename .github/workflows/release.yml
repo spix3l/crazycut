@@ -7,6 +7,14 @@ on:
 jobs:
   macos:
     runs-on: macos-14
+    env:
+      # Signing is secret-driven: when the p12 secret exists the build is
+      # signed and notarized, otherwise package-macos.sh falls back to an
+      # unsigned DMG (auto-detect finds no Developer ID identity).
+      CC_SIGN_IDENTITY: ${{ secrets.MACOS_CERT_P12 != '' && 'Developer ID Application' || '' }}
+      CC_NOTARY_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
+      CC_NOTARY_ISSUER: ${{ secrets.NOTARY_API_ISSUER }}
+      CC_NOTARY_KEY: ${{ secrets.NOTARY_API_KEY_P8 != '' && format('private_keys/AuthKey_{0}.p8', secrets.NOTARY_API_KEY_ID) || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -14,13 +22,36 @@ jobs:
           channel: stable
       - name: Install ffmpeg
         run: brew install ffmpeg
+      - name: Import Developer ID certificate
+        if: ${{ secrets.MACOS_CERT_P12 != '' }}
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          cert_dir="$(mktemp -d)"
+          keychain="$cert_dir/build.keychain-db"
+          keychain_password="$(openssl rand -hex 32)"
+          echo "$MACOS_CERT_P12" | base64 --decode > "$cert_dir/developer-id.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security import "$cert_dir/developer-id.p12" \
+            -P "$MACOS_CERT_PASSWORD" -t cert -f pkcs12 \
+            -k "$keychain" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s \
+            -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" "$(security list-keychains -d user | tr -d '"')"
+      - name: Stage App Store Connect API key
+        if: ${{ secrets.NOTARY_API_KEY_P8 != '' }}
+        env:
+          NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
+          NOTARY_API_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
+        run: |
+          mkdir -p private_keys
+          printf '%s\n' "$NOTARY_API_KEY_P8" > "private_keys/AuthKey_${NOTARY_API_KEY_ID}.p8"
       - name: Derive version from tag
         run: echo "CC_APP_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
       - name: Package macOS app
         run: bash tools/package-macos.sh
-        env:
-          CC_SIGN_IDENTITY: ${{ secrets.CC_SIGN_IDENTITY }}
-          CC_NOTARY_PROFILE: ${{ secrets.CC_NOTARY_PROFILE }}
       - uses: actions/upload-artifact@v4
         with:
           name: CrazyCut-macOS

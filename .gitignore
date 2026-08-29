@@ -32,3 +32,8 @@ tools/perf/__pycache__/
 fixtures/out/
 dist/
 engine/build-release/
+
+# App Store Connect API keys (staged for notarytool, never committed)
+private_keys/
+
+.secrets
