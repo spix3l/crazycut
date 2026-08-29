@@ -16,10 +16,11 @@ Importing rushes must feel instant: drag files (or folders) anywhere, keep worki
 ## Functional requirements
 
 ### Import paths
-- **IMP-1** Import via: drag-drop onto media pool *or* timeline *or* preview; File → Import dialog (multi-select); paste (Cmd/Ctrl+V anywhere in the editor, or the pool's Paste control).
+- **IMP-1** Import via: drag-drop onto media pool *or* timeline *or* preview; File → Import dialog (multi-select); paste (Cmd/Ctrl+V anywhere in the editor, or Edit ▸ Paste).
   - A paste takes whatever the system clipboard holds: files copied in a file manager, a raw bitmap (a screenshot, an image copied out of a browser), a `file://` URL or a path copied as text, or a media URL — which lands on the same path as IMP-1a, YouTube links included.
   - A bitmap has no file behind it and the project stores paths, not pixels, so the bytes are written into `<project>/Media/` as `Pasted image.png` (numbered on collision) before the asset exists. That is where PRJ-14's collect would have put it, so the project folder stays self-contained. Pasting the same bitmap twice deduplicates by hash per IMP-3 and the redundant copy is deleted rather than left behind.
-  - Cmd/Ctrl+V is also the timeline's paste (TIM-17). Media wins only when the clipboard has moved on since clips were last copied inside the app — the host reports its clipboard generation — so copying clips and pasting them never turns into importing an hour-old screenshot. The pool's Paste control never pastes clips.
+  - A paste is a placement, not a filing action: pasted media lands on the timeline at the playhead in clipboard order, pushing what sat there to the right, and the playhead stays put — the same shape as the timeline's own paste. A YouTube link is a reference (IMP-1b) and so is only filed, never placed. Pasting is implicit: there is no paste affordance in the pool, because the keystroke is the affordance.
+  - Cmd/Ctrl+V is also the timeline's paste (TIM-17). Media wins only when the clipboard has moved on since clips were last copied inside the app — the host reports its clipboard generation — so copying clips and pasting them never turns into importing an hour-old screenshot.
   - Where a platform has no host channel, paste degrades to plain text, which still covers pasting a media URL.
 - **IMP-1a** Add a public direct HTTP(S) URL for supported video, audio, or image media. The URL remains the project source; thumbnails, waveforms, SVG rasters, transcripts, and proxies remain disposable derived cache files.
 - **IMP-1b** YouTube page links are stored as viewing-only references using the official embedded player. They cannot be placed on the timeline, decoded, proxied, transcribed, collected, or exported.

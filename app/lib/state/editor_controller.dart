@@ -530,7 +530,10 @@ class EditorController extends ChangeNotifier
 
   /// Expands folders, drops unsupported files and imports the rest
   /// (IMP-1/2/4). Returns how many files were accepted.
-  Future<int> importPaths(List<String> paths) async {
+  Future<int> importPaths(
+    List<String> paths, {
+    bool addToTimeline = false,
+  }) async {
     final files = <String>[];
     final skipped = <String>[];
     for (final path in paths) {
@@ -547,7 +550,9 @@ class EditorController extends ChangeNotifier
       }
     }
     lastSkipped = skipped;
-    if (files.isNotEmpty) await importFiles(files);
+    if (files.isNotEmpty) {
+      await importFiles(files, addToTimeline: addToTimeline);
+    }
     if (skipped.isNotEmpty) notifyListeners();
     return files.length;
   }
@@ -555,10 +560,21 @@ class EditorController extends ChangeNotifier
   bool _supported(String path) =>
       kSupportedExtensions.contains(path.split('.').last.toLowerCase());
 
+  /// With [addToTimeline] every imported asset also lands on the timeline at
+  /// the playhead, one after another so a multi-file paste keeps its order,
+  /// pushing whatever sat there to the right. The playhead itself does not
+  /// move: the user is still looking at the frame they pasted onto.
   Future<void> importFiles(
     List<String> paths, {
     bool addToTimeline = false,
   }) async {
+    var at = playhead;
+    void place(String assetId) {
+      final created = placeAsset(assetId, at: at, mode: DropMode.insert);
+      final clip = created.isEmpty ? null : doc.clipById(created.first);
+      if (clip != null) at = at.plus(clip.duration);
+    }
+
     for (final path in paths) {
       final name = path.split(Platform.pathSeparator).last;
       final svg = isSvgPath(path);
@@ -584,6 +600,7 @@ class EditorController extends ChangeNotifier
             asset: duplicate,
             status: ImportStatus.ready,
           );
+          if (addToTimeline) place(duplicate.id);
           notifyListeners();
           continue;
         }
@@ -620,7 +637,7 @@ class EditorController extends ChangeNotifier
           ..thumb = svgThumb;
         proxies.request(asset);
         unawaited(_loadThumbnailInto(pool[asset.id]!));
-        if (addToTimeline) placeAsset(asset.id);
+        if (addToTimeline) place(asset.id);
       } catch (e) {
         pool[asset.id]?.status = ImportStatus.failed;
         debugPrint('import failed for $path: $e');
@@ -719,9 +736,12 @@ class EditorController extends ChangeNotifier
 
   // --- Paste (IMP-1) --------------------------------------------------------
 
-  /// Imports whatever the system clipboard is holding: files copied in a file
+  /// Imports whatever the system clipboard is holding — files copied in a file
   /// manager, a raw bitmap (a screenshot, an image copied out of a browser), or
-  /// a media URL.
+  /// a media URL — and drops it on the timeline at the playhead.
+  ///
+  /// Pasting is a placement, not a filing action: the media lands where the
+  /// user is looking, the way pasting anything else does.
   ///
   /// Returns [ClipboardImportKind.nothing] when the clipboard has nothing the
   /// editor wants, so Cmd+V can fall through to the timeline's own paste.
@@ -749,7 +769,7 @@ class EditorController extends ChangeNotifier
               )
               .toList();
       if (present.isNotEmpty) {
-        final imported = await importPaths(present);
+        final imported = await importPaths(present, addToTimeline: true);
         return ClipboardImportResult(
           imported > 0
               ? ClipboardImportKind.files
@@ -768,7 +788,7 @@ class EditorController extends ChangeNotifier
     }
     final local = _localPathFromText(text);
     if (local != null) {
-      final imported = await importPaths([local]);
+      final imported = await importPaths([local], addToTimeline: true);
       return ClipboardImportResult(
         imported > 0
             ? ClipboardImportKind.files
@@ -780,7 +800,12 @@ class EditorController extends ChangeNotifier
       return const ClipboardImportResult(ClipboardImportKind.nothing);
     }
     try {
-      await importUrl(text);
+      final result = await importUrl(text);
+      // A YouTube link is a reference, not a source: it can never sit on the
+      // timeline (IMP-1b), so there is nothing to place.
+      if (result.kind != UrlImportKind.youtubeReference) {
+        placeAsset(result.id, at: playhead, mode: DropMode.insert);
+      }
       return const ClipboardImportResult(ClipboardImportKind.url, count: 1);
     } on Object catch (e) {
       return ClipboardImportResult(
@@ -807,7 +832,7 @@ class EditorController extends ChangeNotifier
         directory: directory,
         extension: media.imageExtension,
       );
-      final imported = await importPaths([file.path]);
+      final imported = await importPaths([file.path], addToTimeline: true);
       if (imported > 0 &&
           !pool.values.any((item) => item.asset.path == file.path)) {
         // The same bitmap was already in the project, so the import

@@ -21,7 +21,6 @@ class MediaPool extends StatefulWidget {
     required this.controller,
     this.onImport,
     this.onImportUrl,
-    this.onPaste,
     this.dropActive = false,
   });
 
@@ -30,9 +29,6 @@ class MediaPool extends StatefulWidget {
   final EditorController controller;
   final VoidCallback? onImport;
   final VoidCallback? onImportUrl;
-
-  /// Imports whatever the system clipboard holds (IMP-1).
-  final VoidCallback? onPaste;
 
   /// Highlights the drop zone while files hover the window.
   final bool dropActive;
@@ -267,7 +263,6 @@ class _MediaPoolState extends State<MediaPool> {
                 _ImportDropZone(
                   onTap: widget.onImport,
                   onUrl: widget.onImportUrl,
-                  onPaste: widget.onPaste,
                   active: widget.dropActive,
                 ),
               ],
@@ -287,8 +282,7 @@ class _MediaPoolState extends State<MediaPool> {
                       icon: LucideIcons.cloudUpload,
                       title: 'No media yet',
                       description:
-                          'Drag files or folders here, paste them, '
-                          'or add a source',
+                          'Drag files or folders here, or add a source',
                       footnote: 'MP4 · MOV · WAV · PNG · SVG and more',
                       action: Wrap(
                         alignment: WrapAlignment.center,
@@ -310,17 +304,6 @@ class _MediaPoolState extends State<MediaPool> {
                             onTap: widget.onImportUrl,
                             child: Text(
                               'Add URL',
-                              style: CcType.style(
-                                size: 11,
-                                weight: CcType.semibold,
-                                color: CcColors.accent,
-                              ),
-                            ),
-                          ),
-                          CcTappable(
-                            onTap: widget.onPaste,
-                            child: Text(
-                              'Paste',
                               style: CcType.style(
                                 size: 11,
                                 weight: CcType.semibold,
@@ -449,16 +432,10 @@ class _MissingMediaBanner extends StatelessWidget {
 }
 
 class _ImportDropZone extends StatelessWidget {
-  const _ImportDropZone({
-    this.onTap,
-    this.onUrl,
-    this.onPaste,
-    this.active = false,
-  });
+  const _ImportDropZone({this.onTap, this.onUrl, this.active = false});
 
   final VoidCallback? onTap;
   final VoidCallback? onUrl;
-  final VoidCallback? onPaste;
   final bool active;
 
   @override
@@ -512,24 +489,6 @@ class _ImportDropZone extends StatelessWidget {
                   const SizedBox(width: 6),
                   Text(
                     'URL',
-                    style: CcType.style(size: 10, weight: CcType.medium),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(width: 1, child: ColoredBox(color: CcColors.border)),
-          Expanded(
-            child: CcTappable(
-              key: const ValueKey('media-paste-control'),
-              onTap: active ? null : onPaste,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const CcIcon(LucideIcons.clipboard, size: 13),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Paste',
                     style: CcType.style(size: 10, weight: CcType.medium),
                   ),
                 ],

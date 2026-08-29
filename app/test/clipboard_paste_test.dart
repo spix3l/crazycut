@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:crazycut_app/data/project.dart';
+import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/clipboard_media.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
 
@@ -104,6 +105,11 @@ void main() {
     expect(written.existsSync(), isTrue);
     expect(written.readAsBytesSync(), redDot);
     expect(c.doc.media.single.type, 'image');
+
+    // A paste is a placement: the image lands where the user is looking.
+    final clip = c.doc.clips.single;
+    expect(clip.mediaId, c.doc.media.single.id);
+    expect(clip.start, c.playhead);
   });
 
   test('pasting the same bitmap twice reuses the asset', () async {
@@ -112,6 +118,11 @@ void main() {
     await c.importFromClipboard();
 
     expect(c.doc.media.length, 1, reason: 'deduplicated by hash (IMP-3)');
+    expect(
+      c.doc.clips.length,
+      2,
+      reason: 'the same asset can be pasted onto the timeline twice',
+    );
     expect(
       mediaFolder().listSync().length,
       1,
@@ -171,6 +182,26 @@ void main() {
       (await c.importFromClipboard(onlyIfNewerThanCopy: true)).kind,
       ClipboardImportKind.image,
     );
+  });
+
+  test('pasted files land in order at the playhead', () async {
+    final first = File('${temp.path}${Platform.pathSeparator}a.png')
+      ..writeAsBytesSync(redDot);
+    final second = File('${temp.path}${Platform.pathSeparator}b.png')
+      ..writeAsBytesSync(blueDot);
+    clipboard.media = ClipboardMedia(paths: [first.path, second.path]);
+    c.seekTo(Rt.fromSeconds(2));
+
+    final result = await c.importFromClipboard();
+
+    expect(result.kind, ClipboardImportKind.files);
+    final clips = c.doc.clips.toList()
+      ..sort((a, b) => a.start.compareTo(b.start));
+    expect(clips.length, 2);
+    expect(clips.first.start, Rt.fromSeconds(2));
+    expect(clips.first.label, 'a.png');
+    expect(clips.last.start, clips.first.start.plus(clips.first.duration));
+    expect(clips.last.label, 'b.png');
   });
 
   test('writePastedImage creates its directory and unique names', () async {
