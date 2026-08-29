@@ -31,9 +31,17 @@ class SandboxAccess {
 
   Map<String, String>? _bookmarks;
 
-  /// Only meaningful where the sandbox is; elsewhere every path is already
-  /// reachable and the whole mechanism stays out of the way.
-  static bool get isEnforced => Platform.isMacOS;
+  /// Whether this process is actually sandboxed, rather than merely on macOS.
+  ///
+  /// Release builds ship unsandboxed (see `Release.entitlements`), so all of
+  /// this stays inert: an unsandboxed app already reaches whatever the user
+  /// can, and asking it to re-grant folders would be pure friction. The
+  /// machinery is kept, and keyed off the container the sandbox itself sets,
+  /// so a future App Store build gets working behaviour rather than a fresh
+  /// round of missing media.
+  static bool get isEnforced =>
+      Platform.isMacOS &&
+      Platform.environment.containsKey('APP_SANDBOX_CONTAINER_ID');
 
   static String folderOf(String path) => File(path).parent.path;
 

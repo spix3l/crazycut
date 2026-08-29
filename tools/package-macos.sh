@@ -229,8 +229,8 @@ fi
 # binary is re-signed regardless; without any identity we ad-hoc sign, which
 # keeps arm64 dyld happy locally. Distribution signing signs every nested
 # artifact leaf-first with the Developer ID identity, then the bundle with
-# the release entitlements (the sandbox stays on; re-signing without
-# --entitlements would silently drop it).
+# the release entitlements (re-signing without --entitlements would silently
+# drop them, taking the Hardened Runtime exceptions notarization relies on).
 # ---------------------------------------------------------------------------
 
 sign_identity="${CC_SIGN_IDENTITY:-}"
