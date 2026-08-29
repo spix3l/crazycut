@@ -66,6 +66,34 @@ mixin CaptionEdits on TimelineEdits, ChangeNotifier {
     return created;
   }
 
+  /// Adds a fully populated track as one undoable operation. Automatic
+  /// captions use this so a single undo removes the entire generated result.
+  CaptionTrack addCaptionTrackFrom(CaptionTrack track) {
+    runEdit('Generate captions', (tx) {
+      tx.captionTrack(track.id);
+      doc.captionTracks.add(track);
+    });
+    selectedCaptionTrackId = track.id;
+    selectedCaptionItemId = track.items.firstOrNull?.id;
+    selection.clear();
+    notifyListeners();
+    return track;
+  }
+
+  void deleteCaptionTrack(String trackId) {
+    final track = doc.captionTrackById(trackId);
+    if (track == null) return;
+    runEdit('Delete caption track', (tx) {
+      tx.captionTrack(trackId);
+      doc.captionTracks.remove(track);
+    });
+    if (selectedCaptionTrackId == trackId) {
+      selectedCaptionTrackId = null;
+      selectedCaptionItemId = null;
+    }
+    notifyListeners();
+  }
+
   CaptionItem? addCaptionItem({String text = 'New caption', Rt? at}) {
     final track =
         selectedCaptionTrack ??

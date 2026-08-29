@@ -39,110 +39,161 @@ class AssetCard extends StatelessWidget {
     final offline = asset.offline;
 
     return Builder(
-      builder: (cardContext) => GestureDetector(
-      onSecondaryTapDown:
-          onContextMenu == null ? null : (_) => onContextMenu!(cardContext),
-      child: CcTappable(
-        onTap: onTap,
-        child: Opacity(
-          opacity: preparing ? 0.55 : 1,
-          child: Container(
-            decoration: BoxDecoration(
-              color: CcColors.elevated,
-              borderRadius: CcRadius.brSm,
-              border: offline ? Border.all(color: CcColors.warning) : null,
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AspectRatio(
-                  aspectRatio: 130 / 64,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(gradient: asset.kind.plate),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        if (item.thumb != null)
-                          Image.memory(item.thumb!, fit: BoxFit.cover, gaplessPlayback: true),
-                        Positioned(
-                          left: 6,
-                          top: 6,
-                          child: CcIcon(asset.kind.icon, size: 12, color: const Color(0xCCFFFFFF)),
-                        ),
-                        if (usageCount > 0)
-                          Positioned(
-                            right: 6,
-                            top: 5,
-                            child: CcBadge(
-                              '$usageCount×',
-                              fontSize: 9,
-                              radius: 3,
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                            ),
-                          ),
-                        if (!asset.duration.isZero)
-                          Positioned(
-                            right: 6,
-                            bottom: 5,
-                            child: CcBadge(
-                              formatDuration(asset.duration.seconds),
-                              fontSize: 9,
-                              radius: 3,
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                            ),
-                          ),
-                        if (proxyState == ProxyState.running)
-                          Positioned(
-                            left: 6,
-                            bottom: 6,
-                            child: _ProxyChip(
-                              label: '${(proxyProgress * 100).round()}%',
-                              icon: LucideIcons.loaderCircle,
-                            ),
-                          )
-                        else if (proxyState == ProxyState.ready || asset.proxyPath != null)
-                          const Positioned(
-                            left: 6,
-                            bottom: 6,
-                            child: _ProxyChip(label: 'proxy', icon: LucideIcons.check),
-                          ),
-                      ],
-                    ),
+      builder:
+          (cardContext) => GestureDetector(
+            onSecondaryTapDown:
+                onContextMenu == null
+                    ? null
+                    : (_) => onContextMenu!(cardContext),
+            child: CcTappable(
+              onTap: onTap,
+              child: Opacity(
+                opacity: preparing ? 0.55 : 1,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: CcColors.elevated,
+                    borderRadius: CcRadius.brSm,
+                    border:
+                        offline ? Border.all(color: CcColors.warning) : null,
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+                  clipBehavior: Clip.antiAlias,
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        asset.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: CcType.style(size: 11, weight: CcType.medium),
+                      AspectRatio(
+                        aspectRatio: 130 / 64,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(gradient: asset.kind.plate),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (item.thumb != null)
+                                Image.memory(
+                                  item.thumb!,
+                                  fit: BoxFit.cover,
+                                  gaplessPlayback: true,
+                                ),
+                              Positioned(
+                                left: 6,
+                                top: 6,
+                                child: Row(
+                                  children: [
+                                    CcIcon(
+                                      asset.kind.icon,
+                                      size: 12,
+                                      color: const Color(0xCCFFFFFF),
+                                    ),
+                                    if (asset.isRemote) ...[
+                                      const SizedBox(width: 5),
+                                      const CcIcon(
+                                        LucideIcons.link,
+                                        size: 10,
+                                        color: Color(0xCCFFFFFF),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              if (usageCount > 0)
+                                Positioned(
+                                  right: 6,
+                                  top: 5,
+                                  child: CcBadge(
+                                    '$usageCount×',
+                                    fontSize: 9,
+                                    radius: 3,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 5,
+                                      vertical: 2,
+                                    ),
+                                  ),
+                                ),
+                              if (!asset.duration.isZero)
+                                Positioned(
+                                  right: 6,
+                                  bottom: 5,
+                                  child: CcBadge(
+                                    formatDuration(asset.duration.seconds),
+                                    fontSize: 9,
+                                    radius: 3,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 5,
+                                      vertical: 2,
+                                    ),
+                                  ),
+                                ),
+                              if (item.caching)
+                                const Positioned(
+                                  left: 6,
+                                  bottom: 6,
+                                  child: _ProxyChip(
+                                    label: 'caching',
+                                    icon: LucideIcons.download,
+                                  ),
+                                )
+                              else if (proxyState == ProxyState.running)
+                                Positioned(
+                                  left: 6,
+                                  bottom: 6,
+                                  child: _ProxyChip(
+                                    label: '${(proxyProgress * 100).round()}%',
+                                    icon: LucideIcons.loaderCircle,
+                                  ),
+                                )
+                              else if (proxyState == ProxyState.ready ||
+                                  asset.proxyPath != null)
+                                const Positioned(
+                                  left: 6,
+                                  bottom: 6,
+                                  child: _ProxyChip(
+                                    label: 'proxy',
+                                    icon: LucideIcons.check,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        failed
-                            ? 'Import failed'
-                            : preparing
-                                ? 'Preparing…'
-                                : asset.metaLine,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: CcType.nano,
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 6,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              asset.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: CcType.style(
+                                size: 11,
+                                weight: CcType.medium,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              failed
+                                  ? 'Import failed'
+                                  : preparing
+                                  ? 'Preparing…'
+                                  : item.caching
+                                  ? 'Caching source…'
+                                  : asset.metaLine,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: CcType.nano,
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
                 ),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
-      ),
     );
   }
 }
@@ -166,7 +217,10 @@ class _ProxyChip extends StatelessWidget {
         children: [
           CcIcon(icon, size: 9, color: CcColors.success),
           const SizedBox(width: 3),
-          Text(label, style: CcType.style(size: 9, color: CcColors.textSecondary)),
+          Text(
+            label,
+            style: CcType.style(size: 9, color: CcColors.textSecondary),
+          ),
         ],
       ),
     );

@@ -38,6 +38,9 @@ class TimelinePanel extends StatefulWidget {
     this.onZoomChanged,
     this.onZoomAt,
     this.onFit,
+    this.onAutoCaptions,
+    this.onCancelAutoCaptions,
+    this.modelDownloadProgress,
   });
 
   static const double rulerHeight = 26;
@@ -51,6 +54,9 @@ class TimelinePanel extends StatefulWidget {
   /// Pointer-anchored zoom: (steps, seconds under the pointer) (TIM-14).
   final void Function(double steps, double anchorSeconds)? onZoomAt;
   final VoidCallback? onFit;
+  final VoidCallback? onAutoCaptions;
+  final VoidCallback? onCancelAutoCaptions;
+  final double? modelDownloadProgress;
 
   @override
   State<TimelinePanel> createState() => _TimelinePanelState();
@@ -329,6 +335,9 @@ class _TimelinePanelState extends State<TimelinePanel> {
             onSnapChanged: widget.onSnapChanged,
             onZoomChanged: widget.onZoomChanged,
             onFit: widget.onFit,
+            onAutoCaptions: widget.onAutoCaptions,
+            onCancelAutoCaptions: widget.onCancelAutoCaptions,
+            modelDownloadProgress: widget.modelDownloadProgress,
           ),
           Expanded(
             child: Row(
@@ -474,38 +483,72 @@ class _TimelinePanelState extends State<TimelinePanel> {
 
   Widget _captionHeader(CaptionTrack track) {
     final selected = c.selectedCaptionTrackId == track.id;
-    return CcTappable(
-      onTap: () => c.selectCaption(track.id, null),
-      child: Container(
-        height: _captionLaneHeight,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: selected ? CcColors.textClipPlate : CcColors.panel,
-          border: const Border(
-            right: BorderSide(color: CcColors.border),
-            bottom: BorderSide(color: CcColors.border),
-          ),
-        ),
-        child: Row(
-          children: [
-            const CcIcon(
-              LucideIcons.captions,
-              size: 13,
-              color: CcColors.textClip,
-            ),
-            const SizedBox(width: 7),
-            Expanded(
-              child: Text(
-                track.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: CcType.style(size: 11, weight: CcType.medium),
+    return Builder(
+      builder:
+          (headerContext) => GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onSecondaryTapDown: (_) => _captionTrackMenu(headerContext, track),
+            child: CcTappable(
+              onTap: () => c.selectCaption(track.id, null),
+              child: Container(
+                height: _captionLaneHeight,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: selected ? CcColors.textClipPlate : CcColors.panel,
+                  border: const Border(
+                    right: BorderSide(color: CcColors.border),
+                    bottom: BorderSide(color: CcColors.border),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const CcIcon(
+                      LucideIcons.captions,
+                      size: 13,
+                      color: CcColors.textClip,
+                    ),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: Text(
+                        track.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: CcType.style(size: 11, weight: CcType.medium),
+                      ),
+                    ),
+                    CcIconButton(
+                      key: ValueKey('caption-track-menu-${track.id}'),
+                      icon: LucideIcons.ellipsis,
+                      size: 24,
+                      iconSize: 13,
+                      onPressed: () => _captionTrackMenu(headerContext, track),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ],
-        ),
-      ),
+          ),
     );
+  }
+
+  void _captionTrackMenu(BuildContext context, CaptionTrack track) {
+    showCcMenu(context, [
+      CcMenuItem(
+        'Add caption at playhead',
+        icon: LucideIcons.plus,
+        onTap: () {
+          c.selectCaption(track.id, null);
+          c.addCaptionItem(at: c.playhead);
+        },
+      ),
+      CcMenuItem(
+        'Delete caption track',
+        icon: LucideIcons.trash2,
+        danger: true,
+        separatorBefore: true,
+        onTap: () => c.deleteCaptionTrack(track.id),
+      ),
+    ]);
   }
 
   Widget _captionLane(CaptionTrack track) {
@@ -1641,6 +1684,9 @@ class _TimelineToolbar extends StatelessWidget {
     this.onSnapChanged,
     this.onZoomChanged,
     this.onFit,
+    this.onAutoCaptions,
+    this.onCancelAutoCaptions,
+    this.modelDownloadProgress,
   });
 
   final EditorController controller;
@@ -1649,6 +1695,9 @@ class _TimelineToolbar extends StatelessWidget {
   final ValueChanged<bool>? onSnapChanged;
   final ValueChanged<double>? onZoomChanged;
   final VoidCallback? onFit;
+  final VoidCallback? onAutoCaptions;
+  final VoidCallback? onCancelAutoCaptions;
+  final double? modelDownloadProgress;
 
   @override
   Widget build(BuildContext context) {
@@ -1722,19 +1771,11 @@ class _TimelineToolbar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          CcTappable(
-            onTap: () {
-              final track =
-                  c.doc.captionTracks.isEmpty
-                      ? c.addCaptionTrack()
-                      : c.doc.captionTracks.first;
-              c.selectCaption(track.id, track.items.firstOrNull?.id);
-              if (track.items.isEmpty) c.addCaptionItem();
-            },
-            child: Text(
-              '+ Captions',
-              style: CcType.style(size: 11, color: CcColors.textSecondary),
-            ),
+          _AutoCaptionAction(
+            controller: c,
+            modelDownloadProgress: modelDownloadProgress,
+            onGenerate: onAutoCaptions,
+            onCancel: onCancelAutoCaptions,
           ),
           const Spacer(),
           if (c.trimFeedback != null) ...[
@@ -1824,31 +1865,129 @@ class _ToolIcon extends StatelessWidget {
   }
 }
 
+class _AutoCaptionAction extends StatelessWidget {
+  const _AutoCaptionAction({
+    required this.controller,
+    this.modelDownloadProgress,
+    this.onGenerate,
+    this.onCancel,
+  });
+
+  final EditorController controller;
+  final double? modelDownloadProgress;
+  final VoidCallback? onGenerate;
+  final VoidCallback? onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final job = controller.autoCaptionJob;
+    final downloading = modelDownloadProgress != null;
+    final transcribing = controller.autoCaptionBusy;
+    final progress = downloading ? modelDownloadProgress : job?.progress;
+    final busy = downloading || transcribing;
+    final percent = ((progress ?? 0) * 100).clamp(0, 100).round();
+    final label =
+        downloading
+            ? 'Model $percent%'
+            : transcribing
+            ? 'Captions $percent%'
+            : 'Auto captions';
+
+    return CcTooltip(
+      message:
+          busy
+              ? 'Click to cancel'
+              : 'Generate local captions from the selected clip, or the longest clip with audio',
+      child: CcTappable(
+        key: const ValueKey('auto-captions-action'),
+        onTap: busy ? onCancel : onGenerate,
+        child: Container(
+          height: 24,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: busy ? CcColors.textClipPlate : CcColors.elevated,
+            border: Border.all(
+              color: busy ? CcColors.textClip : CcColors.borderStrong,
+            ),
+            borderRadius: CcRadius.brSm,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CcIcon(
+                busy ? LucideIcons.x : LucideIcons.captions,
+                size: 12,
+                color: busy ? CcColors.textClip : CcColors.textSecondary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: CcType.style(
+                  size: 11,
+                  weight: CcType.medium,
+                  color: busy ? CcColors.textPrimary : CcColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Two-step nudge shown over the empty lanes of a fresh project.
 class _GettingStartedHint extends StatelessWidget {
   const _GettingStartedHint();
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: const [
-          _HintStep(number: '1', label: 'Import your rushes', active: true),
-          SizedBox(width: 10),
-          CcIcon(
-            LucideIcons.arrowRight,
-            size: 14,
-            color: CcColors.textTertiary,
-          ),
-          SizedBox(width: 10),
-          _HintStep(
-            number: '2',
-            label: 'Drag them onto the timeline',
-            active: false,
-          ),
-        ],
-      ),
+    const first = _HintStep(
+      number: '1',
+      label: 'Import your rushes',
+      active: true,
+    );
+    const second = _HintStep(
+      number: '2',
+      label: 'Drag them onto the timeline',
+      active: false,
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 720;
+        return Center(
+          child:
+              compact
+                  ? const Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      first,
+                      SizedBox(height: 8),
+                      CcIcon(
+                        LucideIcons.arrowDown,
+                        size: 14,
+                        color: CcColors.textTertiary,
+                      ),
+                      SizedBox(height: 8),
+                      second,
+                    ],
+                  )
+                  : const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      first,
+                      SizedBox(width: 10),
+                      CcIcon(
+                        LucideIcons.arrowRight,
+                        size: 14,
+                        color: CcColors.textTertiary,
+                      ),
+                      SizedBox(width: 10),
+                      second,
+                    ],
+                  ),
+        );
+      },
     );
   }
 }

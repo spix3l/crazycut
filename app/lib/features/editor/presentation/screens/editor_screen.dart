@@ -19,6 +19,8 @@ import '../../../../engine/engine.dart' show PlatformHelper;
 import '../../../../state/editor_controller.dart';
 import '../../../../state/onboarding.dart';
 import '../../../../state/project_tools.dart';
+import '../../../../state/speech_model.dart';
+import '../../../../state/transcription_service.dart';
 import '../models/editor_models.dart';
 import '../../../../ai/ai_settings.dart';
 import '../widgets/editor_toolbar.dart';
@@ -157,6 +159,78 @@ class _EditorScreenState extends State<EditorScreen> {
     final files = await openFiles(acceptedTypeGroups: _mediaTypes);
     if (files.isEmpty) return;
     await c.importPaths(files.map((f) => f.path).toList());
+  }
+
+  Future<void> _addMediaUrl(EditorController c) async {
+    final value = await promptForText(
+      context,
+      title: 'Add from URL',
+      label: 'Direct media or YouTube URL',
+      confirmLabel: 'Add',
+    );
+    if (value == null || value.isEmpty) return;
+    try {
+      await c.importUrl(value);
+    } on Object catch (error) {
+      if (!mounted) return;
+      await showMessageDialog(
+        context,
+        title: 'Couldn’t add URL',
+        message: error.toString(),
+      );
+    }
+  }
+
+  Future<void> _generateAutoCaptions(EditorController c) async {
+    if (c.autoCaptionBusy) return;
+    final source = c.autoCaptionSource;
+    if (source == null) {
+      await showMessageDialog(
+        context,
+        title: 'Auto captions need audio',
+        message: 'Add or select a timeline clip with available audio first.',
+      );
+      return;
+    }
+
+    final model = speechModelById(AiSettings.instance.speechModelId);
+    final models = SpeechModelStore.instance;
+    if (!await models.isInstalled(model)) {
+      if (!mounted) return;
+      final download = await confirmAction(
+        context,
+        title: 'Download speech model?',
+        message:
+            'Auto captions run locally. Download ${model.label} '
+            '(${model.sizeLabel}) once, then CrazyCut can transcribe without '
+            'sending your media anywhere.',
+        confirmLabel: 'Download',
+      );
+      if (!download) return;
+      final installed = await models.download(model);
+      if (!mounted) return;
+      if (!installed) {
+        await showMessageDialog(
+          context,
+          title: 'Model download failed',
+          message: models.error ?? 'The speech model could not be downloaded.',
+        );
+        return;
+      }
+    }
+
+    final result = await c.generateAutoCaptions();
+    if (!mounted || result.succeeded || result.cancelled) return;
+    await showMessageDialog(
+      context,
+      title: 'Couldn’t generate captions',
+      message: result.error ?? 'The clip could not be transcribed.',
+    );
+  }
+
+  void _cancelAutoCaptions(EditorController c) {
+    SpeechModelStore.instance.cancel();
+    c.cancelAutoCaptions();
   }
 
   Future<void> _saveCopy(EditorController c) async {
@@ -374,6 +448,8 @@ class _EditorScreenState extends State<EditorScreen> {
         controller,
         AiSettings.instance,
         OnboardingState.instance,
+        SpeechModelStore.instance,
+        TranscriptionService.instance,
       ]),
       builder: (context, _) => _buildEditor(context, controller),
     );
@@ -449,6 +525,7 @@ class _EditorScreenState extends State<EditorScreen> {
                                   controller: c,
                                   dropActive: _dropActive,
                                   onImport: () => _browseForMedia(c),
+                                  onImportUrl: () => _addMediaUrl(c),
                                 ),
                                 Expanded(
                                   child: MonitorPanel(
@@ -486,6 +563,12 @@ class _EditorScreenState extends State<EditorScreen> {
                                   onZoomChanged: _setZoom,
                                   onZoomAt: _zoomAt,
                                   onFit: () => _fit(c),
+                                  onAutoCaptions:
+                                      () => _generateAutoCaptions(c),
+                                  onCancelAutoCaptions:
+                                      () => _cancelAutoCaptions(c),
+                                  modelDownloadProgress:
+                                      SpeechModelStore.instance.progress,
                                 );
                               },
                             ),

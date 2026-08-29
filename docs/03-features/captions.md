@@ -32,6 +32,10 @@ standards-compatible sidecars.
   duration, and reading speed.
 - **CAP-7** When only segment timing exists, estimated word timing is retained
   for highlighted-word styles and may later be replaced by recognizer timing.
+- **CAP-7a** **Auto captions** transcribes the selected timeline clip locally,
+  or the longest available clip with audio when none is selected. Source trims
+  and clip speed are mapped into sequence time. The generated track is one
+  undoable edit and transcription can be cancelled from the timeline toolbar.
 - **CAP-8** SRT and WebVTT import accepts BOM/CRLF, multiline cues, and WebVTT
   metadata/settings; malformed cues are isolated and reported.
 - **CAP-9** SRT and WebVTT export is deterministic and uses final sequence time.
@@ -58,6 +62,8 @@ standards-compatible sidecars.
 4. Burned-in caption export remains within the representative performance
    budget and a sidecar-only export does not force caption compositing.
 5. A malformed cue or word is quarantined without losing valid siblings.
+6. Delete a caption track from its timeline header menu and undo to restore
+   every cue and style setting.
 
 ## Out of scope for the first caption release
 

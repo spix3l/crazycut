@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../../core/design/tokens.dart';
 import '../../../../core/widgets/empty_state.dart';
+import '../../../../core/widgets/cc_dialog.dart';
 import '../../../../core/widgets/primitives.dart';
 import '../../../../data/project.dart';
 import '../../../../state/editor_controller.dart';
@@ -10,6 +11,7 @@ import '../../../../state/timeline_edits.dart';
 import '../models/editor_models.dart';
 import 'asset_card.dart';
 import 'templates/templates_panel.dart';
+import 'youtube_references_panel.dart';
 
 /// Left rail: search, import drop zone and the asset grid. Cards are draggable
 /// onto the timeline (TIM-5) and carry their own context menu (IMP-12).
@@ -18,6 +20,7 @@ class MediaPool extends StatefulWidget {
     super.key,
     required this.controller,
     this.onImport,
+    this.onImportUrl,
     this.dropActive = false,
   });
 
@@ -25,6 +28,7 @@ class MediaPool extends StatefulWidget {
 
   final EditorController controller;
   final VoidCallback? onImport;
+  final VoidCallback? onImportUrl;
 
   /// Highlights the drop zone while files hover the window.
   final bool dropActive;
@@ -37,7 +41,7 @@ class _MediaPoolState extends State<MediaPool> {
   final _search = TextEditingController();
   bool _listView = false;
 
-  /// 0 = media, 1 = templates. The rail hosts both because they answer the
+  /// 0 = media, 1 = references, 2 = templates. The rail hosts all three because they answer the
   /// same question — "what do I put on the timeline next?" (TPL-2).
   int _tab = 0;
   MediaPoolFilter _filter = MediaPoolFilter.all;
@@ -58,11 +62,11 @@ class _MediaPoolState extends State<MediaPool> {
 
   List<PoolItem> get _items {
     final query = _search.text.trim().toLowerCase();
-    final items = c.pool.values.toList()
-      ..sort(
-        (a, b) =>
-            a.asset.name.toLowerCase().compareTo(b.asset.name.toLowerCase()),
-      );
+    final items =
+        c.pool.values.toList()..sort(
+          (a, b) =>
+              a.asset.name.toLowerCase().compareTo(b.asset.name.toLowerCase()),
+        );
     return items.where((item) {
       final matchesType =
           _filter == MediaPoolFilter.all || item.asset.kind == _filter.kind;
@@ -77,8 +81,12 @@ class _MediaPoolState extends State<MediaPool> {
     showCcMenu(anchorContext, [
       CcMenuItem(
         'Insert at playhead',
-        onTap: () =>
-            c.placeAsset(asset.id, at: c.playhead, mode: DropMode.overwrite),
+        onTap:
+            () => c.placeAsset(
+              asset.id,
+              at: c.playhead,
+              mode: DropMode.overwrite,
+            ),
       ),
       CcMenuItem('Append to timeline', onTap: () => c.placeAsset(asset.id)),
       // Per-drop override of the toolbar's auto-link toggle (AUD-6).
@@ -94,9 +102,17 @@ class _MediaPoolState extends State<MediaPool> {
           onTap: () => c.proxies.request(asset, force: true),
         ),
       CcMenuItem(
-        asset.offline ? 'Relink…' : 'Reveal in folder',
-        onTap: () => widget.onImport == null ? null : _reveal(item),
+        asset.isRemote
+            ? 'Open source URL'
+            : asset.offline
+            ? 'Relink…'
+            : 'Reveal in folder',
+        onTap: () => _reveal(item),
       ),
+      if (asset.isRemote)
+        CcMenuItem('Refresh source', onTap: () => _refreshRemote(asset)),
+      if (asset.isRemote)
+        CcMenuItem('Replace URL…', onTap: () => _replaceRemote(asset)),
       CcMenuItem(
         'Remove from project',
         danger: true,
@@ -107,6 +123,40 @@ class _MediaPoolState extends State<MediaPool> {
   }
 
   void _reveal(PoolItem item) => c.revealAsset(item.asset.id);
+
+  Future<void> _refreshRemote(MediaAsset asset) async {
+    try {
+      await c.refreshRemoteAsset(asset.id);
+    } on Object catch (error) {
+      if (!mounted) return;
+      await showMessageDialog(
+        context,
+        title: 'Remote media unavailable',
+        message: error.toString(),
+      );
+    }
+  }
+
+  Future<void> _replaceRemote(MediaAsset asset) async {
+    final value = await promptForText(
+      context,
+      title: 'Replace source URL',
+      label: 'Direct media URL',
+      initialValue: asset.path,
+      confirmLabel: 'Replace',
+    );
+    if (value == null || value.isEmpty) return;
+    try {
+      await c.refreshRemoteAsset(asset.id, replacement: value);
+    } on Object catch (error) {
+      if (!mounted) return;
+      await showMessageDialog(
+        context,
+        title: 'Couldn’t replace URL',
+        message: error.toString(),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -124,14 +174,16 @@ class _MediaPoolState extends State<MediaPool> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           CcTabBar(
-            tabs: const ['Media', 'Templates'],
+            tabs: const ['Media', 'References', 'Templates'],
             selectedIndex: _tab,
             onChanged: (index) => setState(() => _tab = index),
           ),
           Expanded(
-            child: _tab == 0
-                ? _mediaTab(items, isEmpty: isEmpty, offline: offline)
-                : TemplatesPanel(controller: c),
+            child: switch (_tab) {
+              0 => _mediaTab(items, isEmpty: isEmpty, offline: offline),
+              1 => YouTubeReferencesPanel(controller: c),
+              _ => TemplatesPanel(controller: c),
+            },
           ),
         ],
       ),
@@ -159,9 +211,10 @@ class _MediaPoolState extends State<MediaPool> {
                     child: CcIcon(
                       LucideIcons.layoutGrid,
                       size: 14,
-                      color: _listView
-                          ? CcColors.textTertiary
-                          : CcColors.textPrimary,
+                      color:
+                          _listView
+                              ? CcColors.textTertiary
+                              : CcColors.textPrimary,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -170,9 +223,10 @@ class _MediaPoolState extends State<MediaPool> {
                     child: CcIcon(
                       LucideIcons.list,
                       size: 14,
-                      color: _listView
-                          ? CcColors.textPrimary
-                          : CcColors.textTertiary,
+                      color:
+                          _listView
+                              ? CcColors.textPrimary
+                              : CcColors.textTertiary,
                     ),
                   ),
                 ],
@@ -193,8 +247,10 @@ class _MediaPoolState extends State<MediaPool> {
                   padding: 2,
                   expand: true,
                   selectedIndex: _filter.index,
-                  onChanged: (index) =>
-                      setState(() => _filter = MediaPoolFilter.values[index]),
+                  onChanged:
+                      (index) => setState(
+                        () => _filter = MediaPoolFilter.values[index],
+                      ),
                   children: [
                     for (final filter in MediaPoolFilter.values)
                       Text(
@@ -206,6 +262,7 @@ class _MediaPoolState extends State<MediaPool> {
                 const SizedBox(height: 10),
                 _ImportDropZone(
                   onTap: widget.onImport,
+                  onUrl: widget.onImportUrl,
                   active: widget.dropActive,
                 ),
               ],
@@ -217,28 +274,48 @@ class _MediaPoolState extends State<MediaPool> {
           ),
         ),
         Expanded(
-          child: isEmpty
-              ? Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: CcEmptyState(
-                    icon: LucideIcons.cloudUpload,
-                    title: 'No media yet',
-                    description: 'Drag files or folders here, or',
-                    footnote: 'MP4 · MOV · WAV · PNG · SVG and more',
-                    action: CcTappable(
-                      onTap: widget.onImport,
-                      child: Text(
-                        'browse your files',
-                        style: CcType.style(
-                          size: 11,
-                          weight: CcType.semibold,
-                          color: CcColors.accent,
-                        ),
+          child:
+              isEmpty
+                  ? Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: CcEmptyState(
+                      icon: LucideIcons.cloudUpload,
+                      title: 'No media yet',
+                      description:
+                          'Drag files or folders here, or add a source',
+                      footnote: 'MP4 · MOV · WAV · PNG · SVG and more',
+                      action: Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 12,
+                        runSpacing: 6,
+                        children: [
+                          CcTappable(
+                            onTap: widget.onImport,
+                            child: Text(
+                              'Browse files',
+                              style: CcType.style(
+                                size: 11,
+                                weight: CcType.semibold,
+                                color: CcColors.accent,
+                              ),
+                            ),
+                          ),
+                          CcTappable(
+                            onTap: widget.onImportUrl,
+                            child: Text(
+                              'Add URL',
+                              style: CcType.style(
+                                size: 11,
+                                weight: CcType.semibold,
+                                color: CcColors.accent,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                )
-              : _grid(items),
+                  )
+                  : _grid(items),
         ),
         if (c.lastSkipped.isNotEmpty)
           Padding(
@@ -355,51 +432,70 @@ class _MissingMediaBanner extends StatelessWidget {
 }
 
 class _ImportDropZone extends StatelessWidget {
-  const _ImportDropZone({this.onTap, this.active = false});
+  const _ImportDropZone({this.onTap, this.onUrl, this.active = false});
 
   final VoidCallback? onTap;
+  final VoidCallback? onUrl;
   final bool active;
 
   @override
   Widget build(BuildContext context) {
-    return CcTappable(
-      onTap: onTap,
-      child: Container(
-        key: const ValueKey('media-import-control'),
-        height: 38,
-        alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: active ? CcColors.elevated2 : CcColors.elevated,
-          borderRadius: CcRadius.brMd,
-          border: active
-              ? Border.all(color: CcColors.accent)
-              : CcBorders.allStrong,
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CcIcon(
-              LucideIcons.cloudUpload,
-              size: 14,
-              color: active ? CcColors.accent : CcColors.textSecondary,
-            ),
-            const SizedBox(width: 7),
-            Expanded(
-              child: Text(
-                active ? 'Drop to import' : 'Drop files or click to import',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: CcType.style(
-                  size: 10,
-                  weight: CcType.medium,
-                  color: active ? CcColors.textPrimary : CcColors.textSecondary,
-                ),
+    return Container(
+      key: const ValueKey('media-import-control'),
+      height: 38,
+      decoration: BoxDecoration(
+        color: active ? CcColors.elevated2 : CcColors.elevated,
+        borderRadius: CcRadius.brMd,
+        border:
+            active ? Border.all(color: CcColors.accent) : CcBorders.allStrong,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: CcTappable(
+              onTap: onTap,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CcIcon(
+                    LucideIcons.cloudUpload,
+                    size: 14,
+                    color: active ? CcColors.accent : CcColors.textSecondary,
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    active ? 'Drop files' : 'Files',
+                    style: CcType.style(
+                      size: 10,
+                      weight: CcType.medium,
+                      color:
+                          active
+                              ? CcColors.textPrimary
+                              : CcColors.textSecondary,
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(width: 1, child: ColoredBox(color: CcColors.border)),
+          Expanded(
+            child: CcTappable(
+              onTap: active ? null : onUrl,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const CcIcon(LucideIcons.link, size: 13),
+                  const SizedBox(width: 6),
+                  Text(
+                    'URL',
+                    style: CcType.style(size: 10, weight: CcType.medium),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

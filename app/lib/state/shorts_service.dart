@@ -349,6 +349,10 @@ class ShortsService {
     hdr: asset.hdr,
     bitrate: asset.bitrate,
     proxyPath: asset.proxyPath,
+    sourceKind: asset.sourceKind,
+    remoteEtag: asset.remoteEtag,
+    remoteLastModified: asset.remoteLastModified,
+    remoteContentLength: asset.remoteContentLength,
     extra: Map<String, dynamic>.of(asset.extra),
   );
 

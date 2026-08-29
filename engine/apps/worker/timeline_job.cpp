@@ -74,6 +74,10 @@ struct TextTextureVariant {
 struct TextTextureSet {
   double startSec = 0.0;
   bool typewriter = false;
+  // Reveal rate the editor used. Sent per clip because the typewriter's speed
+  // is its entry duration divided by the string; the default is the fixed rate
+  // projects used before that was true.
+  double charsPerSecond = 24.0;
   std::vector<TextTextureVariant> variants;
 };
 
@@ -296,6 +300,8 @@ int runTimelineJob(const json& spec) {
       TextTextureSet set;
       set.startSec = value.value("startSec", 0.0);
       set.typewriter = value.value("typewriter", false);
+      set.charsPerSecond = value.value("charsPerSecond", 24.0);
+      if (!(set.charsPerSecond > 0.0)) set.charsPerSecond = 24.0;
       if (value.contains("variants") && value["variants"].is_array()) {
         for (const auto& variantJson : value["variants"]) {
           if (!variantJson.is_object()) continue;
@@ -716,8 +722,10 @@ int runTimelineJob(const json& spec) {
       if (textIt != textTextures.end()) {
         const TextTextureSet& set = textIt->second;
         if (!set.typewriter) return set.variants.front().source;
-        const int revealCount = static_cast<int>(
-            std::floor(std::max(0.0, frameSeconds - set.startSec) * 24.0));
+        const int revealCount =
+            static_cast<int>(std::floor(std::max(0.0, frameSeconds -
+                                                          set.startSec) *
+                                        set.charsPerSecond));
         if (revealCount <= 0) return std::nullopt;
         const TextTextureVariant* selected = nullptr;
         for (const auto& variant : set.variants) {

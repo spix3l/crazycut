@@ -10,7 +10,6 @@ import '../../../../../data/param_value.dart';
 import '../../../../../data/project.dart';
 import '../../../../../models/rational.dart';
 import '../../../../../state/editor_controller.dart';
-import '../../../../../state/timeline_edits.dart';
 import 'clip_animation_edge_control.dart';
 import 'inspector_effects_tab.dart' show KeyframeDiamond, showKeyframeMenu;
 
@@ -28,6 +27,7 @@ class TransformTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = clip.transform ?? ClipTransform();
     final isImage = c.doc.assetById(clip.mediaId)?.type == 'image';
+    final motionPresets = c.clipMotionPresetsFor(clip);
     final isVisualMedia =
         clip.text != null ||
         switch (c.doc.assetById(clip.mediaId)?.type) {
@@ -43,7 +43,7 @@ class TransformTab extends StatelessWidget {
             _ClipAnimationSection(
               controller: c,
               clip: clip,
-              showContinuousMotion: isImage,
+              motionPresets: motionPresets,
             ),
           _TransformSectionHeader('Layout'),
           _AlignSection(controller: c),
@@ -271,12 +271,15 @@ class _ClipAnimationSection extends StatelessWidget {
   const _ClipAnimationSection({
     required this.controller,
     required this.clip,
-    required this.showContinuousMotion,
+    required this.motionPresets,
   });
 
   final EditorController controller;
   final Clip clip;
-  final bool showContinuousMotion;
+
+  /// Full-length moves this kind of clip can hold — Ken Burns on an image, a
+  /// blink on text, nothing on video.
+  final Map<String, String> motionPresets;
 
   bool get _hasAnimation => controller.clipAnimationSpec(clip) != null;
 
@@ -328,7 +331,7 @@ class _ClipAnimationSection extends StatelessWidget {
             clip: clip,
             side: ClipAnimationSide.leave,
           ),
-          if (showContinuousMotion) ...[
+          if (motionPresets.isNotEmpty) ...[
             const SizedBox(height: 14),
             Text(
               'CONTINUOUS MOTION',
@@ -344,12 +347,12 @@ class _ClipAnimationSection extends StatelessWidget {
               spacing: 6,
               runSpacing: 6,
               children: [
-                for (final entry in TimelineEdits.kImagePresets.entries)
+                for (final entry in motionPresets.entries)
                   _PresetChip(
                     label: entry.key,
                     selected: _motion() == entry.value,
                     onTap:
-                        () => controller.applyImagePreset(
+                        () => controller.applyMotionPreset(
                           clip.id,
                           _motion() == entry.value ? null : entry.value,
                         ),

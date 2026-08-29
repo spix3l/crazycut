@@ -24,34 +24,44 @@ void main() {
   );
 
   test('typewriter raster exposes progressively more content', () async {
-    final text = TextContent(
-      content: 'Progressive title',
-      fontSize: 96,
-      animation: 'typewriter',
-    );
-    final empty = await TextRasterizer.instance.render(
+    final text = TextContent(content: 'Progressive title', fontSize: 96);
+    // 17 runes typed over 1 s: nothing at 0, part of it at 0.2 s, all of it
+    // once the reveal is over.
+    Future<RasterizedText?> at(double seconds) => TextRasterizer.instance.render(
       text,
       canvasWidth: 960,
       sequenceHeight: 540,
-      localSeconds: 0,
+      localSeconds: seconds,
+      typewriterSeconds: 1,
     );
-    final partial = await TextRasterizer.instance.render(
-      text,
-      canvasWidth: 960,
-      sequenceHeight: 540,
-      localSeconds: 0.2,
-    );
-    final complete = await TextRasterizer.instance.render(
-      text,
-      canvasWidth: 960,
-      sequenceHeight: 540,
-      localSeconds: 10,
-    );
+
+    final empty = await at(0);
+    final partial = await at(0.2);
+    final complete = await at(10);
 
     expect(empty, isNull);
     expect(partial, isNotNull);
     expect(complete, isNotNull);
     expect(partial!.width, lessThan(complete!.width));
+  });
+
+  test('the whole string renders when the clip does not type in', () async {
+    final text = TextContent(content: 'Static title', fontSize: 96);
+    final early = await TextRasterizer.instance.render(
+      text,
+      canvasWidth: 960,
+      sequenceHeight: 540,
+      localSeconds: 0,
+    );
+    final late = await TextRasterizer.instance.render(
+      text,
+      canvasWidth: 960,
+      sequenceHeight: 540,
+      localSeconds: 4,
+    );
+
+    expect(early, isNotNull);
+    expect(early!.width, late!.width);
   });
 
   test(

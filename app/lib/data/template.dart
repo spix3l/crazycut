@@ -85,9 +85,8 @@ class TemplateEdge {
   factory TemplateEdge.fromJson(Map<String, dynamic>? j) => TemplateEdge(
     enabled: (j?['enabled'] as bool?) ?? false,
     type: (j?['type'] as String?) ?? 'crossDissolve',
-    duration: j?['duration'] == null
-        ? null
-        : Rt.parse(j!['duration'] as String),
+    duration:
+        j?['duration'] == null ? null : Rt.parse(j!['duration'] as String),
     easing: j?['easing'] as String?,
   );
 
@@ -152,6 +151,7 @@ class TemplateMediaRef {
     required this.duration,
     this.hash = '',
     this.hasAudio = false,
+    this.sourceKind = MediaSourceKind.file,
     Map<String, dynamic>? probe,
   }) : probe = probe ?? {};
 
@@ -160,11 +160,14 @@ class TemplateMediaRef {
     name: (j['name'] as String?) ?? '',
     path: (j['path'] as String?) ?? '',
     type: (j['type'] as String?) ?? 'video',
-    duration: j['duration'] == null
-        ? Rt.zero()
-        : Rt.parse(j['duration'] as String),
+    duration:
+        j['duration'] == null ? Rt.zero() : Rt.parse(j['duration'] as String),
     hash: (j['hash'] as String?) ?? '',
     hasAudio: (j['hasAudio'] as bool?) ?? false,
+    sourceKind: MediaSourceKind.values.firstWhere(
+      (kind) => kind.name == (j['sourceKind'] as String? ?? 'file'),
+      orElse: () => MediaSourceKind.file,
+    ),
     probe: (j['probe'] as Map<String, dynamic>?)?.cast<String, dynamic>(),
   );
 
@@ -176,6 +179,7 @@ class TemplateMediaRef {
     duration: asset.duration,
     hash: asset.hash,
     hasAudio: asset.hasAudio,
+    sourceKind: asset.sourceKind,
     probe: (asset.toJson()['probe'] as Map<String, dynamic>?) ?? {},
   );
 
@@ -186,6 +190,7 @@ class TemplateMediaRef {
   final Rt duration;
   final String hash;
   final bool hasAudio;
+  final MediaSourceKind sourceKind;
   final Map<String, dynamic> probe;
 
   /// The offline stand-in used when neither the hash nor the path resolves
@@ -200,6 +205,7 @@ class TemplateMediaRef {
     'hasAudio': hasAudio,
     'probe': probe,
     'thumbStatus': 'none',
+    if (sourceKind != MediaSourceKind.file) 'sourceKind': sourceKind.name,
   })..offline = true;
 
   Map<String, dynamic> toJson() => {
@@ -210,6 +216,7 @@ class TemplateMediaRef {
     if (!duration.isZero) 'duration': duration.toString(),
     'hash': hash,
     'hasAudio': hasAudio,
+    if (sourceKind != MediaSourceKind.file) 'sourceKind': sourceKind.name,
     'probe': probe,
   };
 }

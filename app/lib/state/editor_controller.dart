@@ -10,22 +10,44 @@ import 'package:crazycut_app/data/caption.dart';
 import 'package:crazycut_app/data/media_cache.dart';
 import 'package:crazycut_app/data/param_value.dart';
 import 'package:crazycut_app/data/project.dart';
+import 'package:crazycut_app/data/remote_source_cache.dart';
 import 'package:crazycut_app/data/repository.dart';
 import 'package:crazycut_app/data/template.dart';
 import 'package:crazycut_app/engine/engine.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/audio_edits.dart';
+import 'package:crazycut_app/state/auto_captions.dart';
 import 'package:crazycut_app/state/caption_edits.dart';
 import 'package:crazycut_app/state/caption_rasterizer.dart';
 import 'package:crazycut_app/state/canvas_geometry.dart';
 import 'package:crazycut_app/state/preview_renderer.dart';
 import 'package:crazycut_app/state/proxy_service.dart';
+import 'package:crazycut_app/state/media_url_service.dart';
 import 'package:crazycut_app/state/svg_rasterizer.dart';
 import 'package:crazycut_app/state/template_edits.dart';
 import 'package:crazycut_app/state/text_rasterizer.dart';
 import 'package:crazycut_app/state/timeline_edits.dart';
+import 'package:crazycut_app/state/transcription_service.dart';
 
 enum ImportStatus { probing, ready, failed, offline }
+
+enum UrlImportKind { media, youtubeReference, duplicate }
+
+class AutoCaptionResult {
+  const AutoCaptionResult({this.track, this.error, this.cancelled = false});
+
+  final CaptionTrack? track;
+  final String? error;
+  final bool cancelled;
+
+  bool get succeeded => track != null;
+}
+
+class UrlImportResult {
+  const UrlImportResult(this.kind, this.id);
+  final UrlImportKind kind;
+  final String id;
+}
 
 /// UIX 3.2 monitor zoom control.
 enum PreviewZoom {
@@ -74,6 +96,11 @@ class PoolItem {
   final MediaAsset asset;
   ImportStatus status;
   Uint8List? thumb;
+
+  /// True while the URL source behind this item is being copied into the media
+  /// cache (see [RemoteSourceCache]); the pool says so instead of leaving the
+  /// card looking finished while seeks are still slow.
+  bool caching = false;
 }
 
 /// Files we accept (IMP: supported formats).
@@ -112,7 +139,9 @@ class EditorController extends ChangeNotifier
     );
     this.proxies.addListener(notifyListeners);
     for (final asset in doc.media) {
-      final exists = asset.path.isNotEmpty && File(asset.path).existsSync();
+      final exists =
+          asset.isRemote ||
+          (asset.path.isNotEmpty && File(asset.path).existsSync());
       asset.offline = !exists;
       pool[asset.id] = PoolItem(
         asset: asset,
@@ -120,6 +149,7 @@ class EditorController extends ChangeNotifier
       );
       if (exists) this.proxies.request(asset);
     }
+    migrateLegacyTextAnimations();
     _syncEngineGraph();
     unawaited(_prepareMedia());
     unawaited(_bootRenderer());
@@ -130,6 +160,73 @@ class EditorController extends ChangeNotifier
 
   late final ProjectAutosave autosave;
   final ProxyService proxies;
+  final MediaUrlService mediaUrls = MediaUrlService();
+  final TranscriptionService transcription = TranscriptionService.instance;
+
+  bool _autoCaptionBusy = false;
+  String? _autoCaptionAssetId;
+  bool get autoCaptionBusy => _autoCaptionBusy;
+  AutoCaptionSource? get autoCaptionSource =>
+      chooseAutoCaptionSource(doc, selectedClip);
+  TranscriptionJob? get autoCaptionJob =>
+      _autoCaptionAssetId == null
+          ? null
+          : transcription.jobFor(_autoCaptionAssetId!);
+
+  Future<AutoCaptionResult> generateAutoCaptions() async {
+    if (_autoCaptionBusy) {
+      return const AutoCaptionResult(error: 'Captions are already generating.');
+    }
+    final source = autoCaptionSource;
+    if (source == null) {
+      return const AutoCaptionResult(
+        error: 'Add or select a timeline clip with available audio first.',
+      );
+    }
+
+    _autoCaptionBusy = true;
+    _autoCaptionAssetId = source.asset.id;
+    transcription.addListener(notifyListeners);
+    notifyListeners();
+    try {
+      final transcript = await transcription.ensure(source.asset);
+      final job = transcription.jobFor(source.asset.id);
+      if (job?.state == TranscriptionState.cancelled) {
+        return const AutoCaptionResult(cancelled: true);
+      }
+      if (transcript == null) {
+        return AutoCaptionResult(
+          error: job?.error ?? 'The clip could not be transcribed.',
+        );
+      }
+      final generated = captionsForClip(
+        transcript,
+        source.clip,
+        trackId: generateId(),
+        trackName:
+            doc.captionTracks.isEmpty
+                ? 'Auto captions'
+                : 'Auto captions ${doc.captionTracks.length + 1}',
+      );
+      if (generated.track.items.isEmpty) {
+        return const AutoCaptionResult(
+          error: 'No speech was found inside the visible part of this clip.',
+        );
+      }
+      addCaptionTrackFrom(generated.track);
+      return AutoCaptionResult(track: generated.track);
+    } finally {
+      transcription.removeListener(notifyListeners);
+      _autoCaptionBusy = false;
+      _autoCaptionAssetId = null;
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  void cancelAutoCaptions() {
+    final assetId = _autoCaptionAssetId;
+    if (assetId != null) transcription.cancel(assetId);
+  }
 
   /// A controller-created proxy queue follows the controller lifetime. The
   /// app session injects its shared queue so jobs can survive project changes;
@@ -360,6 +457,8 @@ class EditorController extends ChangeNotifier
   @override
   void dispose() {
     _disposed = true;
+    cancelAutoCaptions();
+    transcription.removeListener(notifyListeners);
     _playTimer?.cancel();
     _notifyTrailing?.cancel();
     _audio?.stop();
@@ -371,6 +470,7 @@ class EditorController extends ChangeNotifier
     previewImage.dispose();
     audioLevelsNotifier.dispose();
     proxies.removeListener(notifyListeners);
+    mediaUrls.close();
     if (_ownsProxies) proxies.dispose();
     autosave.dispose();
     super.dispose();
@@ -378,6 +478,8 @@ class EditorController extends ChangeNotifier
 
   Future<void> close() async {
     _disposed = true;
+    cancelAutoCaptions();
+    transcription.removeListener(notifyListeners);
     _playTimer?.cancel();
     _notifyTrailing?.cancel();
     playing = false;
@@ -491,6 +593,220 @@ class EditorController extends ChangeNotifier
     notifyListeners();
   }
 
+  /// Imports a direct public media URL, or stores a YouTube link as a
+  /// reference-only item. YouTube references never enter the render graph.
+  Future<UrlImportResult> importUrl(String value) async {
+    final youtube = parseYouTubeLink(value);
+    if (youtube != null) {
+      final existing = doc.references.firstWhereOrNull(
+        (item) =>
+            item.provider == 'youtube' && item.externalId == youtube.videoId,
+      );
+      if (existing != null) {
+        return UrlImportResult(UrlImportKind.duplicate, existing.id);
+      }
+      final reference = MediaReference(
+        id: generateId(),
+        provider: 'youtube',
+        url: normalizeRemoteUrl(value),
+        externalId: youtube.videoId,
+        rangeIn: Rt.fromSeconds(youtube.startSeconds.toDouble()),
+      );
+      doc.references.add(reference);
+      markDirty();
+      notifyListeners();
+      return UrlImportResult(UrlImportKind.youtubeReference, reference.id);
+    }
+
+    final descriptor = await mediaUrls.inspect(value);
+    final duplicate = doc.media.firstWhereOrNull(
+      (asset) => asset.isRemote && asset.path == descriptor.enteredUrl,
+    );
+    if (duplicate != null) {
+      return UrlImportResult(UrlImportKind.duplicate, duplicate.id);
+    }
+
+    final asset = MediaAsset(
+      id: generateId(),
+      name: descriptor.name,
+      path: descriptor.enteredUrl,
+      type: 'video',
+      duration: Rt.zero(),
+      hasAudio: false,
+      sourceKind: MediaSourceKind.url,
+      remoteEtag: descriptor.etag,
+      remoteLastModified: descriptor.lastModified,
+      remoteContentLength: descriptor.contentLength,
+    );
+    final item = PoolItem(asset: asset);
+    pool[asset.id] = item;
+    notifyListeners();
+    try {
+      Uint8List? svgThumb;
+      final svg =
+          descriptor.contentType == 'image/svg+xml' ||
+          isSvgPath(descriptor.resolvedUrl);
+      if (svg) {
+        final raster = await SvgRasterizer.instance.rasterize(
+          asset,
+          canvasWidth: doc.settings.width,
+          canvasHeight: doc.settings.height,
+        );
+        asset
+          ..type = 'image'
+          ..hasAudio = false
+          ..width = raster.width
+          ..height = raster.height
+          ..codec = 'svg';
+        svgThumb = raster.png;
+      } else {
+        final probe = await mediaUrls.probe(descriptor);
+        _applyProbe(asset, probe);
+      }
+      asset.thumbStatus = ThumbStatus.pending;
+      doc.media.add(asset);
+      item
+        ..status = ImportStatus.ready
+        ..thumb = svgThumb;
+      unawaited(_mirrorRemoteSource(item));
+      unawaited(_loadThumbnailInto(item));
+      markDirty();
+      notifyListeners();
+      return UrlImportResult(UrlImportKind.media, asset.id);
+    } on Object {
+      pool.remove(asset.id);
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  void _applyProbe(MediaAsset asset, ProbeResult probe) {
+    asset
+      ..type = probe.type == 'unknown' ? 'video' : probe.type
+      ..duration = Rt.fromSeconds(probe.durationSeconds)
+      ..hasAudio = probe.hasAudio
+      ..width = probe.width
+      ..height = probe.height
+      ..fps = probe.fps
+      ..rotation = probe.rotation
+      ..vfr = probe.vfr
+      ..codec = probe.codec
+      ..hdr = probe.hdr;
+  }
+
+  /// Copies a URL source into the media cache, then queues its proxy.
+  ///
+  /// Preview, filmstrip and export all read [mediaDecodePath], so the moment
+  /// the mirror lands they decode from disk: a scrub or a loop stops costing an
+  /// HTTP re-read of the whole file, which is what kept URL clips — GIFs worst
+  /// of all, having no keyframe to seek to — from playing in the monitor. The
+  /// proxy waits for the mirror so the transcode reads the local copy.
+  Future<void> _mirrorRemoteSource(PoolItem item) async {
+    final asset = item.asset;
+    if (!asset.isRemote) return;
+    // An SVG is decoded from the bitmap the rasterizer already wrote; mirroring
+    // the markup as well would download it for nothing.
+    if (isSvgPath(asset.path)) return;
+    item.caching = true;
+    notifyListeners();
+    try {
+      final mirrored = await RemoteSourceCache.instance.ensure(asset);
+      if (_disposed) return;
+      if (mirrored != null) {
+        // The path rides in the document so reopening the project reuses the
+        // copy instead of downloading it again.
+        markDirty();
+      }
+    } on Object catch (e) {
+      debugPrint('remote source mirror failed: $e');
+    } finally {
+      item.caching = false;
+      if (!_disposed) {
+        proxies.request(asset);
+        notifyListeners();
+        unawaited(updatePreviewFrame());
+      }
+    }
+  }
+
+  Future<void> refreshRemoteAsset(
+    String assetId, {
+    String? replacement,
+    bool markDocument = true,
+  }) async {
+    final asset = doc.assetById(assetId);
+    if (asset == null || !asset.isRemote) return;
+    final oldPath = asset.path;
+    final oldRevision = asset.remoteRevision;
+    if (replacement != null) asset.path = normalizeRemoteUrl(replacement);
+    pool[assetId]?.status = ImportStatus.probing;
+    notifyListeners();
+    try {
+      final descriptor = await mediaUrls.inspect(asset.path);
+      if (descriptor.revision != oldRevision || asset.path != oldPath) {
+        await MediaCache.instance.invalidate(asset);
+      }
+      if (descriptor.contentType == 'image/svg+xml' ||
+          isSvgPath(descriptor.resolvedUrl)) {
+        asset.extra.remove('svgRasterPath');
+        final raster = await SvgRasterizer.instance.rasterize(
+          asset,
+          canvasWidth: doc.settings.width,
+          canvasHeight: doc.settings.height,
+        );
+        asset
+          ..type = 'image'
+          ..hasAudio = false
+          ..width = raster.width
+          ..height = raster.height
+          ..codec = 'svg';
+        pool[assetId]?.thumb = raster.png;
+      } else {
+        final probe = await mediaUrls.probe(descriptor);
+        if (probe.type != asset.type) {
+          throw MediaUrlException(
+            'The refreshed URL is ${probe.type}, but this asset is ${asset.type}.',
+          );
+        }
+        _applyProbe(asset, probe);
+        pool[assetId]?.thumb = null;
+        unawaited(_loadThumbnailInto(pool[assetId]!));
+      }
+      asset
+        ..remoteEtag = descriptor.etag
+        ..remoteLastModified = descriptor.lastModified
+        ..remoteContentLength = descriptor.contentLength
+        ..offline = false;
+      pool[assetId]?.status = ImportStatus.ready;
+      // A changed revision invalidated the mirror above; fetch the new bytes.
+      final item = pool[assetId];
+      if (item != null) unawaited(_mirrorRemoteSource(item));
+      if (markDocument) markDirty();
+    } on Object {
+      if (replacement != null) asset.path = oldPath;
+      asset.offline = true;
+      pool[assetId]?.status = ImportStatus.offline;
+      rethrow;
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  void removeReference(String id) {
+    doc.references.removeWhere((reference) => reference.id == id);
+    markDirty();
+    notifyListeners();
+  }
+
+  void updateReferenceRange(String id, {Rt? rangeIn, Rt? rangeOut}) {
+    final reference = doc.references.firstWhereOrNull((item) => item.id == id);
+    if (reference == null) return;
+    if (rangeIn != null) reference.rangeIn = rangeIn;
+    if (rangeOut != null) reference.rangeOut = rangeOut;
+    markDirty();
+    notifyListeners();
+  }
+
   // --- Templates (TPL-12) ---------------------------------------------------
 
   /// Resolves a template's media, then inserts it.
@@ -518,6 +834,14 @@ class EditorController extends ChangeNotifier
       );
       if (known != null) {
         resolution[ref.id] = known.id;
+        continue;
+      }
+      if (ref.sourceKind == MediaSourceKind.url && ref.path.isNotEmpty) {
+        final result = await importUrl(ref.path);
+        if (result.kind == UrlImportKind.media ||
+            result.kind == UrlImportKind.duplicate) {
+          resolution[ref.id] = result.id;
+        }
         continue;
       }
       if (ref.path.isEmpty || !File(ref.path).existsSync()) continue;
@@ -560,6 +884,11 @@ class EditorController extends ChangeNotifier
     final asset = doc.assetById(assetId);
     if (asset == null) return;
     asset.path = newPath;
+    asset.sourceKind = MediaSourceKind.file;
+    asset
+      ..remoteEtag = null
+      ..remoteLastModified = null
+      ..remoteContentLength = null;
     asset.offline = !File(newPath).existsSync();
     pool[assetId]?.status =
         asset.offline ? ImportStatus.offline : ImportStatus.ready;
@@ -597,7 +926,25 @@ class EditorController extends ChangeNotifier
   Future<void> revealAsset(String assetId) async {
     final asset = doc.assetById(assetId);
     if (asset == null) return;
+    if (asset.isRemote) {
+      await openExternalUrl(asset.path);
+      return;
+    }
     await revealPath(asset.path);
+  }
+
+  Future<void> openExternalUrl(String value) async {
+    try {
+      if (Platform.isMacOS) {
+        await Process.run('open', [value]);
+      } else if (Platform.isWindows) {
+        await Process.run('cmd', ['/c', 'start', '', value]);
+      } else {
+        await Process.run('xdg-open', [value]);
+      }
+    } on Object catch (error) {
+      debugPrint('open URL failed: $error');
+    }
   }
 
   /// Shows any file the app owns in the OS file browser — media, and the
@@ -619,7 +966,17 @@ class EditorController extends ChangeNotifier
 
   Future<void> _prepareMedia() async {
     for (final item in pool.values.toList()) {
-      if (isSvgPath(item.asset.path) && !item.asset.offline) {
+      if (item.asset.isRemote) {
+        try {
+          await refreshRemoteAsset(item.asset.id, markDocument: false);
+        } on Object catch (e) {
+          debugPrint('remote source unavailable: $e');
+          continue;
+        }
+      }
+      if (isSvgPath(item.asset.path) &&
+          !item.asset.offline &&
+          item.thumb == null) {
         try {
           final raster = await SvgRasterizer.instance.rasterize(
             item.asset,
@@ -1059,6 +1416,7 @@ class EditorController extends ChangeNotifier
             canvasWidth: doc.settings.width,
             sequenceHeight: doc.settings.height,
             localSeconds: clipLocalTime(clip).seconds,
+            typewriterSeconds: typewriterRevealSeconds(clip),
           );
     }
     final asset = doc.assetById(clip.mediaId);
@@ -1329,6 +1687,7 @@ class EditorController extends ChangeNotifier
           canvasWidth: width,
           sequenceHeight: height,
           localSeconds: (requested - clip.start).seconds,
+          typewriterSeconds: typewriterRevealSeconds(clip),
         );
         if (raster == null) {
           _textGizmoSizes.remove(clip.id);

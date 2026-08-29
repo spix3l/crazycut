@@ -1,7 +1,9 @@
 /// Text clip content (TXT-2/3).
 ///
-/// [animation] is provenance only (which preset produced this clip); presets
-/// bake their keyframes elsewhere, so nothing here evaluates them.
+/// [animation] is legacy: text used to carry its own preset id here. A text
+/// clip now animates through the shared `extra.clipAnim` spec like every other
+/// visual clip, so this is read once at load to migrate and then cleared.
+/// Nothing writes it, and nothing evaluates it.
 class TextContent {
   TextContent({
     this.content = '',
@@ -90,6 +92,8 @@ class TextContent {
   double backgroundRadius;
 
   /// Preset provenance only — never evaluated by the model.
+  /// Legacy preset id; see the class doc. Kept so an old project can still be
+  /// read and converted.
   String animation;
 
   TextContent copy() => TextContent.fromJson(toJson());

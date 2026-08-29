@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import '../core/design/tokens.dart';
+import '../core/widgets/cc_dialog.dart';
 import '../state/editor_controller.dart';
 import 'router/app_router.dart';
 import 'router/app_router.gr.dart';
@@ -132,6 +133,29 @@ class _CrazyCutAppState extends State<CrazyCutApp> {
     }
   }
 
+  Future<void> _importMediaUrl() async {
+    final editor = _editor;
+    final context = _router.navigatorKey.currentContext;
+    if (editor == null || context == null) return;
+    final value = await promptForText(
+      context,
+      title: 'Add from URL',
+      label: 'Direct media or YouTube URL',
+      confirmLabel: 'Add',
+    );
+    if (value == null || value.isEmpty) return;
+    try {
+      await editor.importUrl(value);
+    } on Object catch (error) {
+      if (!context.mounted) return;
+      await showMessageDialog(
+        context,
+        title: 'Couldn’t add URL',
+        message: error.toString(),
+      );
+    }
+  }
+
   void _undo() => _editor?.undo();
   void _redo() => _editor?.redo();
   void _selectAll() => _editor?.selectAll();
@@ -204,6 +228,10 @@ class _CrazyCutAppState extends State<CrazyCutApp> {
           label: 'Import Media…',
           shortcut: const SingleActivator(LogicalKeyboardKey.keyI, meta: true),
           onSelected: _importMedia,
+        ),
+        PlatformMenuItem(
+          label: 'Import from URL…',
+          onSelected: _importMediaUrl,
         ),
         PlatformMenuItemGroup(
           members: [

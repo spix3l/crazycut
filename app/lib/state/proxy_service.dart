@@ -92,7 +92,9 @@ class ProxyService extends ChangeNotifier {
     final jobFile = File('${output.path}.job.json');
     await jobFile.writeAsString(
       jsonEncode({
-        'input': asset.path,
+        // The local mirror when the source came from a URL: transcoding
+        // straight from the network re-downloads what the cache already has.
+        'input': mediaDecodePath(asset),
         'output': output.path,
         'video': {
           'codec': 'h264',

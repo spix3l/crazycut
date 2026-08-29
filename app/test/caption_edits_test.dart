@@ -121,6 +121,19 @@ void main() {
     expect(c.doc.captionTracks.single.style.highlightWords, isFalse);
   });
 
+  test('caption track can be deleted and restored with undo', () {
+    final c = harness();
+
+    c.deleteCaptionTrack('track');
+
+    expect(c.doc.captionTracks, isEmpty);
+    expect(c.selectedCaptionTrackId, isNull);
+    expect(c.selectedCaptionItemId, isNull);
+    c.undo();
+    expect(c.doc.captionTracks.single.id, 'track');
+    expect(c.doc.captionTracks.single.items, hasLength(2));
+  });
+
   test('lane-style gesture coalesces repeated retimes into one undo', () {
     final c = harness();
     c.beginGesture('Retime caption');

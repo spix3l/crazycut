@@ -134,7 +134,11 @@ void main() {
     expect(find.text('CLIP ANIMATION'), findsOneWidget);
     expect(find.text('Enter'), findsOneWidget);
     expect(find.text('Leave'), findsOneWidget);
-    expect(find.text('CONTINUOUS MOTION'), findsNothing);
+    // Text animates through the one shared control; the looks only it can
+    // play join the same picker rather than opening a second entry point.
+    expect(find.text('CONTINUOUS MOTION'), findsOneWidget);
+    expect(find.text('Blink'), findsOneWidget);
+    expect(find.text('Zoom in'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

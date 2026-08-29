@@ -191,6 +191,8 @@ class SequenceSettings {
 
 enum ThumbStatus { none, pending, ready, failed }
 
+enum MediaSourceKind { file, url }
+
 class MediaAsset {
   MediaAsset({
     required this.id,
@@ -210,6 +212,10 @@ class MediaAsset {
     this.bitrate,
     this.proxyPath,
     this.thumbStatus = ThumbStatus.none,
+    this.sourceKind = MediaSourceKind.file,
+    this.remoteEtag,
+    this.remoteLastModified,
+    this.remoteContentLength,
     this.offline = false,
     Map<String, dynamic>? extra,
   }) : extra = extra ?? {};
@@ -239,6 +245,17 @@ class MediaAsset {
             (s) => s.name == (j['thumbStatus'] as String?),
           ) ??
           ThumbStatus.none,
+      sourceKind:
+          MediaSourceKind.values.firstWhereOrNull(
+            (kind) => kind.name == j['sourceKind'],
+          ) ??
+          MediaSourceKind.file,
+      remoteEtag: (j['remote'] as Map<String, dynamic>?)?['etag'] as String?,
+      remoteLastModified:
+          (j['remote'] as Map<String, dynamic>?)?['lastModified'] as String?,
+      remoteContentLength:
+          ((j['remote'] as Map<String, dynamic>?)?['contentLength'] as num?)
+              ?.toInt(),
       extra: _unknown(j, {
         'id',
         'hash',
@@ -250,6 +267,8 @@ class MediaAsset {
         'probe',
         'proxyPath',
         'thumbStatus',
+        'sourceKind',
+        'remote',
       }),
     );
   }
@@ -273,6 +292,18 @@ class MediaAsset {
   /// Set once a proxy render finishes (IMP-8).
   String? proxyPath;
   ThumbStatus thumbStatus;
+  MediaSourceKind sourceKind;
+  String? remoteEtag;
+  String? remoteLastModified;
+  int? remoteContentLength;
+
+  bool get isRemote => sourceKind == MediaSourceKind.url;
+
+  String get remoteRevision => [
+    remoteEtag ?? '',
+    remoteLastModified ?? '',
+    remoteContentLength?.toString() ?? '',
+  ].join('|');
 
   /// True when the file could not be resolved on open (IMP-15).
   bool offline;
@@ -314,6 +345,52 @@ class MediaAsset {
     },
     'proxyPath': proxyPath,
     'thumbStatus': thumbStatus.name,
+    if (sourceKind != MediaSourceKind.file) 'sourceKind': sourceKind.name,
+    if (isRemote)
+      'remote': {
+        if (remoteEtag != null) 'etag': remoteEtag,
+        if (remoteLastModified != null) 'lastModified': remoteLastModified,
+        if (remoteContentLength != null) 'contentLength': remoteContentLength,
+      },
+  };
+}
+
+/// A viewing-only web reference. It deliberately cannot satisfy a clip's
+/// `mediaId`: providers such as YouTube are shown through their official
+/// player and are never decoded, cached, proxied, or exported by CrazyCut.
+class MediaReference {
+  MediaReference({
+    required this.id,
+    required this.provider,
+    required this.url,
+    required this.externalId,
+    Rt? rangeIn,
+    this.rangeOut,
+  }) : rangeIn = rangeIn ?? Rt.zero();
+
+  factory MediaReference.fromJson(Map<String, dynamic> json) => MediaReference(
+    id: json['id'] as String,
+    provider: json['provider'] as String,
+    url: json['url'] as String,
+    externalId: json['externalId'] as String,
+    rangeIn: Rt.parse((json['in'] as String?) ?? '0/1'),
+    rangeOut: json['out'] == null ? null : Rt.parse(json['out'] as String),
+  );
+
+  final String id;
+  final String provider;
+  String url;
+  final String externalId;
+  Rt rangeIn;
+  Rt? rangeOut;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'provider': provider,
+    'url': url,
+    'externalId': externalId,
+    'in': rangeIn.toString(),
+    if (rangeOut != null) 'out': rangeOut.toString(),
   };
 }
 
@@ -637,6 +714,7 @@ class ProjectDoc {
        markers = [],
        transitions = [],
        captionTracks = [],
+       references = [],
        extra = extra ?? {};
 
   factory ProjectDoc.empty(
@@ -688,6 +766,7 @@ class ProjectDoc {
         'transitions',
         'markers',
         'captionTracks',
+        'references',
       }),
     );
     void quarantine(String what, Object error) =>
@@ -738,6 +817,15 @@ class ProjectDoc {
         );
       } catch (e) {
         quarantine('caption track', e);
+      }
+    }
+    for (final value in (j['references'] as List<dynamic>? ?? const [])) {
+      try {
+        doc.references.add(
+          MediaReference.fromJson(value as Map<String, dynamic>),
+        );
+      } catch (e) {
+        quarantine('media reference', e);
       }
     }
     if (doc.tracks.isEmpty) doc._initDefaultTracks();
@@ -970,6 +1058,7 @@ class ProjectDoc {
   final List<Marker> markers;
   final List<Transition> transitions;
   final List<CaptionTrack> captionTracks;
+  final List<MediaReference> references;
   final Map<String, dynamic> extra;
 
   Rt get frameDuration => settings.frameDuration;
@@ -1034,6 +1123,8 @@ class ProjectDoc {
     'markers': markers.map((m) => m.toJson()).toList(),
     if (captionTracks.isNotEmpty)
       'captionTracks': [for (final track in captionTracks) track.toJson()],
+    if (references.isNotEmpty)
+      'references': [for (final reference in references) reference.toJson()],
   };
 
   String encode({bool touchModified = true}) {
@@ -1106,6 +1197,11 @@ class ProjectDoc {
         }
       }
       clone.captionTracks.add(CaptionTrack.fromJson(json));
+    }
+    for (final reference in copy.references) {
+      clone.references.add(
+        MediaReference.fromJson(reference.toJson()..['id'] = generateId()),
+      );
     }
     return clone;
   }

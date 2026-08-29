@@ -84,6 +84,19 @@ Track ordering convention: array index 0 = **bottom-most video layer**; audio tr
 | `probe` | object | width, height, rotation, fps `"n/d"`, vfr bool, codec, hdr enum(`none\|hdr10\|hlg`), audio channels/layout |
 | `proxyPath` | string? | set when proxy exists |
 | `thumbStatus` | enum | `none\|pending\|ready\|failed` |
+| `sourceKind` | enum | `file\|url`; omitted means `file` for backward compatibility |
+| `remote` | object? | URL validators: `etag`, `lastModified`, `contentLength` |
+
+For URL assets, `path` contains the normalized entered URL and `hash` remains empty. Derived cache identity uses the asset id and remote validators; `extra.localSource` points at the cached mirror the decoders read, and is dropped whenever those derivatives are invalidated. YouTube links are not media assets.
+
+### MediaReference
+
+Viewing-only provider links live in top-level `references[]` and cannot satisfy a clip's `mediaId`:
+
+```json
+{ "id": "…", "provider": "youtube", "url": "https://youtu.be/…",
+  "externalId": "M7lc1UVf-VE", "in": "12/1", "out": "20/1" }
+```
 
 ### Track
 
@@ -171,12 +184,15 @@ Rules:
 
 ## 6. Text content (summary)
 
-Text clips carry `text` (string, `\n` allowed), style block (font family/postscript name, size, weight, color, stroke, shadow, background box, alignment, letter spacing, line height), and animation preset ids. Full definition in `03-features/text-keyframes.md`; storage follows the same param/keyframe encoding as effects (animatable: position, scale, rotation, opacity).
+Text clips carry `text` (string, `\n` allowed), style block (font family/postscript name, size, weight, color, stroke, shadow, background box, alignment, letter spacing, line height), and no animation of its own — a text clip animates through the same
+`extra.clipAnim` spec as every other visual clip (`03-features/text-keyframes.md`
+§ TXT-10). The legacy `text.animation` preset id is read once at load, converted
+to that spec, and cleared. Full definition in `03-features/text-keyframes.md`; storage follows the same param/keyframe encoding as effects (animatable: position, scale, rotation, opacity).
 
 ## 7. Media management
 
 - **Hashing:** SHA-256 of full file contents, computed in background at import (quick identity `size + mtime(100ns)` used until full hash lands; hash upgrade is silent).
-- **Cache keys:** all derived caches (thumbnails, peaks, proxies, decoded tiers) keyed by `(sha256, variant)` under OS cache dir — macOS `~/Library/Caches/CrazyCut/`, Windows `%LOCALAPPDATA%\CrazyCut\Cache`. Caches are safe to delete anytime.
+- **Cache keys:** all derived caches (thumbnails, peaks, proxies, decoded tiers, and the `source` mirror of a URL asset) keyed by `(sha256, variant)` under OS cache dir — macOS `~/Library/Caches/CrazyCut/`, Windows `%LOCALAPPDATA%\CrazyCut\Cache`. Caches are safe to delete anytime.
 - **Relink:** on open, resolve each asset: (1) path exists & hash matches → ok; (2) scan project folder / last-known parent folder for file with matching hash → relink silently; (3) fuzzy match by name+size → propose in *Missing media* dialog; (4) else offline state.
 - **Path strategy:** store absolute path + record original volume name; relative-path mode (project folder–relative) if asset resides inside the project folder → portable projects.
 
@@ -187,7 +203,7 @@ Text clips carry `text` (string, `\n` allowed), style block (font family/postscr
 | `<user>/Documents/CrazyCut/<Project>.crazycut` | project JSON (default location, user-changeable) |
 | `<project>.crazycut.autosave` | atomic autosave copy (temp write + rename) |
 | `<project dir>/backups/<name>-<timestamp>.crazycut` | backup ring (default: every 5 min while dirty, keep 20) |
-| cache dir | thumbnails, peaks, proxies, decode caches |
+| cache dir | thumbnails, peaks, proxies, decode caches, URL source mirrors |
 
 Autosave cadence: 2 s debounce after each committed change, plus hard save every 30 s during active editing. Writes are atomic (temp + fsync + rename). On open, if autosave is newer than the main file and differs, show recovery chooser (main / autosave / backups list).
 

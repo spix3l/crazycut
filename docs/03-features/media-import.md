@@ -17,6 +17,9 @@ Importing rushes must feel instant: drag files (or folders) anywhere, keep worki
 
 ### Import paths
 - **IMP-1** Import via: drag-drop onto media pool *or* timeline *or* preview; File → Import dialog (multi-select); paste copied files (Cmd/Ctrl+V in pool).
+- **IMP-1a** Add a public direct HTTP(S) URL for supported video, audio, or image media. The URL remains the project source; thumbnails, waveforms, SVG rasters, transcripts, and proxies remain disposable derived cache files.
+- **IMP-1b** YouTube page links are stored as viewing-only references using the official embedded player. They cannot be placed on the timeline, decoded, proxied, transcribed, collected, or exported.
+- **IMP-1c** A URL source is mirrored into the media cache in the background on import and after a revalidation that changed its bytes; preview, filmstrips, proxies and export decode from that copy, falling back to streaming from the URL while it is downloading, when the source exceeds the 512 MB mirror limit, or when the download fails. Streaming can only decode forwards — a seek re-opens the connection, and a format without a keyframe index (GIF above all) must re-read from byte 0 — so a mirrored copy is what makes scrubbing, looping and playback of URL clips behave like local media.
 - **IMP-2** Dropping a folder imports supported files recursively (flat view with folder column; no bin hierarchy in v1).
 - **IMP-3** Duplicates by content hash are deduplicated: re-importing the same file selects the existing asset instead.
 - **IMP-4** Unsupported files are skipped with a summary toast ("Skipped 2 unsupported files") listing names; never a modal per file.
@@ -46,6 +49,7 @@ Importing rushes must feel instant: drag files (or folders) anywhere, keep worki
 - **IMP-15** On open, unresolved assets enter *offline* state (checkerboard card). A "Missing media" panel lists them with: last path, hash, size.
 - **IMP-16** Relink flow: point at a file/folder → match by SHA-256 (exact) then name+size (proposed, confirmed). Folder relink matches recursively and reports matched/unmatched counts.
 - **IMP-17** Offline clips on the timeline render as slates with asset name; they keep all edits and come alive when relinked.
+- **IMP-18** URL assets are revalidated on import, project open, manual refresh, and export. Changed response validators invalidate derivatives; unreachable sources show a retryable *remote unavailable* state rather than a local relink prompt.
 
 ## UX notes
 
@@ -57,6 +61,9 @@ Importing rushes must feel instant: drag files (or folders) anywhere, keep worki
 
 - Importing while exporting/proxying: IO pool prioritizes interactive probes; proxies yield.
 - Same file imported while already hashing: jobs coalesce.
+- The same normalized URL selects the existing asset. Query parameter order is preserved because signed/CDN URLs may treat it as significant.
+- Cache mirrors are disposable: clearing the media cache (or a changed ETag/Last-Modified) drops them, and the next import/open/refresh downloads again.
+- Collect media explicitly downloads URL-backed originals, atomically repoints them to the collected files, and leaves YouTube references remote.
 - Files on removable drives that vanish mid-session: active decoders fail gracefully → affected clips show offline slates; relink flow available immediately.
 - Extremely long filenames / unicode: preserved verbatim; display truncates middle.
 - 4K60 H.264 10-bit on Intel iGPU Mac: hw decode unavailable → software decode + automatic proxy keeps preview realtime.
@@ -70,7 +77,7 @@ Importing rushes must feel instant: drag files (or folders) anywhere, keep worki
 
 ## Out of scope (v1)
 
-Watch folders, camera/card ingest with checksum verify, transcoding on import (other than proxies), bins/collections, ratings/flags/metadata tagging.
+Watch folders, camera/card ingest with checksum verify, authenticated URL headers/cookies, extracting or downloading YouTube media, transcoding on import (other than proxies), bins/collections, ratings/flags/metadata tagging.
 
 ## Changelog
 

@@ -1,6 +1,7 @@
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 
+import 'package:crazycut_app/data/clip_animation.dart' as clip_anim;
 import 'package:crazycut_app/data/clip_transform.dart';
 import 'package:crazycut_app/data/param_value.dart';
 import 'package:crazycut_app/data/project.dart';
@@ -2068,21 +2069,9 @@ mixin TimelineEdits on ChangeNotifier {
 
   // --- Text clips (TXT-1/5) --------------------------------------------------
 
-  /// Animation preset ids for the UI picker (TXT-5).
-  static const Map<String, String> kTextPresets = {
-    'Fade': 'fade',
-    'Pop': 'pop',
-    'Slide Left': 'slideLeft',
-    'Slide Right': 'slideRight',
-    'Slide Up': 'slideUp',
-    'Slide Down': 'slideDown',
-    'Rise': 'rise',
-    'Blink': 'blink',
-    'Typewriter': 'typewriter',
-  };
-
-  /// Image motion shortcuts (TXT-9). They bake ordinary transform keyframes,
-  /// so applying a preset is only a faster way to author editable animation.
+  /// Continuous motion for the whole clip (TXT-9). These bake ordinary
+  /// transform keyframes, so applying a preset is only a faster way to author
+  /// editable animation.
   static const Map<String, String> kImagePresets = {
     'Zoom in': 'zoomIn',
     'Zoom out': 'zoomOut',
@@ -2092,6 +2081,10 @@ mixin TimelineEdits on ChangeNotifier {
     'Pan down': 'panDown',
   };
 
+  /// Motion a text clip can hold for its whole length. Ken Burns needs pixels
+  /// to spare outside the frame, which a tight glyph raster does not have.
+  static const Map<String, String> kTextMotionPresets = {'Blink': 'blink'};
+
   /// Entry/leave animations for visual media clips (label -> id). Both
   /// directions
   /// share one id namespace: an id means the same *look*, played forwards on
@@ -2099,6 +2092,7 @@ mixin TimelineEdits on ChangeNotifier {
   static const Map<String, String> kClipEdgePresets = {
     'Fade': 'fade',
     'Pop': 'pop',
+    'Rise': 'rise',
     'Slide left': 'slideLeft',
     'Slide right': 'slideRight',
     'Slide up': 'slideUp',
@@ -2110,13 +2104,38 @@ mixin TimelineEdits on ChangeNotifier {
     'Wipe down': 'wipeDown',
   };
 
+  /// Looks only a text clip can play, because the text rasterizer produces
+  /// them rather than the compositor. Entry only: a typewriter run backwards
+  /// is a deletion, which is a different look and not v1.
+  static const Map<String, String> kTextEntryPresets = {
+    'Typewriter': 'typewriter',
+  };
+
   /// Compatibility name for older callers and persisted image-animation tests.
   static const Map<String, String> kImageEntryPresets = kClipEdgePresets;
 
-  static const double kClipEdgeDefaultSeconds = 0.4;
+  static const double kClipEdgeDefaultSeconds =
+      clip_anim.kClipEdgeDefaultSeconds;
 
   /// Compatibility name for callers that still use the old image terminology.
   static const double kImageEntryDefaultSeconds = kClipEdgeDefaultSeconds;
+
+  /// The edge presets [clip] can actually play on [side]. Text adds the
+  /// rasterizer-driven looks; everything else gets the shared set.
+  Map<String, String> clipEdgePresetsFor(Clip clip, String side) => {
+    ...kClipEdgePresets,
+    if (clip.text != null && _animationSide(side) == 'entry')
+      ...kTextEntryPresets,
+  };
+
+  /// The full-length motion presets [clip] can play; empty for video, which
+  /// has no motion look of its own.
+  Map<String, String> clipMotionPresetsFor(Clip clip) =>
+      clip.text != null
+          ? kTextMotionPresets
+          : _isImageClip(clip)
+          ? kImagePresets
+          : const {};
 
   /// TXT-1: a text clip at the playhead on the topmost unlocked video track
   /// (or [trackId]), default 5 s, pushed clear of neighbours and selected.
@@ -2176,166 +2195,70 @@ mixin TimelineEdits on ChangeNotifier {
     });
   }
 
-  /// Bakes an animation preset into the clip's TRANSFORM as editable
-  /// keyframes (TXT-5); times scale by 1/[speed]. Switching presets first
-  /// removes the channels owned by the previous preset, so stale scale or
-  /// position keys cannot leak into the newly selected animation.
-  void applyTextPreset(String clipId, String preset, {double speed = 1.0}) {
-    final clip = doc.clipById(clipId);
-    if (clip == null || _locked(clip.trackId)) return;
-    final durSec = clip.duration.seconds;
-    final scale = speed > 0 ? 1.0 / speed : 1.0;
-    Rt at(double seconds) => quantiseToFrame(
-      Rt.fromMicros(
-        (seconds * scale * 1000000).round().clamp(0, clip.duration.micros),
-      ),
-    );
-
-    void keys(
-      ParamValue pv,
-      List<(double, dynamic)> points, {
-      String interp = 'linear',
-    }) {
-      pv.keyframes
-        ..clear()
-        ..addAll([
-          for (final (t, v) in points)
-            {'t': at(t).toString(), 'v': v, 'interp': interp},
-        ]);
-      pv.sortKeys();
-      // Interp rides on the LEFT key of each segment; the first segment uses
-      // [interp] unless the caller supplied per-point overrides below.
-    }
-
-    _run('Apply text animation', (tx) {
-      tx.clip(clipId);
-      // Text presets and the systematic edge animation both author transform
-      // channels. Switching workflows is explicit: the newly chosen one owns
-      // those channels and the old provenance is removed first.
-      _clearGeneratedClipAnimation(clip);
-      final previous = clip.text?.animation ?? '';
-      final tr = clip.transform?.copy() ?? ClipTransform();
-      _clearTextPresetChannels(tr, previous);
-      // Keep the selected preset visible in the inspector. This is
-      // provenance only; baked keyframes remain the playback source of truth.
-      clip.text ??= TextContent();
-      clip.text!.animation = preset;
-      switch (preset) {
-        case 'fade':
-          keys(
-            tr.opacity,
-            durSec > 1.5
-                ? [(0, 0.0), (0.5, 100.0), (durSec - 0.5, 100.0), (durSec, 0.0)]
-                : [(0, 0.0), (0.5, 100.0)],
-          );
-        case 'pop':
-          // Overshoot needs easeOut on the second leg; interps are stored per
-          // left key so write them directly.
-          tr.scale.keyframes
-            ..clear()
-            ..addAll([
-              {'t': at(0).toString(), 'v': 0.0, 'interp': 'easeOut'},
-              {'t': at(0.35).toString(), 'v': 112.0, 'interp': 'linear'},
-              {'t': at(0.6).toString(), 'v': 100.0, 'interp': 'linear'},
-            ]);
-          keys(tr.opacity, [(0, 0.0), (0.25, 100.0)]);
-        case 'slideLeft' || 'slideRight' || 'slideUp' || 'slideDown':
-          const dist = 120.0;
-          final (fromX, fromY) = switch (preset) {
-            'slideLeft' => (-dist, 0.0),
-            'slideRight' => (dist, 0.0),
-            'slideUp' => (0.0, -dist),
-            _ => (0.0, dist),
-          };
-          final horizontal = preset == 'slideLeft' || preset == 'slideRight';
-          final movePv = horizontal ? tr.x : tr.y;
-          movePv.keyframes
-            ..clear()
-            ..addAll([
-              {
-                't': at(0).toString(),
-                'v': horizontal ? fromX : fromY,
-                'interp': 'easeOut',
-              },
-              {'t': at(0.5).toString(), 'v': 0.0, 'interp': 'linear'},
-            ]);
-          keys(tr.opacity, [(0, 0.0), (0.5, 100.0)]);
-        case 'rise':
-          tr.y.keyframes
-            ..clear()
-            ..addAll([
-              {'t': at(0).toString(), 'v': 80.0, 'interp': 'easeOut'},
-              {'t': at(0.5).toString(), 'v': 0.0, 'interp': 'linear'},
-            ]);
-          keys(tr.opacity, [(0, 0.0), (0.5, 100.0)]);
-        case 'blink':
-          // Stepped via hold interp: lit → dark at 0.25 → dark to 0.5 → lit.
-          final cycle = <(double, double)>[];
-          for (var t = 0.0; t < durSec - 1e-9; t += 0.75) {
-            cycle.add((t, t));
-          }
-          tr.opacity.keyframes
-            ..clear()
-            ..addAll([
-              for (final (start, _) in cycle) ...[
-                {'t': at(start).toString(), 'v': 100.0, 'interp': 'hold'},
-                {'t': at(start + 0.25).toString(), 'v': 0.0, 'interp': 'hold'},
-                {
-                  't': at(start + 0.75).toString(),
-                  'v': 100.0,
-                  'interp': 'hold',
-                },
-              ],
-            ]);
-          tr.opacity.sortKeys();
-        case 'typewriter':
-        // Typewriter is evaluated from this provenance flag by the text
-        // rasterizer rather than transform keyframes.
-        default:
-          return;
-      }
-      clip.transform = tr;
-    });
-  }
-
-  /// Removes the active text animation and returns its generated transform
-  /// channels to their neutral values. This is intentionally a visible choice
-  /// in the inspector instead of making the selected preset impossible to
-  /// undo without opening the keyframe editor.
-  void clearTextPreset(String clipId) {
-    final clip = doc.clipById(clipId);
-    if (clip == null || clip.text == null || _locked(clip.trackId)) return;
-    _run('Remove text animation', (tx) {
-      tx.clip(clipId);
-      final tr = clip.transform?.copy() ?? ClipTransform();
-      _clearTextPresetChannels(tr, clip.text!.animation);
+  /// Converts a project written before text animation joined the shared
+  /// clip-animation system: the old per-text preset becomes an entry (or, for
+  /// blink, a full-length motion) on the generic spec, and its baked
+  /// keyframes are regenerated from that spec.
+  ///
+  /// Runs once at load, outside the undo history, so opening an old project
+  /// does not arrive with a stack of edits the user never made.
+  void migrateLegacyTextAnimations() {
+    for (final clip in doc.clips) {
+      final legacy = clip.text?.animation ?? '';
+      if (legacy.isEmpty) continue;
       clip.text!.animation = '';
-      clip.transform = tr;
-    });
-  }
+      // A clip already carrying a generic spec was authored after the merge;
+      // the stale provenance string is the only thing to drop.
+      if (clipAnimationSpec(clip) != null) continue;
 
-  void _clearTextPresetChannels(ClipTransform tr, String preset) {
-    void neutral(ParamValue value, double resting) {
-      value.keyframes.clear();
-      value.static = resting;
-    }
-
-    switch (preset) {
-      case 'fade' || 'blink':
-        neutral(tr.opacity, 100);
-      case 'pop':
-        neutral(tr.scale, 100);
-        neutral(tr.opacity, 100);
-      case 'slideLeft' || 'slideRight':
-        neutral(tr.x, 0);
-        neutral(tr.opacity, 100);
-      case 'slideUp' || 'slideDown' || 'rise':
-        neutral(tr.y, 0);
-        neutral(tr.opacity, 100);
-      case 'typewriter' || '':
-        return;
-      default:
-        return;
+      // The old presets named the side the text came *from*; the shared ones
+      // name the direction it travels. Same look, opposite word.
+      final entry = switch (legacy) {
+        'slideLeft' => 'slideRight',
+        'slideRight' => 'slideLeft',
+        'slideUp' => 'slideDown',
+        'slideDown' => 'slideUp',
+        'blink' => null,
+        final other => other,
+      };
+      final transform = clip.transform ??= ClipTransform();
+      // A preset that ran the whole clip parked its channel at a neutral
+      // resting pose, which is what the spec's base has to be: read from the
+      // live transform it would bake in a half-played frame instead.
+      for (final (param, resting) in <(ParamValue, double)>[
+        (transform.x, 0.0),
+        (transform.y, 0.0),
+        (transform.scale, 100.0),
+        (transform.opacity, 100.0),
+      ]) {
+        if (!param.animated) continue;
+        param.keyframes.clear();
+        param.static = resting;
+      }
+      final spec = _ensureAnimSpec(clip);
+      if (legacy == 'blink') {
+        spec['motion'] = 'blink';
+      } else {
+        spec['entry'] = <String, dynamic>{
+          'type': entry,
+          // Old text presets always animated over half a second, except the
+          // typewriter, which typed at a fixed rate: hold both by giving the
+          // typewriter the duration its own string used to take.
+          'seconds':
+              legacy == 'typewriter'
+                  ? clip_anim.clampEdgeSeconds(
+                    clip.text!.content.runes.length /
+                        clip_anim.kLegacyTypewriterCharsPerSecond,
+                    clip.duration.seconds,
+                  )
+                  : 0.5,
+        };
+        // A long fade used to fade back out; keep that paired ending.
+        if (legacy == 'fade' && clip.duration.seconds > 1.5) {
+          spec['leave'] = <String, dynamic>{'type': 'fade', 'seconds': 0.5};
+        }
+      }
+      _writeClipAnimation(clip);
     }
   }
 
@@ -2343,7 +2266,8 @@ mixin TimelineEdits on ChangeNotifier {
   //
   // The animation is generated from a small spec kept on the clip, rather than
   // merged into whatever keyframes happen to be there. Entry/leave applies to
-  // visual media; continuous motion remains image-only:
+  // every visual clip; continuous motion is per kind (Ken Burns for images,
+  // blink for text):
   //
   //   extra['clipAnim'] = {
   //     'motion': 'zoomIn',                     // full-clip Ken Burns, or null
@@ -2421,6 +2345,17 @@ mixin TimelineEdits on ChangeNotifier {
   double imageAnimSeconds(Clip clip, String side) =>
       clipAnimationSeconds(clip, side);
 
+  /// How long [clip] takes to type its text in, or null when it has no
+  /// typewriter entry. The rasterizer reveals characters over this span, so
+  /// the Enter duration sets the typing speed like it sets every other look.
+  double? typewriterRevealSeconds(Clip clip) =>
+      clip.text == null
+          ? null
+          : clip_anim.typewriterRevealSeconds(
+            clipAnimationSpec(clip),
+            clipSeconds: clip.duration.seconds,
+          );
+
   /// The pose a generated animation plays around, or the clip's plain
   /// transform values when it has no generated animation. Direct manipulation
   /// reads its starting values from here so a drag stays 1:1 with the pointer
@@ -2437,18 +2372,26 @@ mixin TimelineEdits on ChangeNotifier {
     return clip.text != null || type == 'image' || type == 'video';
   }
 
-  /// TXT-9: full-clip Ken Burns move. Pass null to drop the motion and keep
-  /// whatever entry/exit animation is set.
-  void applyImagePreset(String clipId, String? preset) {
+  /// TXT-9: the move a clip holds for its whole length — a Ken Burns push on
+  /// an image, a blink on text. Pass null to drop the motion and keep
+  /// whatever entry/leave animation is set.
+  void applyMotionPreset(String clipId, String? preset) {
     final clip = _editableClip(clipId);
-    if (clip == null || !_isImageClip(clip)) return;
-    _run('Animate image', (tx) {
+    if (clip == null || !_isVisualMediaClip(clip)) return;
+    if (preset != null && !clipMotionPresetsFor(clip).containsValue(preset)) {
+      return;
+    }
+    _run('Animate clip', (tx) {
       tx.clip(clipId);
       final spec = _ensureAnimSpec(clip);
-      spec['motion'] = kImagePresets.containsValue(preset) ? preset : null;
+      spec['motion'] = preset;
       _writeClipAnimation(clip);
     });
   }
+
+  /// Compatibility name from when continuous motion was image-only.
+  void applyImagePreset(String clipId, String? preset) =>
+      applyMotionPreset(clipId, preset);
 
   /// Sets the explicit entry and/or leave animation on any visual clip.
   /// Passing `''` for an edge clears it; omitting an edge leaves it alone.
@@ -2462,21 +2405,14 @@ mixin TimelineEdits on ChangeNotifier {
     if (clip == null || !_isVisualMediaClip(clip)) return;
     _run('Clip entry and leave animation', (tx) {
       tx.clip(clipId);
-      final textPreset = clip.text?.animation ?? '';
-      if (textPreset.isNotEmpty) {
-        final transform = clip.transform ??= ClipTransform();
-        _clearTextPresetChannels(transform, textPreset);
-        clip.text!.animation = '';
-      }
       final spec = _ensureAnimSpec(clip);
       void setEdge(String key, String? value) {
-        if (value == null) {
-          if (seconds != null && spec[key] is Map) {
-            (spec[key] as Map)['seconds'] = seconds;
-          }
-          return;
-        }
-        if (value.isEmpty || !kClipEdgePresets.containsValue(value)) {
+        // An omitted edge is left entirely alone, [seconds] included: the two
+        // durations are separate controls, and retiming the entry used to
+        // silently retime the leave with it.
+        if (value == null) return;
+        if (value.isEmpty ||
+            !clipEdgePresetsFor(clip, key).containsValue(value)) {
           spec[key] = null;
           return;
         }
@@ -2794,8 +2730,13 @@ mixin TimelineEdits on ChangeNotifier {
     }
   }
 
-  /// Ken Burns keys for the resting curve, matching the pre-existing presets:
-  /// a slow push or a 15%-oversized slow pan.
+  /// Frame-quantised clip-local time, clamped to the clip's own span.
+  Rt _atSeconds(double seconds, Rt end) => quantiseToFrame(
+    Rt.fromMicros((seconds * 1000000).round().clamp(0, end.micros)),
+  );
+
+  /// Keys for the resting curve — the move a clip holds for its whole length:
+  /// a slow push, a 15%-oversized slow pan, or a blink.
   void _writeMotionCurve(
     String? motion,
     Map<String, double> base,
@@ -2819,6 +2760,26 @@ mixin TimelineEdits on ChangeNotifier {
     }
 
     switch (motion) {
+      case 'blink':
+        // Stepped, not tweened: `hold` is what makes this read as a blink
+        // rather than as a slow pulse. One 0.75 s cycle, dark for 0.5 s.
+        final blinkKeys = curves['opacity']!..clear();
+        final lit = base['opacity']!;
+        for (var t = 0.0; t < end.seconds - 1e-9; t += 0.75) {
+          blinkKeys.addAll([
+            {'t': _atSeconds(t, end).toString(), 'v': lit, 'interp': 'hold'},
+            {
+              't': _atSeconds(t + 0.25, end).toString(),
+              'v': 0.0,
+              'interp': 'hold',
+            },
+            {
+              't': _atSeconds(t + 0.75, end).toString(),
+              'v': lit,
+              'interp': 'hold',
+            },
+          ]);
+        }
       case 'zoomIn':
         keys('scale', scale, zoom(115));
       case 'zoomOut':
@@ -2927,6 +2888,24 @@ mixin TimelineEdits on ChangeNotifier {
           shape('scale', [(startSec, rest), (clipSec, rest * 0.7)]);
         }
         fade();
+      case 'rise':
+        // A slide up kept short and soft: the caption lifts into place rather
+        // than flying in from a quarter of the frame away.
+        final riseTravel = doc.settings.height * 0.075;
+        final riseRest = valueAt('y', entering ? endSec : startSec);
+        shape('y', [
+          if (entering) (0.0, riseRest + riseTravel) else (startSec, riseRest),
+          if (entering)
+            (endSec, riseRest)
+          else
+            (clipSec, riseRest - riseTravel),
+        ]);
+        fade();
+      case 'typewriter':
+        // Nothing for the compositor to do: the reveal is per character, so
+        // the text rasterizer produces it from the entry duration. Leaving the
+        // transform alone is what keeps preview and export identical.
+        return;
       case 'slideLeft' || 'slideRight' || 'slideUp' || 'slideDown':
         final horizontal = type == 'slideLeft' || type == 'slideRight';
         final param = horizontal ? 'x' : 'y';

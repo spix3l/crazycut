@@ -23,7 +23,8 @@ Text clips and images live on any video track with free duration. A single keyfr
 - **TXT-2** Content: multi-line string (`\n`), emoji supported via platform stack. Single style per clip v1 (per-line styling v1.5).
 - **TXT-3** Styling params: font family (system fonts enumerated + 6 bundled open fonts), size (px @1080-height-normalized), weight, color, letter spacing, line height, alignment (L/C/R), stroke (width/color), shadow (blur/offset/color/opacity), background box (color/padding/corner radius, "auto-width to text").
 - **TXT-4** Presets gallery (~20): Title, Subtitle, Lower third, Caption bar, Meme (Impact-style), Quote, Callout label… Each = style + default animation; fully editable after apply.
-- **TXT-5** Animation presets (in/out pairs, applied via keyframes so they remain editable): Fade, Pop (scale overshoot), Slide (4 directions), Rise (translate+fade), Typewriter (per-character reveal, static-effect implementation), Blink. Speed slider scales generated keyframe times.
+- **TXT-5** Text animates through the shared clip-animation system (TXT-10), not through a text-only preset list: one Enter/Leave picker in the Transform inspector, plus the full-length motion slot. Text adds the looks only it can play — **Typewriter** on Enter (per-character reveal produced by the rasterizer) and **Blink** as motion — and the Enter duration is the typing speed. There were two entry points for the same job; there is now one.
+  - *History*: text clips used to carry their own preset id on `text.animation` and bake their own keyframes. Projects saved that way migrate at load: the preset becomes an entry (or, for blink, a motion) on the generic spec, and the baked keys are regenerated from it. The old ids named the side the text came **from** while the shared ones name the direction it **travels**, so `slideLeft` migrates to `slideRight` and back. A legacy typewriter kept its fixed 24 characters/second by taking the entry duration its own string used to need.
 - **TXT-6** On-canvas editing: double-click text in preview → inline edit box matching final typography; drag moves position (writes transform position); corner handles scale; rotation handle rotates. Safe-area guides toggle helps keep captions platform-friendly.
   - A click targets the front-most image it actually lands on, not whatever is selected; the current target's handles and rotation knob still win, since they sit outside its rect. With two images on screen, targeting the selection alone meant dragging one moved the other.
   - While a gesture is open the monitor renders at `EditorController.maxLiveEditPreviewWidth` and pushes one document per completed frame instead of on a timer. A full-resolution composite of a real project measures 30-110 ms; at that latency the image trails the handles far enough to read as the gizmo being misaligned with its own clip.
@@ -32,7 +33,7 @@ Text clips and images live on any video track with free duration. A single keyfr
 
 ### Acceptance criteria
 1. Apply "Caption" preset → type → plays with animation; changing font re-renders next frame without cache artifacts.
-2. Typewriter preset exports identically to preview (deterministic per-frame reveal, golden test).
+2. Typewriter exports identically to preview (deterministic per-frame reveal, golden test), at whatever speed the entry duration sets.
 3. 50 simultaneous text clips preview ≥ 30 fps on ref hardware (atlas caching verified).
 
 ---
@@ -41,7 +42,9 @@ Text clips and images live on any video track with free duration. A single keyfr
 
 - **TXT-8** Image assets import per IMP spec; dropped to timeline they become clips with free duration (default 5 s or fit-to-drop-span).
 - **TXT-9** Ken Burns convenience: context menu "Animate" offers zoom-in/zoom-out/pan presets that generate transform keyframes across the clip (editable afterwards like any keyframes).
-- **TXT-10** Explicit entry/leave animations for every visual clip (text, image, and video): Fade, Pop, Slide (4 directions), Blur and Wipe (4 directions), each with its own duration, picked per edge in the Transform inspector or the clip context menu. Audio-only clips do not receive visual edge animation.
+- **TXT-10** Explicit entry/leave animations for every visual clip (text, image, and video): Fade, Pop, Rise, Slide (4 directions), Blur and Wipe (4 directions), each with its own duration, picked per edge in the Transform inspector or the clip context menu. Text clips additionally offer Typewriter on entry. Audio-only clips do not receive visual edge animation.
+  - Continuous motion is per clip kind: Ken Burns on images, Blink on text, none on video. The picker only ever lists what that clip can actually play.
+  - A typewriter writes no keyframes at all: the reveal happens in the rasterizer, which types the string over the entry duration. The exporter bakes one texture per *distinct* reveal (sampled at 60/s, never more than one per character) and sends the resulting characters-per-second to the worker, so the frame the worker picks is the frame the preview showed.
   - The whole animation is *generated* from a shared spec on the clip (`extra.clipAnim`: motion, entry, leave, resting pose, owned effect ids) and rebuilt from scratch on every change, which is what makes a preset removable and lets an entry land on the Ken Burns curve instead of clobbering it. Older `extra.imageAnim` payloads migrate on load.
   - Fade/Pop/Slide are transform keyframes; Blur and Wipe are managed `gaussianBlur`/`crop` instances with keyed params. Both are evaluated by the shared compositor, so preview and export agree and no engine change was needed.
   - The resting pose is stored in the spec and read back from it, so a drag on the monitor moves the pose and the animation replays around it. When it has to be re-derived (a project whose spec predates it) it is read from the middle of the clip, never from t=0 — that is exactly where an entry animation parks its start value.

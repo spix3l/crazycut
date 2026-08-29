@@ -6,6 +6,10 @@
 #include <string>
 #include <vector>
 
+extern "C" {
+#include <libavformat/avformat.h>
+}
+
 #include "core/result.h"
 #include "graph/keyframes.h"
 #include "media/frame.h"
@@ -33,7 +37,10 @@ struct cc_engine {
 
 int32_t cc_abi_version(void) { return CC_ABI_VERSION; }
 
-cc_engine* cc_engine_create(void) { return new (std::nothrow) cc_engine(); }
+cc_engine* cc_engine_create(void) {
+  avformat_network_init();
+  return new (std::nothrow) cc_engine();
+}
 
 void cc_engine_destroy(cc_engine* engine) { delete engine; }
 

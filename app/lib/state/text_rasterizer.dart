@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/painting.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'package:crazycut_app/data/clip_animation.dart';
 import 'package:crazycut_app/data/text_content.dart';
 
 /// Rasterizes a [TextContent] into an RGBA8 buffer the engine composites as a
@@ -35,8 +36,11 @@ class TextRasterizer {
     required int canvasWidth,
     required int sequenceHeight,
     double? localSeconds,
+
+    /// Length of a typewriter entry, or null when the clip does not type in.
+    double? typewriterSeconds,
   }) {
-    final content = _visibleContent(text, localSeconds);
+    final content = _visibleContent(text, localSeconds, typewriterSeconds);
     if (content.isEmpty) return null;
     final scale = sequenceHeight <= 0 ? 1.0 : sequenceHeight / 1080.0;
     final fontSize = (text.fontSize * scale).clamp(4.0, 512.0).toDouble();
@@ -86,8 +90,11 @@ class TextRasterizer {
     required int canvasWidth,
     required int sequenceHeight,
     double? localSeconds,
+
+    /// Length of a typewriter entry, or null when the clip does not type in.
+    double? typewriterSeconds,
   }) async {
-    final content = _visibleContent(text, localSeconds);
+    final content = _visibleContent(text, localSeconds, typewriterSeconds);
     if (content.isEmpty) return null;
     final fontWeight = _weight(text.fontWeight);
 
@@ -283,14 +290,19 @@ class TextRasterizer {
     );
   }
 
-  String _visibleContent(TextContent text, double? localSeconds) {
-    if (text.animation != 'typewriter' || localSeconds == null) {
-      return text.content;
-    }
-    const charactersPerSecond = 24.0;
-    final count =
-        (localSeconds.clamp(0.0, double.infinity) * charactersPerSecond)
-            .floor();
+  /// The part of the string visible at [localSeconds] into the clip. Only a
+  /// typewriter entry hides anything, and it reveals the whole string over
+  /// [typewriterSeconds] — the same entry duration every other look uses.
+  String _visibleContent(
+    TextContent text,
+    double? localSeconds,
+    double? typewriterSeconds,
+  ) {
+    if (typewriterSeconds == null || localSeconds == null) return text.content;
+    final runes = text.content.runes.length;
+    final cps = typewriterCharsPerSecond(runes, typewriterSeconds);
+    final elapsed = localSeconds.clamp(0.0, double.infinity);
+    final count = cps.isFinite ? (elapsed * cps).floor() : runes;
     return String.fromCharCodes(text.content.runes.take(count));
   }
 

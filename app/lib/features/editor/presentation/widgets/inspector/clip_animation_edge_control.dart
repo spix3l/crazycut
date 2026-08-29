@@ -32,10 +32,20 @@ class ClipAnimationEdgeControl extends StatelessWidget {
   String get _helper =>
       side == ClipAnimationSide.enter ? 'At clip start' : 'At clip end';
 
+  /// The looks this clip can play on this side: a text clip adds the ones the
+  /// rasterizer produces, so the picker never offers a typewriter on a video.
+  Map<String, String> get _presets =>
+      controller.clipEdgePresetsFor(clip, _sideId);
+
+  /// A typewriter types the string in over the same duration the slider sets
+  /// for every other look, so the row says what the number means.
+  String get _durationLabel =>
+      _preset == 'typewriter' ? 'Types in over' : 'Runs for';
+
   String get _valueLabel {
     final id = _preset;
     if (id == null) return 'None';
-    return TimelineEdits.kClipEdgePresets.entries
+    return _presets.entries
         .firstWhere(
           (entry) => entry.value == id,
           orElse: () => const MapEntry('None', ''),
@@ -48,11 +58,13 @@ class ClipAnimationEdgeControl extends StatelessWidget {
       context,
       [
         CcMenuItem('None', checked: _preset == null, onTap: () => _apply('')),
-        for (final entry in TimelineEdits.kClipEdgePresets.entries)
+        for (final entry in _presets.entries)
           CcMenuItem(
             entry.key,
             checked: _preset == entry.value,
-            separatorBefore: entry.value == 'fade',
+            separatorBefore:
+                entry.value == 'fade' ||
+                TimelineEdits.kTextEntryPresets.containsValue(entry.value),
             onTap: () => _apply(entry.value),
           ),
       ],
@@ -96,6 +108,8 @@ class ClipAnimationEdgeControl extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               Text(_helper, style: CcType.micro),
+              const Spacer(),
+              if (enabled) Text(_durationLabel, style: CcType.micro),
             ],
           ),
           const SizedBox(height: 7),

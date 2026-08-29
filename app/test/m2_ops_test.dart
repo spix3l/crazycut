@@ -494,77 +494,85 @@ void main() {
       expect(e.selection, {clip.id});
     });
 
-    test(
-      'pop preset bakes expected scale+opacity keyframes; one-step undo',
-      () {
-        final e = harness();
-        final id = e.addTextClip().single;
-        final durMicros = e.clipById(id)!.duration.micros;
-
-        e.applyTextPreset(id, 'pop');
-        final clip = e.clipById(id)!;
-        final scaleKeys = clip.transform!.scale.keyframes;
-        expect(scaleKeys, hasLength(3));
-        expect(scaleKeys[0]['v'], 0.0);
-        expect(scaleKeys[1]['v'], 112.0);
-        expect(scaleKeys[1]['interp'], 'linear'); // overshoot leg eases via [0]
-        expect(scaleKeys[0]['interp'], 'easeOut');
-        expect(scaleKeys[2]['v'], 100.0);
-        expect(Rt.parse(scaleKeys[2]['t'] as String), s(0.6));
-        final opacityKeys = clip.transform!.opacity.keyframes;
-        expect(opacityKeys, hasLength(2));
-        expect(opacityKeys[0]['v'], 0.0);
-        expect(opacityKeys[1]['v'], 100.0);
-        expect(clip.text!.animation, 'pop');
-
-        e.undo();
-        final undone = e.clipById(id)!;
-        expect(undone.transform!.scale.keyframes, isEmpty);
-        expect(undone.transform!.opacity.keyframes, isEmpty);
-        expect(durMicros, greaterThan(0));
-      },
-    );
-
-    test('fade preset adds an out-fade only past 1.5s', () {
+    test('an entry animation bakes editable keyframes; one-step undo', () {
       final e = harness();
-      final short = e.addTextClip(duration: s(1)).single;
-      e.applyTextPreset(short, 'fade');
-      expect(e.clipById(short)!.transform!.opacity.keyframes, hasLength(2));
+      final id = e.addTextClip().single;
 
-      final long = e.addTextClip(at: s(10)).single;
-      e.applyTextPreset(long, 'fade');
-      final keys = e.clipById(long)!.transform!.opacity.keyframes;
-      expect(keys, hasLength(4)); // in pair + out pair
-      expect(Rt.parse(keys[2]['t'] as String), s(4.5));
-      expect(keys[3]['t'], s(5).toString());
+      e.setClipEntryLeave(id, entry: 'pop', seconds: 0.5);
+      final clip = e.clipById(id)!;
+      final scaleKeys = clip.transform!.scale.keyframes;
+      expect(scaleKeys, hasLength(3));
+      expect(scaleKeys.first['v'], 70.0); // 0.7 x the resting 100
+      expect(scaleKeys.first['interp'], 'easeOut');
+      expect(scaleKeys.last['v'], 100.0);
+      expect(Rt.parse(scaleKeys.last['t'] as String), s(0.5));
+      expect(clip.transform!.opacity.keyframes.first['v'], 0.0);
+      expect(e.clipAnimationPreset(clip, 'entry'), 'pop');
+
+      e.undo();
+      final undone = e.clipById(id)!;
+      expect(undone.transform!.scale.keyframes, isEmpty);
+      expect(undone.transform!.opacity.keyframes, isEmpty);
     });
 
-    test('typewriter sets animation flag without touching transforms', () {
+    test('entry and leave are chosen and timed independently', () {
+      final e = harness();
+      final id = e.addTextClip().single; // 5 s
+
+      e.setClipEntryLeave(id, entry: 'fade', seconds: 0.5);
+      e.setClipEntryLeave(id, leave: 'rise', seconds: 0.75);
+
+      final clip = e.clipById(id)!;
+      expect(e.clipAnimationSeconds(clip, 'entry'), 0.5);
+      expect(e.clipAnimationSeconds(clip, 'leave'), 0.75);
+      final opacity = clip.transform!.opacity.keyframes;
+      expect(Rt.parse(opacity.first['t'] as String), Rt.zero());
+      expect(Rt.parse(opacity.last['t'] as String), s(5));
+      expect(opacity.last['v'], 0.0);
+      // Rise leaves upwards, so y ends above its resting 0.
+      expect(clip.transform!.y.keyframes.last['v'], lessThan(0));
+    });
+
+    test('a typewriter entry types over its own duration, not the transform', () {
       final e = harness();
       final id = e.addTextClip().single;
       e.setTextContent(id, 'Hello');
-      e.applyTextPreset(id, 'typewriter');
-      expect(e.clipById(id)!.text!.animation, 'typewriter');
-      expect(e.clipById(id)!.transform!.scale.keyframes, isEmpty);
+
+      e.setClipEntryLeave(id, entry: 'typewriter', seconds: 0.5);
+      final clip = e.clipById(id)!;
+      expect(e.clipAnimationPreset(clip, 'entry'), 'typewriter');
+      expect(clip.transform!.scale.keyframes, isEmpty);
+      expect(clip.transform!.opacity.keyframes, isEmpty);
+      expect(e.typewriterRevealSeconds(clip), 0.5);
     });
 
-    test('switching and clearing presets removes stale generated channels', () {
+    test('only text clips can type in', () {
+      final e = harness();
+      final clip = addClip(e, id: 'v1', start: 0, duration: 4);
+
+      e.setClipEntryLeave(clip.id, entry: 'typewriter');
+
+      expect(e.clipAnimationPreset(clip, 'entry'), isNull);
+      expect(e.typewriterRevealSeconds(clip), isNull);
+    });
+
+    test('switching and clearing an entry removes stale generated channels', () {
       final e = harness();
       final id = e.addTextClip().single;
 
-      e.applyTextPreset(id, 'pop');
+      e.setClipEntryLeave(id, entry: 'pop');
       expect(e.clipById(id)!.transform!.scale.keyframes, isNotEmpty);
 
-      e.applyTextPreset(id, 'slideLeft');
+      e.setClipEntryLeave(id, entry: 'slideLeft');
       var clip = e.clipById(id)!;
-      expect(clip.text!.animation, 'slideLeft');
+      expect(e.clipAnimationPreset(clip, 'entry'), 'slideLeft');
       expect(clip.transform!.scale.keyframes, isEmpty);
       expect(clip.transform!.scale.static, 100);
       expect(clip.transform!.x.keyframes, isNotEmpty);
 
-      e.clearTextPreset(id);
+      e.clearClipAnimation(id);
       clip = e.clipById(id)!;
-      expect(clip.text!.animation, isEmpty);
+      expect(e.clipAnimationSpec(clip), isNull);
       expect(clip.transform!.x.keyframes, isEmpty);
       expect(clip.transform!.x.static, 0);
       expect(clip.transform!.opacity.keyframes, isEmpty);
@@ -574,7 +582,7 @@ void main() {
     test('blink uses hold interps and cycles to the clip duration', () {
       final e = harness();
       final id = e.addTextClip().single; // 5s → starts at 0, 0.75, 1.5 …
-      e.applyTextPreset(id, 'blink');
+      e.applyMotionPreset(id, 'blink');
       final keys = e.clipById(id)!.transform!.opacity.keyframes;
       expect(keys.where((k) => k['interp'] == 'hold'), hasLength(keys.length));
       expect(Rt.parse(keys.first['t'] as String), Rt.zero());
@@ -583,12 +591,42 @@ void main() {
       expect(Rt.parse(keys.last['t'] as String) <= s(5), isTrue);
     });
 
-    test('preset speed scales keyframe times by 1/speed', () {
+    test('a legacy text preset migrates onto the shared spec', () {
       final e = harness();
       final id = e.addTextClip().single;
-      e.applyTextPreset(id, 'pop', speed: 2.0);
-      final scaleKeys = e.clipById(id)!.transform!.scale.keyframes;
-      expect(Rt.parse(scaleKeys[2]['t'] as String), s(0.3)); // 0.6 / 2
+      e.setTextContent(id, 'Legacy');
+      final clip = e.clipById(id)!;
+      // A project saved before text animation joined the clip animation
+      // system: provenance on the text, keyframes baked into the transform.
+      clip.text!.animation = 'slideLeft';
+      clip.transform!.x.keyframes.addAll([
+        {'t': Rt.zero().toString(), 'v': -120.0, 'interp': 'easeOut'},
+        {'t': s(0.5).toString(), 'v': 0.0, 'interp': 'linear'},
+      ]);
+
+      e.migrateLegacyTextAnimations();
+
+      expect(clip.text!.animation, isEmpty);
+      // The old name was where the text came from; the shared one is where it
+      // travels, so the same look reads as the opposite word.
+      expect(e.clipAnimationPreset(clip, 'entry'), 'slideRight');
+      expect(e.clipAnimationSeconds(clip, 'entry'), 0.5);
+      expect(clip.transform!.x.keyframes, hasLength(2));
+      expect(clip.transform!.x.keyframes.last['v'], 0.0);
+      expect(clip.transform!.x.static, 0);
+    });
+
+    test('a legacy typewriter keeps typing at its old rate', () {
+      final e = harness();
+      final id = e.addTextClip().single;
+      e.setTextContent(id, '012345678901'); // 12 runes at 24/s = 0.5 s
+      final clip = e.clipById(id)!;
+      clip.text!.animation = 'typewriter';
+
+      e.migrateLegacyTextAnimations();
+
+      expect(e.clipAnimationPreset(clip, 'entry'), 'typewriter');
+      expect(e.typewriterRevealSeconds(clip), closeTo(0.5, 1e-9));
     });
   });
 

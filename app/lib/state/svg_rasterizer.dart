@@ -4,9 +4,11 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' as http;
 
+import 'package:crazycut_app/data/cache_dir.dart';
 import 'package:crazycut_app/data/project.dart';
+import 'package:crazycut_app/data/remote_source_cache.dart';
 
 const _svgRasterPathKey = 'svgRasterPath';
 
@@ -15,15 +17,22 @@ const _svgRasterPathKey = 'svgRasterPath';
 /// rasterization re-renders it instead of loading the bad pixels forever.
 const _svgRasterVersion = 2;
 
-bool isSvgPath(String path) => path.toLowerCase().endsWith('.svg');
+bool isSvgPath(String path) {
+  final uri = Uri.tryParse(path);
+  return (uri?.path ?? path).toLowerCase().endsWith('.svg');
+}
 
-/// Returns the bitmap the native renderer can decode for an SVG asset.
-/// The original SVG remains the project source and is still used for relink,
+/// Returns the file the native renderer should decode for [asset].
+///
+/// For an SVG that is the rasterized bitmap; for a URL-imported source it is
+/// the local mirror once [RemoteSourceCache] has written one, which is what
+/// makes seeking a remote clip cost a disk read instead of an HTTP round trip.
+/// The original path remains the project source and is still used for relink,
 /// collect-media, hashing and reveal-in-folder.
 String mediaDecodePath(MediaAsset asset) {
   final raster = asset.extra[_svgRasterPathKey];
   if (raster is String && _isCurrentRaster(raster)) return raster;
-  return asset.path;
+  return localRemoteSource(asset) ?? asset.path;
 }
 
 bool _isCurrentRaster(String path) =>
@@ -62,14 +71,29 @@ class SvgRasterizer {
     required int canvasWidth,
     required int canvasHeight,
   }) async {
-    final info = await vg.loadPicture(SvgFileLoader(File(asset.path)), null);
+    final SvgLoader<void> loader;
+    if (asset.isRemote) {
+      final response = await http.get(Uri.parse(asset.path));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw StateError('SVG server returned HTTP ${response.statusCode}');
+      }
+      if (response.bodyBytes.length > 10 << 20) {
+        throw StateError('Remote SVG exceeds the 10 MB safety limit');
+      }
+      loader = SvgBytesLoader(response.bodyBytes);
+    } else {
+      loader = SvgFileLoader(File(asset.path));
+    }
+    final info = await vg.loadPicture(loader, null);
     try {
-      final sourceWidth = info.size.width.isFinite && info.size.width > 0
-          ? info.size.width
-          : math.max(1, canvasWidth).toDouble();
-      final sourceHeight = info.size.height.isFinite && info.size.height > 0
-          ? info.size.height
-          : math.max(1, canvasHeight).toDouble();
+      final sourceWidth =
+          info.size.width.isFinite && info.size.width > 0
+              ? info.size.width
+              : math.max(1, canvasWidth).toDouble();
+      final sourceHeight =
+          info.size.height.isFinite && info.size.height > 0
+              ? info.size.height
+              : math.max(1, canvasHeight).toDouble();
       final scale = math.min(
         math.max(1, canvasWidth) / sourceWidth,
         math.max(1, canvasHeight) / sourceHeight,
@@ -99,22 +123,8 @@ class SvgRasterizer {
           throw StateError('SVG rasterization returned no pixels');
         }
         final png = data.buffer.asUint8List();
-        Directory base;
-        try {
-          base = await getApplicationCacheDirectory();
-        } on Object {
-          base = Directory.systemTemp;
-        }
-        final cache = Directory(
-          '${base.path}${Platform.pathSeparator}CrazyCut',
-        );
-        if (!cache.existsSync()) {
-          cache.createSync(recursive: true);
-        }
-        final key = (asset.hash.isEmpty ? asset.id : asset.hash).replaceAll(
-          ':',
-          '_',
-        );
+        final cache = await mediaCacheDirectory();
+        final key = mediaCacheKey(hash: asset.hash, id: asset.id);
         final file = File(
           '${cache.path}${Platform.pathSeparator}'
           '$key-svg$_svgRasterVersion-${width}x$height.png',

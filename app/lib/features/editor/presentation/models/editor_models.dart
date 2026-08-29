@@ -11,35 +11,35 @@ import '../../../../data/project.dart';
 enum MediaKind { video, audio, image }
 
 MediaKind mediaKindOf(String type) => switch (type) {
-      'audio' => MediaKind.audio,
-      'image' => MediaKind.image,
-      _ => MediaKind.video,
-    };
+  'audio' => MediaKind.audio,
+  'image' => MediaKind.image,
+  _ => MediaKind.video,
+};
 
 extension MediaKindStyle on MediaKind {
   IconData get icon => switch (this) {
-        MediaKind.video => LucideIcons.film,
-        MediaKind.audio => LucideIcons.audioWaveform,
-        MediaKind.image => LucideIcons.image,
-      };
+    MediaKind.video => LucideIcons.film,
+    MediaKind.audio => LucideIcons.audioWaveform,
+    MediaKind.image => LucideIcons.image,
+  };
 
   Gradient get plate => switch (this) {
-        MediaKind.video => const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [CcColors.videoPlate2, CcColors.videoPlate],
-          ),
-        MediaKind.audio => const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF2C5A47), CcColors.audioPlate],
-          ),
-        MediaKind.image => const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF7A6A4E), Color(0xFF3A3227)],
-          ),
-      };
+    MediaKind.video => const LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [CcColors.videoPlate2, CcColors.videoPlate],
+    ),
+    MediaKind.audio => const LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [Color(0xFF2C5A47), CcColors.audioPlate],
+    ),
+    MediaKind.image => const LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [Color(0xFF7A6A4E), Color(0xFF3A3227)],
+    ),
+  };
 }
 
 extension AssetPresentation on MediaAsset {
@@ -47,9 +47,15 @@ extension AssetPresentation on MediaAsset {
 
   /// Metadata line under the name in the pool.
   String get metaLine {
-    if (offline) return 'Offline · relink needed';
+    if (offline) {
+      return isRemote
+          ? 'Remote unavailable · retry'
+          : 'Offline · relink needed';
+    }
     final parts = <String>[
-      if (kind == MediaKind.video && width != null && height != null) '$width×$height',
+      if (isRemote) 'URL',
+      if (kind == MediaKind.video && width != null && height != null)
+        '$width×$height',
       if (kind == MediaKind.audio) 'Audio · ${(48000 / 1000).round()}kHz',
       if (codec != null) codec!.toUpperCase(),
       if (vfr) 'VFR',

@@ -21,6 +21,7 @@ import 'package:crazycut_app/data/transcript.dart';
 import 'package:crazycut_app/engine/engine.dart';
 import 'package:crazycut_app/state/export_service.dart';
 import 'package:crazycut_app/state/speech_model.dart';
+import 'package:crazycut_app/state/svg_rasterizer.dart';
 
 enum TranscriptionState { none, queued, running, ready, failed, cancelled }
 
@@ -83,9 +84,10 @@ class TranscriptionJob {
     final percent = (progress * 100).clamp(0, 100).toStringAsFixed(0);
     final remaining = etaSeconds;
     // Same vocabulary as an export, because it is the same kind of wait.
-    final eta = remaining != null
-        ? ' · ${ExportJob.formatRemaining(remaining)} left'
-        : '';
+    final eta =
+        remaining != null
+            ? ' · ${ExportJob.formatRemaining(remaining)} left'
+            : '';
     return 'Transcribing · $percent%$eta';
   }
 }
@@ -124,9 +126,10 @@ class TranscriptionService extends ChangeNotifier {
   Future<Transcript?> ensure(MediaAsset asset) async {
     final cached = await MediaCache.instance.transcript(asset);
     if (cached != null) {
-      jobs[asset.id] = TranscriptionJob(asset.id, asset.name)
-        ..state = TranscriptionState.ready
-        ..progress = 1;
+      jobs[asset.id] =
+          TranscriptionJob(asset.id, asset.name)
+            ..state = TranscriptionState.ready
+            ..progress = 1;
       return cached;
     }
 
@@ -151,6 +154,7 @@ class TranscriptionService extends ChangeNotifier {
     final job = jobs[assetId];
     if (job == null) return;
     if (_runningAssetId == assetId) {
+      job.state = TranscriptionState.cancelled;
       _process?.kill();
     } else {
       job.state = TranscriptionState.cancelled;
@@ -226,7 +230,9 @@ class TranscriptionService extends ChangeNotifier {
       await jobFile.writeAsString(
         jsonEncode({
           'type': 'transcribe',
-          'input': asset.path,
+          // The cached mirror for URL sources: whisper reads the file end to
+          // end, which is the worst thing to do over HTTP.
+          'input': mediaDecodePath(asset),
           'output': output.path,
           'model': modelPath,
           // An English-only model cannot meaningfully detect a language, and

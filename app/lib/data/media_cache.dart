@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:path_provider/path_provider.dart';
-
+import 'package:crazycut_app/data/cache_dir.dart';
 import 'package:crazycut_app/data/project.dart';
+import 'package:crazycut_app/data/remote_source_cache.dart';
 import 'package:crazycut_app/data/transcript.dart';
 import 'package:crazycut_app/engine/media_worker.dart';
 import 'package:crazycut_app/state/svg_rasterizer.dart';
@@ -27,26 +27,14 @@ class MediaCache {
   /// hundred at a time.
   static const int maxThumbsInMemory = 600;
 
-  Future<Directory> dir() async {
-    final existing = _dir;
-    if (existing != null) return existing;
-    Directory base;
-    try {
-      base = await getApplicationCacheDirectory();
-    } on Object {
-      base = Directory.systemTemp;
-    }
-    final dir = Directory('${base.path}${Platform.pathSeparator}CrazyCut');
-    if (!dir.existsSync()) dir.createSync(recursive: true);
-    return _dir = dir;
-  }
+  Future<Directory> dir() async => _dir ??= await mediaCacheDirectory();
 
   String _key(MediaAsset asset) =>
-      (asset.hash.isEmpty ? asset.id : asset.hash).replaceAll(':', '_');
+      mediaCacheKey(hash: asset.hash, id: asset.id);
 
   Future<File> _file(MediaAsset asset, String variant) async => File(
-        '${(await dir()).path}${Platform.pathSeparator}${_key(asset)}-$variant',
-      );
+    '${(await dir()).path}${Platform.pathSeparator}${_key(asset)}-$variant',
+  );
 
   // --- Thumbnails (IMP-6, TIM-14 filmstrips) --------------------------------
 
@@ -121,12 +109,13 @@ class MediaCache {
       final file = await _file(asset, 'peaks.json');
       List<double>? peaks;
       if (file.existsSync()) {
-        peaks = (jsonDecode(await file.readAsString()) as List<dynamic>)
-            .map((e) => (e as num).toDouble())
-            .toList();
+        peaks =
+            (jsonDecode(await file.readAsString()) as List<dynamic>)
+                .map((e) => (e as num).toDouble())
+                .toList();
       } else {
         peaks = await MediaWorker.instance.waveform(
-          asset.path,
+          mediaDecodePath(asset),
           peaksPerSecond: peaksPerSecond,
         );
         if (peaks != null) {
@@ -149,6 +138,30 @@ class MediaCache {
   // --- Proxies (IMP-8) ------------------------------------------------------
 
   Future<File> proxyFile(MediaAsset asset) => _file(asset, 'proxy.mp4');
+
+  /// Removes every derivative for one source. Remote assets call this when
+  /// ETag/Last-Modified changes so preview and export cannot reuse stale data.
+  Future<void> invalidate(MediaAsset asset) async {
+    final key = _key(asset);
+    _thumbs.removeWhere((entry, _) => entry.startsWith('$key-'));
+    _peaks.remove(key);
+    final directory = await dir();
+    if (!directory.existsSync()) return;
+    for (final entry in directory.listSync().whereType<File>()) {
+      final name = entry.uri.pathSegments.last;
+      if (!name.startsWith('$key-')) continue;
+      try {
+        entry.deleteSync();
+      } on Object {
+        // Cache invalidation is best effort.
+      }
+    }
+    asset
+      ..proxyPath = null
+      ..thumbStatus = ThumbStatus.none;
+    asset.extra.remove('svgRasterPath');
+    forgetLocalRemoteSource(asset);
+  }
 
   Future<void> clear() async {
     _thumbs.clear();

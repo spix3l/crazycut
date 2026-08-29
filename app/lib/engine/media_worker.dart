@@ -45,7 +45,11 @@ class MediaWorker {
       }
     });
     try {
-      await Isolate.spawn(_entryPoint, responses.sendPort, debugName: 'crazycut-media');
+      await Isolate.spawn(
+        _entryPoint,
+        responses.sendPort,
+        debugName: 'crazycut-media',
+      );
     } on Object catch (e) {
       unavailable = true;
       if (!starting.isCompleted) starting.completeError(e);
@@ -64,7 +68,11 @@ class MediaWorker {
     return completer.future;
   }
 
-  Future<Uint8List?> thumbnail(String path, {double seconds = 0, int width = 320}) async {
+  Future<Uint8List?> thumbnail(
+    String path, {
+    double seconds = 0,
+    int width = 320,
+  }) async {
     if (unavailable) return null;
     try {
       final result = await _send('thumb', {
@@ -76,6 +84,13 @@ class MediaWorker {
     } on Object {
       return null;
     }
+  }
+
+  Future<ProbeResult?> probe(String source) async {
+    if (unavailable) return null;
+    final result = await _send('probe', {'path': source});
+    if (result is! Map) return null;
+    return ProbeResult.fromJson(Map<String, dynamic>.from(result));
   }
 
   Future<List<double>?> waveform(String path, {int peaksPerSecond = 20}) async {
@@ -99,6 +114,11 @@ class MediaWorker {
       final id = map['id'] as int;
       try {
         switch (map['op'] as String) {
+          case 'probe':
+            final probe = CrazyCutEngine.instance.probeFile(
+              map['path'] as String,
+            );
+            responses.send({'id': id, 'result': probe.raw});
           case 'thumb':
             final bytes = CrazyCutEngine.instance.extractThumbnail(
               map['path'] as String,
@@ -111,9 +131,10 @@ class MediaWorker {
               map['path'] as String,
               peaksPerSecond: map['peaksPerSecond'] as int,
             );
-            final peaks = result.peaks
-                .map((p) => (p as num).toDouble().abs().clamp(0.0, 1.0))
-                .toList();
+            final peaks =
+                result.peaks
+                    .map((p) => (p as num).toDouble().abs().clamp(0.0, 1.0))
+                    .toList();
             responses.send({'id': id, 'result': peaks});
           default:
             responses.send({'id': id, 'error': 'unknown op'});

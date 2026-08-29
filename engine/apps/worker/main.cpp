@@ -535,6 +535,7 @@ int runTranscribeJob(const json& spec) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  avformat_network_init();
   std::string jobPath;
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "--job") == 0 && i + 1 < argc) {

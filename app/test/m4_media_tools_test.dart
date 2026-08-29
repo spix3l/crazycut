@@ -26,14 +26,14 @@ void main() {
   }
 
   MediaAsset asset(String name, String path, {String hash = ''}) => MediaAsset(
-        id: name,
-        name: name,
-        path: path,
-        type: 'video',
-        duration: Rt.fromSeconds(5),
-        hasAudio: true,
-        hash: hash,
-      );
+    id: name,
+    name: name,
+    path: path,
+    type: 'video',
+    duration: Rt.fromSeconds(5),
+    hasAudio: true,
+    hash: hash,
+  );
 
   group('relink (IMP-15/16)', () {
     test('SVG files are accepted as media candidates', () {
@@ -202,9 +202,10 @@ void main() {
       final b = writeFile('outsideB/clip.mp4', 'B');
       final projectPath = '${temp.path}/project/Portable.crazycut';
       Directory('${temp.path}/project').createSync(recursive: true);
-      final doc = ProjectDoc.empty('P', width: 1920, height: 1080, fps: 30)
-        ..media.add(asset('clip.mp4', a.path))
-        ..media.add(asset('clip.mp4', b.path));
+      final doc =
+          ProjectDoc.empty('P', width: 1920, height: 1080, fps: 30)
+            ..media.add(asset('clip.mp4', a.path))
+            ..media.add(asset('clip.mp4', b.path));
 
       await ProjectTools.collect(doc, projectPath);
       final copies = ProjectTools.mediaFolder(projectPath).listSync();

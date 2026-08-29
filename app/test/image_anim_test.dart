@@ -98,22 +98,18 @@ void main() {
       expect(e.clipAnimationSpec(clip), isNull);
     });
 
-    test('text clips switch cleanly between presets and edge animation', () {
+    test('text clips use the same edge animation as any other visual clip', () {
       final (e, clip) = harness();
       clip.text = TextContent(content: 'Lower third');
-      e.applyTextPreset(clip.id, 'pop');
 
       e.setClipEntryLeave(clip.id, entry: 'fade', leave: 'slideLeft');
 
-      expect(clip.text!.animation, isEmpty);
       expect(e.clipAnimationPreset(clip, 'entry'), 'fade');
       expect(e.clipAnimationPreset(clip, 'leave'), 'slideLeft');
-
-      e.applyTextPreset(clip.id, 'slideUp');
-
-      expect(e.clipAnimationSpec(clip), isNull);
-      expect(clip.text!.animation, 'slideUp');
-      expect(evalAt(clip.transform!.y, 0), -120);
+      // Text carries no animation of its own any more: the spec is the only
+      // place a look is recorded, for every clip kind.
+      expect(clip.text!.animation, isEmpty);
+      expect(evalAt(clip.transform!.opacity, 0), 0);
     });
   });
 

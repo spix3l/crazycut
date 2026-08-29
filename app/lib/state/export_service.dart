@@ -5,6 +5,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import 'package:crazycut_app/data/clip_animation.dart';
 import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/data/caption.dart';
 import 'package:crazycut_app/data/caption_interchange.dart';
@@ -453,6 +454,11 @@ class ExportService extends ChangeNotifier {
     unawaited(_pump());
   }
 
+  /// How finely a typewriter reveal is sampled into textures. 60/s is past
+  /// any supported frame rate, so the worker always finds the exact state the
+  /// preview showed, without one file per character of a long string.
+  static const double _revealSamplesPerSec = 60.0;
+
   /// Flutter owns text shaping, so export snapshots the resulting tight RGBA
   /// textures into temporary raw files that the native worker can read. A
   /// static title needs one texture; typewriter titles carry one texture per
@@ -493,25 +499,46 @@ class ExportService extends ChangeNotifier {
 
       final variants = <Map<String, dynamic>>[];
       final clipDuration = Rt.parse(clip['duration'] as String).seconds;
-      final maxRevealCount = math.min(
-        text.content.runes.length,
-        (clipDuration * 24).ceil(),
+      // A clip's own extra payload is spread across its JSON, so the entry
+      // animation that drives the reveal is readable straight off the clip.
+      final revealSeconds = typewriterRevealSeconds(
+        clipAnimSpecOf(clip),
+        clipSeconds: clipDuration,
       );
-      final revealCounts =
-          text.animation == 'typewriter'
-              ? List<int>.generate(maxRevealCount, (i) => i + 1)
-              : const <int>[-1];
+      final runeCount = text.content.runes.length;
+      final charsPerSecond =
+          revealSeconds == null
+              ? 0.0
+              : typewriterCharsPerSecond(runeCount, revealSeconds);
+      // One texture per *distinct* reveal rather than per character: a fast
+      // entry on a long string never shows every intermediate count, and the
+      // worker picks the largest variant at or below the frame's count either
+      // way. -1 is the whole string, i.e. a clip that does not type in.
+      final revealCounts = <int>[];
+      if (revealSeconds == null || !charsPerSecond.isFinite) {
+        revealCounts.add(-1);
+      } else {
+        final samples = (revealSeconds * _revealSamplesPerSec).ceil();
+        final seen = <int>{};
+        for (var sample = 0; sample <= samples; sample++) {
+          final count = ((sample / _revealSamplesPerSec) * charsPerSecond)
+              .floor()
+              .clamp(1, runeCount);
+          if (seen.add(count)) revealCounts.add(count);
+        }
+      }
       for (final revealCount in revealCounts) {
         if (job.state == ExportState.cancelled) break;
         // Render safely inside the reveal interval instead of exactly on its
         // floating-point boundary (where floor(7 / 24 * 24) can become 6).
         final localSeconds =
-            revealCount < 0 ? null : (revealCount + 0.25) / 24.0;
+            revealCount < 0 ? null : (revealCount + 0.25) / charsPerSecond;
         final raster = await TextRasterizer.instance.render(
           text,
           canvasWidth: width,
           sequenceHeight: height,
           localSeconds: localSeconds,
+          typewriterSeconds: revealSeconds,
         );
         if (raster == null) continue;
         final file = File('${directory.path}/${fileIndex++}.rgba');
@@ -526,7 +553,11 @@ class ExportService extends ChangeNotifier {
       if (variants.isNotEmpty) {
         payload['text:$id'] = {
           'startSec': Rt.parse(clip['start'] as String).seconds,
-          'typewriter': text.animation == 'typewriter',
+          'typewriter': revealSeconds != null,
+          'charsPerSecond':
+              charsPerSecond.isFinite
+                  ? charsPerSecond
+                  : kLegacyTypewriterCharsPerSecond,
           'variants': variants,
         };
       }
@@ -562,6 +593,7 @@ class ExportService extends ChangeNotifier {
           )] = {
             'startSec': item.start.seconds,
             'typewriter': false,
+            'charsPerSecond': kLegacyTypewriterCharsPerSecond,
             'variants': [
               {
                 'revealCount': -1,

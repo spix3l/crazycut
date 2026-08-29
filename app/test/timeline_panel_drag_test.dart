@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:crazycut_app/data/caption.dart';
 import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/features/editor/presentation/widgets/timeline/timeline_clip_tile.dart';
 import 'package:crazycut_app/features/editor/presentation/widgets/timeline/timeline_panel.dart';
@@ -11,6 +12,75 @@ import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
 
 void main() {
+  testWidgets(
+    'caption track header menu deletes the lane and undo restores it',
+    (tester) async {
+      final temp = Directory.systemTemp.createTempSync(
+        'crazycut-caption-lane-',
+      );
+      final doc = ProjectDoc.empty('Caption lane')
+        ..captionTracks.add(
+          CaptionTrack(
+            id: 'captions',
+            name: 'Auto captions',
+            language: 'en',
+            items: [
+              CaptionItem(
+                id: 'cue',
+                start: Rt.zero(),
+                duration: Rt.fromSeconds(2),
+                text: 'Hello',
+              ),
+            ],
+          ),
+        );
+      final controller = EditorController(
+        doc,
+        path: '${temp.path}/timeline.crazycut',
+      );
+      addTearDown(() {
+        if (temp.existsSync()) temp.deleteSync(recursive: true);
+      });
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Overlay(
+            initialEntries: [
+              OverlayEntry(
+                builder:
+                    (_) => SizedBox(
+                      width: 1200,
+                      height: 500,
+                      child: TimelinePanel(
+                        controller: controller,
+                        pxPerSec: 20,
+                        snap: false,
+                      ),
+                    ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('caption-track-menu-captions')),
+      );
+      await tester.pump();
+      await tester.tap(find.text('Delete caption track'));
+      await tester.pump();
+
+      expect(doc.captionTracks, isEmpty);
+      controller.undo();
+      await tester.pump();
+      expect(doc.captionTracks.single.items.single.text, 'Hello');
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    },
+  );
+
   testWidgets('trackpad pan scrolls without selecting or moving a clip', (
     tester,
   ) async {

@@ -15,6 +15,7 @@ class CollectPlan {
     required this.totalBytes,
     required this.alreadyLocal,
     required this.missing,
+    this.remote = 0,
   });
 
   final List<MediaAsset> assets;
@@ -23,6 +24,7 @@ class CollectPlan {
   /// Assets already inside the project's Media folder — nothing to copy.
   final int alreadyLocal;
   final List<MediaAsset> missing;
+  final int remote;
 
   bool get isEmpty => assets.isEmpty;
 
@@ -42,7 +44,11 @@ class CollectPlan {
 }
 
 class CollectResult {
-  const CollectResult({required this.copied, required this.skipped, this.error});
+  const CollectResult({
+    required this.copied,
+    required this.skipped,
+    this.error,
+  });
 
   final int copied;
   final int skipped;
@@ -55,8 +61,9 @@ class ProjectTools {
   ProjectTools._();
 
   /// The folder collected media lives in, beside the `.crazycut` file.
-  static Directory mediaFolder(String projectPath) =>
-      Directory('${File(projectPath).parent.path}${Platform.pathSeparator}Media');
+  static Directory mediaFolder(String projectPath) => Directory(
+    '${File(projectPath).parent.path}${Platform.pathSeparator}Media',
+  );
 
   /// Inspects what a collect would do, without touching anything (PRJ-14).
   static CollectPlan planCollect(ProjectDoc doc, String projectPath) {
@@ -65,8 +72,15 @@ class ProjectTools {
     final missing = <MediaAsset>[];
     var bytes = 0;
     var local = 0;
+    var remote = 0;
 
     for (final asset in doc.media) {
+      if (asset.isRemote) {
+        assets.add(asset);
+        bytes += asset.remoteContentLength ?? 0;
+        remote++;
+        continue;
+      }
       final file = File(asset.path);
       if (!file.existsSync()) {
         missing.add(asset);
@@ -84,6 +98,7 @@ class ProjectTools {
       totalBytes: bytes,
       alreadyLocal: local,
       missing: missing,
+      remote: remote,
     );
   }
 
@@ -103,19 +118,30 @@ class ProjectTools {
     try {
       await target.create(recursive: true);
     } catch (e) {
-      return CollectResult(copied: 0, skipped: 0, error: 'cannot create $target: $e');
+      return CollectResult(
+        copied: 0,
+        skipped: 0,
+        error: 'cannot create $target: $e',
+      );
     }
 
     var copied = 0;
     for (final asset in plan.assets) {
-      final source = File(asset.path);
-      var destination =
-          '${target.path}${Platform.pathSeparator}${asset.name}';
+      var destination = '${target.path}${Platform.pathSeparator}${asset.name}';
       // Two sources can share a filename; never clobber one with the other.
       destination = ExportService.uniquePath(destination);
       try {
-        await source.copy(destination);
+        if (asset.isRemote) {
+          await _download(asset.path, destination);
+        } else {
+          await File(asset.path).copy(destination);
+        }
         asset.path = destination;
+        asset
+          ..sourceKind = MediaSourceKind.file
+          ..remoteEtag = null
+          ..remoteLastModified = null
+          ..remoteContentLength = null;
         copied++;
         onProgress?.call(copied, plan.assets.length);
       } catch (e) {
@@ -130,6 +156,36 @@ class ProjectTools {
     return CollectResult(copied: copied, skipped: plan.alreadyLocal);
   }
 
+  static Future<void> _download(String url, String destination) async {
+    final partial = File('$destination.part');
+    final client =
+        HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    try {
+      final request = await client.getUrl(Uri.parse(url));
+      final response = await request.close();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HttpException('HTTP ${response.statusCode}', uri: Uri.parse(url));
+      }
+      final sink = partial.openWrite();
+      try {
+        await response.pipe(sink);
+      } on Object {
+        await sink.close();
+        rethrow;
+      }
+      await partial.rename(destination);
+    } finally {
+      client.close(force: true);
+      if (partial.existsSync()) {
+        try {
+          partial.deleteSync();
+        } on Object {
+          // A failed partial is harmless and is retried from scratch.
+        }
+      }
+    }
+  }
+
   /// A support bundle: versions, environment, project shape and the recent
   /// export logs. Written next to the project so the user can attach it.
   static Future<File> writeDiagnostics({
@@ -140,7 +196,8 @@ class ProjectTools {
     final report = <String, dynamic>{
       'generatedAt': DateTime.now().toIso8601String(),
       'app': {
-        'version': (jsonDecode(doc.encode(touchModified: false))
+        'version':
+            (jsonDecode(doc.encode(touchModified: false))
                 as Map<String, dynamic>)['appVersion'],
         'platform': Platform.operatingSystem,
         'osVersion': Platform.operatingSystemVersion,
@@ -174,23 +231,23 @@ class ProjectTools {
             'state': job.state.name,
             'frames': '${job.framesDone}/${job.totalFrames}',
             'error': job.error,
-            'log': job.log.length > 20
-                ? job.log.sublist(job.log.length - 20)
-                : job.log,
+            'log':
+                job.log.length > 20
+                    ? job.log.sublist(job.log.length - 20)
+                    : job.log,
           },
       ],
     };
 
-    final stamp = DateTime.now()
-        .toIso8601String()
-        .replaceAll(':', '-')
-        .split('.')
-        .first;
-    final path = '${File(projectPath).parent.path}'
+    final stamp =
+        DateTime.now().toIso8601String().replaceAll(':', '-').split('.').first;
+    final path =
+        '${File(projectPath).parent.path}'
         '${Platform.pathSeparator}crazycut-diagnostics-$stamp.json';
     final file = File(path);
     await file.writeAsString(
-        const JsonEncoder.withIndent('  ').convert(report));
+      const JsonEncoder.withIndent('  ').convert(report),
+    );
     return file;
   }
 }
