@@ -29,6 +29,29 @@ log() { echo "==> $*"; }
 die() { echo "error: $*" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
+# Preflight
+# ---------------------------------------------------------------------------
+
+# Signing reads the entitlements through AMFI, a stricter XML parser than
+# plutil: a double hyphen inside a comment passes `plutil -lint` and then
+# fails codesign. That failure otherwise lands at the very end of the run,
+# discarding a full engine and app build, so it is worth catching up front.
+entitlements="$app_dir/macos/Runner/Release.entitlements"
+log "Checking entitlements parse"
+probe_dir="$(mktemp -d)"
+cp /bin/echo "$probe_dir/probe"
+# Captured rather than piped: codesign's own exit status is not the signal we
+# want, and `pipefail` would let it mask the message we are looking for.
+probe_out="$(codesign --force --entitlements "$entitlements" \
+  --sign - "$probe_dir/probe" 2>&1 || true)"
+rm -rf "$probe_dir"
+case "$probe_out" in
+  *"Failed to parse entitlements"*)
+    die "codesign cannot parse $entitlements (a comment may not contain '--')"
+    ;;
+esac
+
+# ---------------------------------------------------------------------------
 # Build
 # ---------------------------------------------------------------------------
 

@@ -2,18 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- No App Sandbox. It is required only for Mac App Store distribution;
-	     CrazyCut ships as a Developer ID DMG, and notarization needs the
-	     Hardened Runtime (codesign --options runtime), not the sandbox.
+	<!-- No App Sandbox: it is required only for Mac App Store builds, and
+	     notarization needs the Hardened Runtime, not the sandbox. A sandboxed
+	     editor can only reach files picked in that same run, so reopening a
+	     project reported its media missing and could not save.
 
-	     A sandboxed editor can only reach files the user picked, and only for
-	     the run they picked them in, so every project reopened after a quit
-	     reported its media missing and could not save itself — the folders had
-	     not moved, the grant had simply expired. Security-scoped bookmarks can
-	     paper over that, but they cannot cover media a project already
-	     references, and they leave the app asking for folders it was told
-	     about minutes earlier. An editor whose whole job is reading footage
-	     from wherever the user keeps it does not belong in that container. -->
+	     Note for editors: codesign parses this with AMFI, a strict XML
+	     parser, so a comment may never contain a double hyphen. plutil
+	     accepts one happily; signing then fails after the whole build. -->
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
 	<key>com.apple.security.cs.disable-library-validation</key>
