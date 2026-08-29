@@ -40,7 +40,10 @@ bash tools/generate-bindings.sh
 # Generate a local test clip (git-ignored)
 bash tools/make-fixture.sh
 
-# Package a distributable macOS app + DMG (unsigned unless CC_SIGN_IDENTITY is set)
+# Package a distributable macOS app + DMG. The bundle embeds the engine, the
+# export worker, and all third-party dylibs (ffmpeg, whisper/ggml), so it runs
+# on a clean machine. Signed + notarized when Developer ID credentials exist
+# (CC_SIGN_IDENTITY / CC_NOTARY_PROFILE) — see docs/quality/macos-signing.md
 bash tools/package-macos.sh
 
 # Run the app (auto-discovers engine at ../engine/build)
@@ -90,8 +93,9 @@ Pushing a tag matching `v*` (e.g. `v0.3.0`) runs
 [`.github/workflows/release.yml`](.github/workflows/release.yml), which:
 
 1. Builds the engine and packages the macOS app via `tools/package-macos.sh`
-   (signs/notarizes only if `CC_SIGN_IDENTITY`/`CC_NOTARY_PROFILE` secrets are
-   set) into a DMG.
+   into a DMG — signed and notarized when the signing secrets are configured
+   (see [docs/quality/macos-signing.md](docs/quality/macos-signing.md)),
+   unsigned otherwise.
 2. Builds the engine and packages the Windows app via
    `tools/package-windows.ps1` — see the caveat above — into a zip.
 3. Publishes both as assets on a GitHub Release for the tag, with

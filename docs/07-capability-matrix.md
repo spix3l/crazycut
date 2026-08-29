@@ -23,7 +23,7 @@ Legend: **Verified** has automated end-to-end coverage on the named platform;
 | Hardware decoding | Missing | Decode remains software |
 | GPU compositing | Missing | Advertised Metal/D3D11 compositor is not yet implemented |
 | HDR input | Partial | Detection/color metadata exist; a validated PQ/HLG tone-map pipeline is missing |
-| macOS distribution | Partial | DMG exists; signing/notarization and clean runtime bundling depend on release credentials/environment |
+| macOS distribution | Partial | Self-contained DMG (engine, worker, ffmpeg, whisper/ggml all embedded); signing/notarization wired and local-credentialed — needs a Developer ID cert + notary profile (docs/quality/macos-signing.md) |
 | Windows build | CI gate added | Native/app build and packaged ABI/playback/export smoke are release-blocking; physical Win10/11 QA remains required |
 | Windows installer | Missing | Current artifact is a ZIP, not a signed installer |
 | Updates | Missing | No signed update feed or updater |
