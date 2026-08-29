@@ -24,6 +24,7 @@ A real multi-track NLE timeline that feels weightless: unlimited video/audio tra
 
 ### Trimming
 - **TIM-6** Trim types: edge trim (drag clip head/tail), **roll** (adjacent cut point moves, total span fixed), **slip** (Alt-drag body: content shifts inside fixed span), **slide** (Cmd-drag body: clip moves between neighbors, neighbors compensate).
+- **TIM-6a** Narrow clips stay grabbable: trim handles never take more than a third of a clip's width, and Cmd-drag from a handle moves the clip instead of trimming it.
 - **TIM-7** Trim limits show media handles: hitting source start/end stops the trim with resistance haptics-equivalent (visual bump); timecode tooltip shows exact delta frames.
 - **TIM-8** Numeric trim: selected clip edges editable in inspector (frame-exact entry).
 - **TIM-9** Ripple delete (Shift+Del) closes gap pulling all later clips on all tracks? No — ripple pulls later clips on **affected tracks only** (tracks the selection spans), preserving sync elsewhere; plain Delete leaves gap. Toggleable "magnetic timeline" global mode (Settings, default off) auto-closes gaps on the topmost storyline.

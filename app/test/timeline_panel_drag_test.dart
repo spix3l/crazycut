@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -384,6 +385,112 @@ void main() {
     expect(controller.selection, {'b'});
     expect(doc.clipById('a')!.start, Rt.fromSeconds(1));
     expect(doc.clipById('b')!.start, Rt.fromSeconds(8));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.dispose();
+  });
+
+  testWidgets('a narrow clip can still be moved, and Cmd forces a move', (
+    tester,
+  ) async {
+    final temp = Directory.systemTemp.createTempSync('crazycut-narrow-clip-');
+    final doc = ProjectDoc.empty(
+      'Narrow clip',
+      width: 1920,
+      height: 1080,
+      fps: 30,
+    );
+    doc.media.add(
+      MediaAsset(
+        id: 'asset',
+        name: 'offline.mov',
+        path: '',
+        type: 'video',
+        duration: Rt.fromSeconds(30),
+        hasAudio: false,
+      ),
+    );
+    final trackId = doc.videoTrack()!.id;
+    doc.clips.add(
+      Clip(
+        id: 'tiny',
+        trackId: trackId,
+        mediaId: 'asset',
+        label: 'tiny',
+        start: Rt.fromSeconds(4),
+        // 9px wide at 20px/s: narrower than two full 7px trim handles.
+        duration: Rt.fromSeconds(0.45),
+        sourceIn: Rt.fromSeconds(1),
+      ),
+    );
+    final controller = EditorController(
+      doc,
+      path: '${temp.path}/timeline.crazycut',
+    );
+    addTearDown(() {
+      if (temp.existsSync()) temp.deleteSync(recursive: true);
+    });
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Overlay(
+          initialEntries: [
+            OverlayEntry(
+              builder:
+                  (_) => SizedBox(
+                    width: 1200,
+                    height: 500,
+                    child: TimelinePanel(
+                      controller: controller,
+                      pxPerSec: 20,
+                      snap: false,
+                    ),
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final tile = find.byWidgetPredicate(
+      (widget) => widget is TimelineClipTile && widget.clip.id == 'tiny',
+    );
+
+    Future<void> dragFrom(Offset from, double dx) async {
+      final gesture = await tester.startGesture(
+        from,
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pump();
+      // The first move only wins the gesture arena; the second is the one the
+      // panel accumulates, so [dx] is the travel the clip actually sees.
+      await gesture.moveBy(Offset(dx, 0));
+      await tester.pump();
+      await gesture.moveBy(Offset(dx, 0));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+    }
+
+    // The middle of the tile is a move zone, not a trim handle.
+    await dragFrom(tester.getCenter(tile), 40);
+    expect(doc.clipById('tiny')!.start, Rt.fromSeconds(6));
+    expect(doc.clipById('tiny')!.duration, Rt.fromSeconds(0.45));
+
+    // Cmd on the left handle moves the clip instead of trimming it.
+    final centerY = tester.getCenter(tile).dy;
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await dragFrom(Offset(tester.getTopLeft(tile).dx + 1, centerY), -40);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    expect(doc.clipById('tiny')!.start, Rt.fromSeconds(4));
+    expect(doc.clipById('tiny')!.duration, Rt.fromSeconds(0.45));
+    expect(doc.clipById('tiny')!.sourceIn, Rt.fromSeconds(1));
+
+    // Without Cmd the same spot still trims.
+    await dragFrom(Offset(tester.getTopLeft(tile).dx + 1, centerY), 4);
+    expect(doc.clipById('tiny')!.start, Rt.fromSeconds(4.2));
+    expect(doc.clipById('tiny')!.duration, Rt.fromSeconds(0.25));
 
     await tester.pumpWidget(const SizedBox.shrink());
     controller.dispose();

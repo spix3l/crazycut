@@ -115,8 +115,12 @@ class TimelineClipTile extends StatelessWidget {
                 curve: clip.fadeOut.curve,
               ),
             // Corner grips: drag to set a fade (AUD-2). Only on clips that
-            // actually carry sound, so a silent b-roll tile stays clean.
-            if (onFadeDrag != null && (asset?.hasAudio ?? false)) ...[
+            // actually carry sound, so a silent b-roll tile stays clean, and
+            // only when the tile is wide enough that the two grips leave
+            // something in between to grab for a move.
+            if (onFadeDrag != null &&
+                (asset?.hasAudio ?? false) &&
+                clip.duration.seconds * pxPerSec >= _kFadeHandlePx * 3) ...[
               _FadeHandle(
                 fromLeft: true,
                 active: !clip.fadeIn.duration.isZero,
@@ -368,6 +372,9 @@ class _FadePainter extends CustomPainter {
       oldDelegate.fromLeft != fromLeft || oldDelegate.curve != curve;
 }
 
+/// Side of a square fade grip, in logical pixels.
+const double _kFadeHandlePx = 12;
+
 /// Draggable corner grip. Sits inside the trim zone's inner edge so trimming
 /// and fading do not fight over the same pixels (UX note in the audio spec).
 class _FadeHandle extends StatelessWidget {
@@ -400,8 +407,8 @@ class _FadeHandle extends StatelessWidget {
         child: MouseRegion(
           cursor: SystemMouseCursors.resizeLeftRight,
           child: Container(
-            width: 12,
-            height: 12,
+            width: _kFadeHandlePx,
+            height: _kFadeHandlePx,
             alignment: Alignment.center,
             child: Container(
               width: 7,

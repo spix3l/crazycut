@@ -103,6 +103,7 @@ macOS ⌘ = Windows Ctrl unless noted.
 | Import | ⌘I | | Export | ⌘E |
 | Copy / Paste | ⌘C / ⌘V | | Paste Settings | ⌥⌘V |
 | Duplicate drag | ⌥drag | | Slip / Slide drag | ⌥drag / ⌘drag body |
+| Move from a trim handle | ⌘drag handle | | | |
 | Select all | ⌘A | | Deselect | Esc |
 | Preview fullscreen | F | | Snap bypass (hold) | ⌘ |
 

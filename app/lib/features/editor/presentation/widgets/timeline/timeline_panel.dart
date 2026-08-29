@@ -25,6 +25,10 @@ import 'track_header.dart';
 /// diamonds are small on purpose; the target around them is not.
 const double _kKeyframeHitPx = 7;
 
+/// Widest a trim handle gets. Narrow clips get proportionally thinner ones so
+/// the middle of the tile stays grabbable.
+const double _kTrimHandlePx = 7;
+
 /// Bottom half of the editor: tool strip, ruler, track headers, lanes and the
 /// playhead. The panel turns pixels into times and hands every mutation to the
 /// controller — it owns no document state of its own.
@@ -87,6 +91,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
   // Drag bookkeeping in pixels; the controller works from gesture origins.
   Offset _dragDelta = Offset.zero;
   bool _dragging = false;
+  EditGesture? _dragKind;
   double? _zoomAnchorSeconds;
   Offset? _marqueeStart;
   Offset? _marqueeEnd;
@@ -209,10 +214,16 @@ class _TimelinePanelState extends State<TimelinePanel> {
       EditGesture.move when keys.isAltPressed && !keys.isMetaPressed =>
         EditGesture.slip,
       EditGesture.move when keys.isMetaPressed => EditGesture.slide,
+      // Cmd on a trim handle asks for the clip itself: on a clip only a few
+      // pixels wide the handles are most of what there is to grab, and the
+      // move zone can be too thin to aim at.
+      EditGesture.trimStart || EditGesture.trimEnd when keys.isMetaPressed =>
+        EditGesture.move,
       _ => fallback,
     };
     _dragDelta = Offset.zero;
     _dragging = true;
+    _dragKind = kind;
     c.beginDrag(
       kind,
       clip.id,
@@ -234,6 +245,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
   void _endDrag() {
     if (!_dragging) return;
     _dragging = false;
+    _dragKind = null;
     c.endGesture();
   }
 
@@ -1242,6 +1254,9 @@ class _TimelinePanelState extends State<TimelinePanel> {
       double.infinity,
     );
     final locked = track.lock;
+    // Handles shrink with the clip so a narrow tile always keeps a middle
+    // third to grab for a move (TIM-6a).
+    final handle = (width / 3).clamp(1.0, _kTrimHandlePx);
 
     Widget zone({
       required EditGesture kind,
@@ -1268,7 +1283,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
                   : (d) => _updateClipDrag(
                     d,
                     lanes:
-                        kind == EditGesture.move
+                        _dragKind == EditGesture.move
                             ? _laneDelta(track.id, _dragDelta.dy)
                             : 0,
                   ),
@@ -1337,7 +1352,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
                     kind: EditGesture.trimStart,
                     cursor: SystemMouseCursors.resizeLeftRight,
                     anchorContext: clipContext,
-                    width: 7,
+                    width: handle,
                   ),
                 ),
                 Positioned(
@@ -1348,7 +1363,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
                     kind: EditGesture.trimEnd,
                     cursor: SystemMouseCursors.resizeLeftRight,
                     anchorContext: clipContext,
-                    width: 7,
+                    width: handle,
                   ),
                 ),
                 // Last in the stack so a click lands on a keyframe rather than on
