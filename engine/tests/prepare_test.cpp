@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <string>
 
@@ -21,6 +22,10 @@ bool fixtureExists() { std::ifstream file(fixturePath()); return file.good(); }
 
 TEST(MediaPrepare, ComputesStableSha256) {
   const std::string path = std::string(CC_SOURCE_DIR) + "/build/hash-test.txt";
+  // CI checkouts have no engine/build/, and ofstream fails silently without
+  // the directory.
+  std::filesystem::create_directories(
+      std::filesystem::path(path).parent_path());
   { std::ofstream file(path, std::ios::binary); file << "abc"; }
   std::string hash;
   ASSERT_EQ(cc::hashFileSha256(path, &hash), cc::Error::None);
