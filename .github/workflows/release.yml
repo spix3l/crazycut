@@ -23,7 +23,9 @@ jobs:
       - name: Install ffmpeg
         run: brew install ffmpeg
       - name: Import Developer ID certificate
-        if: ${{ secrets.MACOS_CERT_P12 != '' }}
+        # `secrets` is not available in step-level `if`; the job-level env
+        # mirrors its presence instead.
+        if: env.CC_SIGN_IDENTITY != ''
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -41,7 +43,7 @@ jobs:
             -k "$keychain_password" "$keychain" >/dev/null
           security list-keychains -d user -s "$keychain" "$(security list-keychains -d user | tr -d '"')"
       - name: Stage App Store Connect API key
-        if: ${{ secrets.NOTARY_API_KEY_P8 != '' }}
+        if: env.CC_NOTARY_KEY != ''
         env:
           NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
           NOTARY_API_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
