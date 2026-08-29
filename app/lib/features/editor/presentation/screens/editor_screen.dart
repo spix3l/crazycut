@@ -17,6 +17,7 @@ import '../../../../core/widgets/primitives.dart';
 import '../../../../models/rational.dart';
 import '../../../../engine/engine.dart' show PlatformHelper;
 import '../../../../state/editor_controller.dart';
+import '../../../../state/sandbox_access.dart';
 import '../../../../state/onboarding.dart';
 import '../../../../state/project_tools.dart';
 import '../../../../state/speech_model.dart';
@@ -26,6 +27,7 @@ import '../../../../ai/ai_settings.dart';
 import '../widgets/editor_toolbar.dart';
 import '../widgets/inspector/inspector_panel.dart';
 import '../widgets/media_pool.dart';
+import '../widgets/folder_access_dialog.dart';
 import '../widgets/missing_media_dialog.dart';
 import '../widgets/mixer_panel.dart';
 import '../widgets/monitor_panel.dart';
@@ -108,6 +110,18 @@ class _EditorScreenState extends State<EditorScreen> {
   void initState() {
     super.initState();
     unawaited(OnboardingState.instance.load());
+    // A sandboxed relaunch can leave this project unable to read its media or
+    // write itself back, with nothing on disk having changed. Ask for the
+    // folders before the user meets a canvas of slates and a failing save.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkFolderAccess());
+  }
+
+  Future<void> _checkFolderAccess() async {
+    final c = _controller;
+    if (c == null || !mounted) return;
+    final blocked = SandboxAccess.instance.blocked(c.doc, c.path);
+    if (blocked.isEmpty) return;
+    await showFolderAccessDialog(context, c, blocked);
   }
 
   /// Text is an insert action rather than a persistent pointer mode. Creating
