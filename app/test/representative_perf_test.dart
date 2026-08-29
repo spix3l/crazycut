@@ -15,6 +15,7 @@ import 'package:crazycut_app/data/text_content.dart';
 import 'package:crazycut_app/data/transition.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/preview_renderer.dart';
+import 'temp_dir.dart';
 
 double percentile(List<double> values, double fraction) {
   if (values.isEmpty) throw ArgumentError.value(values, 'values', 'is empty');
@@ -355,7 +356,7 @@ void main() {
         reason: 'missing ${worker.absolute.path}',
       );
       final temp = Directory.systemTemp.createTempSync('crazycut-perf-export-');
-      addTearDown(() => temp.deleteSync(recursive: true));
+      addTearDown(() => deleteTempDir(temp));
       final exportDoc = layeredDoc(layers: 3);
       for (final clip in exportDoc.clips) {
         clip.duration = Rt.fromSeconds(1);

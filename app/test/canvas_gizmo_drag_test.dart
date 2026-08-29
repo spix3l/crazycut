@@ -14,6 +14,7 @@ import 'package:crazycut_app/features/editor/presentation/widgets/canvas_gizmo.d
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/canvas_geometry.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
+import 'temp_dir.dart';
 
 /// The gizmo's handles and the composited image are drawn by two different
 /// programs — a Flutter painter and the C++ compositor — from the same
@@ -53,7 +54,7 @@ void main() {
     File(pngPath).writeAsBytesSync(png!.buffer.asUint8List());
   });
 
-  tearDownAll(() => tmp.deleteSync(recursive: true));
+  tearDownAll(() => deleteTempDir(tmp));
 
   ProjectDoc buildDoc() {
     final doc = ProjectDoc.empty('P', width: seqW, height: seqH, fps: 30);

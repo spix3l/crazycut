@@ -9,6 +9,7 @@ import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/engine/engine.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/canvas_geometry.dart';
+import 'temp_dir.dart';
 
 /// The on-canvas gizmo draws handles on a rect it computes in Dart, over an
 /// image the C++ compositor rasterises. Those are two independent
@@ -26,7 +27,7 @@ void main() {
   late Directory tmp;
 
   setUpAll(() async => tmp = await Directory.systemTemp.createTemp('cc-gizmo'));
-  tearDownAll(() => tmp.deleteSync(recursive: true));
+  tearDownAll(() => deleteTempDir(tmp));
 
   /// A flat white rectangle, so the drawn bounding box is unambiguous.
   Future<String> source(int width, int height) async {

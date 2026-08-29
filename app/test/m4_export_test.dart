@@ -10,6 +10,7 @@ import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/features/export/presentation/widgets/export_queue_panel.dart';
 import 'package:crazycut_app/state/export_presets.dart';
 import 'package:crazycut_app/state/export_service.dart';
+import 'temp_dir.dart';
 
 ProjectDoc sampleDoc({int width = 640, int height = 360}) {
   final doc = ProjectDoc.empty('Demo Project', width: width, height: height, fps: 30);
@@ -113,7 +114,7 @@ void main() {
     tearDown(() {
       ExportService.instance.cancelAll();
       ExportService.instance.clearFinished();
-      temp.deleteSync(recursive: true);
+      deleteTempDir(temp);
     });
 
     test('an existing filename gets a suffix rather than being overwritten', () {
@@ -325,7 +326,7 @@ void main() {
     setUp(() => temp = Directory.systemTemp.createTempSync('cc_export_e2e'));
     tearDown(() {
       ExportService.instance.clearFinished();
-      temp.deleteSync(recursive: true);
+      deleteTempDir(temp);
     });
 
     test('renders a real file, with a sidecar and no partials left behind',

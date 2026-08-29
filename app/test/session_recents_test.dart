@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:crazycut_app/app/session.dart';
 import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/data/repository.dart';
+import 'temp_dir.dart';
 
 void main() {
   late Directory root;
@@ -35,7 +36,7 @@ void main() {
 
   tearDown(() {
     ProjectRepository.rootOverride = null;
-    root.deleteSync(recursive: true);
+    deleteTempDir(root);
   });
 
   test('deleting a project drops its recent entry from disk', () async {

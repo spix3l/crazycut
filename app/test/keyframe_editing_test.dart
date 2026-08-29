@@ -11,6 +11,7 @@ import 'package:crazycut_app/features/editor/presentation/widgets/timeline/timel
 import 'package:crazycut_app/features/editor/presentation/widgets/timeline/timeline_panel.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
+import 'temp_dir.dart';
 
 /// KEY-7 from the inspector's side: a keyframe on an *effect* parameter can be
 /// walked to, retimed by hand and — the part that was missing entirely —
@@ -24,7 +25,7 @@ void main() {
     tmp = await Directory.systemTemp.createTemp('cc-keyframe-editing');
   });
 
-  tearDownAll(() => tmp.deleteSync(recursive: true));
+  tearDownAll(() => deleteTempDir(tmp));
 
   (EditorController, Clip) harness() {
     final doc = ProjectDoc.empty('P', width: 1920, height: 1080, fps: 30);

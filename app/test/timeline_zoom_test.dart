@@ -9,6 +9,7 @@ import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/features/editor/presentation/models/editor_models.dart';
 import 'package:crazycut_app/features/editor/presentation/widgets/timeline/timeline_panel.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
+import 'temp_dir.dart';
 
 void main() {
   test('timeline zoom conversions are inverse and clamp to their bounds', () {
@@ -77,7 +78,7 @@ void main() {
     );
     addTearDown(() async {
       await controller.close();
-      if (temp.existsSync()) temp.deleteSync(recursive: true);
+      if (temp.existsSync()) deleteTempDir(temp);
     });
 
     var pixels = kPixelsPerSecond;

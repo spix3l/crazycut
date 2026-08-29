@@ -9,6 +9,7 @@ import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/media_relink.dart';
 import 'package:crazycut_app/state/project_tools.dart';
 import 'package:crazycut_app/state/svg_rasterizer.dart';
+import 'temp_dir.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -16,9 +17,11 @@ void main() {
   late Directory temp;
 
   setUp(() => temp = Directory.systemTemp.createTempSync('cc_media_tools'));
-  tearDown(() => temp.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(temp));
 
-  File writeFile(String relative, String content) {
+  String normalizePath(String p) => p.replaceAll('\\', '/');
+
+File writeFile(String relative, String content) {
     final file = File('${temp.path}/$relative');
     file.parent.createSync(recursive: true);
     file.writeAsStringSync(content);
@@ -96,7 +99,9 @@ void main() {
       ], MediaRelinker.gatherCandidates(['${temp.path}/shoot']));
 
       expect(plan.matches, hasLength(1));
-      expect(plan.matches.first.path, moved.path);
+      // Candidates found by walking a directory are joined with the platform
+      // separator; compare normalized so Windows agrees with the writer.
+      expect(normalizePath(plan.matches.first.path), normalizePath(moved.path));
       expect(plan.matches.first.confidence, RelinkConfidence.exact);
       expect(plan.unmatched, isEmpty);
       expect(plan.summary, contains('matched by content'));
@@ -110,7 +115,7 @@ void main() {
         missing,
       ], MediaRelinker.gatherCandidates([same.path]));
       expect(plan.matches.single.confidence, RelinkConfidence.proposed);
-      expect(plan.matches.single.path, same.path);
+      expect(normalizePath(plan.matches.single.path), normalizePath(same.path));
     });
 
     test('never points two assets at the same file', () {

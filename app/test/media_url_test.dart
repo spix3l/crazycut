@@ -7,6 +7,7 @@ import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/media_url_service.dart';
 import 'package:crazycut_app/state/project_tools.dart';
+import 'temp_dir.dart';
 
 void main() {
   test('normalizes URLs without changing meaningful query order', () {
@@ -111,7 +112,7 @@ void main() {
     final temp = Directory.systemTemp.createTempSync('cc_remote_collect');
     addTearDown(() async {
       await server.close(force: true);
-      temp.deleteSync(recursive: true);
+      deleteTempDir(temp);
     });
     server.listen((request) async {
       request.response.headers.contentType = ContentType('video', 'mp4');

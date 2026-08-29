@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/svg_rasterizer.dart';
+import 'temp_dir.dart';
 
 /// An SVG becomes a bitmap the native compositor can decode. That bitmap is
 /// the clip's source, so its content has to fill it: artwork sitting in a
@@ -16,7 +17,7 @@ void main() {
 
   late Directory tmp;
   setUp(() => tmp = Directory.systemTemp.createTempSync('cc-svg'));
-  tearDown(() => tmp.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(tmp));
 
   Future<ui.Image> rasterize(String svg, {int w = 1920, int h = 1080}) async {
     final path = '${tmp.path}/icon.svg';

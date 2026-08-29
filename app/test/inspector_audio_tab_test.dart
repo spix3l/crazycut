@@ -7,6 +7,7 @@ import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/features/editor/presentation/widgets/inspector/inspector_panel.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
+import 'temp_dir.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -17,7 +18,7 @@ void main() {
     tmp = await Directory.systemTemp.createTemp('cc-inspector-audio');
   });
 
-  tearDownAll(() => tmp.deleteSync(recursive: true));
+  tearDownAll(() => deleteTempDir(tmp));
 
   Future<void> expectAudioControls(
     WidgetTester tester, {

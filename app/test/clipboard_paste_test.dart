@@ -7,6 +7,7 @@ import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/clipboard_media.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
+import 'temp_dir.dart';
 
 /// A clipboard the test writes to directly, so a paste can be exercised
 /// without a window or a pasteboard.
@@ -44,7 +45,7 @@ void main() {
   tearDown(() async {
     await c.close();
     c.dispose();
-    temp.deleteSync(recursive: true);
+    deleteTempDir(temp);
   });
 
   Directory mediaFolder() =>

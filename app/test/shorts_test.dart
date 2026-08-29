@@ -7,6 +7,7 @@ import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/data/transcript.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/shorts_service.dart';
+import 'temp_dir.dart';
 
 ShortCandidate candidate(
   double start,
@@ -203,7 +204,7 @@ void main() {
     late Directory temp;
 
     setUp(() => temp = Directory.systemTemp.createTempSync('cc-shorts'));
-    tearDown(() => temp.deleteSync(recursive: true));
+    tearDown(() => deleteTempDir(temp));
 
     Future<ProjectDoc> create(ShortCandidate c, {ProjectDoc? source}) async {
       final doc = source ?? sourceDoc();

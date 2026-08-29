@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:crazycut_app/app/router/app_router.dart';
 import 'package:crazycut_app/app/session.dart';
 import 'package:crazycut_app/data/repository.dart';
+import 'temp_dir.dart';
 
 void main() {
   testWidgets('browser picks up a project created while it was covered', (
@@ -14,7 +15,7 @@ void main() {
     final root = Directory.systemTemp.createTempSync('cc_browser');
     addTearDown(() {
       ProjectRepository.rootOverride = null;
-      root.deleteSync(recursive: true);
+      deleteTempDir(root);
     });
     ProjectRepository.rootOverride = root;
 

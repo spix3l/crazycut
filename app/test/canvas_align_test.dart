@@ -13,6 +13,7 @@ import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/canvas_geometry.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
+import 'temp_dir.dart';
 
 /// Align & distribute (FX-15) as the controller runs it: the right clips move,
 /// by the right amount, in one undo step. The pure maths underneath lives in
@@ -41,7 +42,7 @@ void main() {
     File(pngPath).writeAsBytesSync(png!.buffer.asUint8List());
   });
 
-  tearDownAll(() => tmp.deleteSync(recursive: true));
+  tearDownAll(() => deleteTempDir(tmp));
 
   /// A controller with [xs].length image clips, each on its own video track so
   /// they can all sit under the playhead at once, at `scale: 40`.

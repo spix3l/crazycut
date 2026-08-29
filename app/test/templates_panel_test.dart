@@ -10,6 +10,7 @@ import 'package:crazycut_app/data/template_library.dart';
 import 'package:crazycut_app/features/editor/presentation/widgets/media_pool.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
+import 'temp_dir.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -56,7 +57,7 @@ void main() {
       await controller.close();
       ProjectRepository.rootOverride = null;
       TemplateLibrary.instance.resetForTest();
-      temp.deleteSync(recursive: true);
+      deleteTempDir(temp);
     });
 
     await tester.pumpWidget(
@@ -125,7 +126,7 @@ void main() {
       await controller.close();
       ProjectRepository.rootOverride = null;
       TemplateLibrary.instance.resetForTest();
-      temp.deleteSync(recursive: true);
+      deleteTempDir(temp);
     });
 
     await tester.pumpWidget(

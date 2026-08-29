@@ -23,6 +23,7 @@ import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/shorts_service.dart';
 import 'package:crazycut_app/state/speech_model.dart';
 import 'package:crazycut_app/state/transcription_service.dart';
+import 'temp_dir.dart';
 
 /// Restores real sockets inside the end-to-end test. The base class already
 /// produces genuine clients, so an empty subclass is exactly the escape hatch.
@@ -143,7 +144,7 @@ Future<void> _endToEnd(String? modelPath) async {
     final fixture = await _makeSpeechClip(media);
     if (fixture == null) {
       markTestSkipped('needs `say` and `ffmpeg` to generate a speech clip');
-      media.deleteSync(recursive: true);
+      deleteTempDir(media);
       return;
     }
 
@@ -281,7 +282,7 @@ Future<void> _endToEnd(String? modelPath) async {
 
     provider.dispose();
     await server.close(force: true);
-    temp.deleteSync(recursive: true);
-    media.deleteSync(recursive: true);
+    deleteTempDir(temp);
+    deleteTempDir(media);
   }
 }

@@ -8,6 +8,7 @@ import 'package:crazycut_app/ai/ai_settings.dart';
 import 'package:crazycut_app/ai/providers/openai_compatible_provider.dart';
 import 'package:crazycut_app/features/editor/presentation/widgets/editor_toolbar.dart';
 import 'package:crazycut_app/state/system_bridge.dart';
+import 'temp_dir.dart';
 
 class FakeSecretStore implements SecretStore {
   FakeSecretStore({this.failWrites = false});
@@ -76,7 +77,7 @@ void main() {
   group('AiSettings.configured', () {
     late Directory dir;
     setUp(() => dir = Directory.systemTemp.createTempSync('cc-ai-gate'));
-    tearDown(() => dir.deleteSync(recursive: true));
+    tearDown(() => deleteTempDir(dir));
 
     test('false before anything is saved', () async {
       final settings = AiSettings(storageDirOverride: dir);

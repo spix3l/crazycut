@@ -6,6 +6,7 @@ import 'package:crazycut_app/data/autosave.dart';
 import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/data/repository.dart';
 import 'package:crazycut_app/models/rational.dart';
+import 'temp_dir.dart';
 
 void main() {
   late Directory root;
@@ -17,7 +18,7 @@ void main() {
 
   tearDown(() {
     ProjectRepository.rootOverride = null;
-    if (root.existsSync()) root.deleteSync(recursive: true);
+    if (root.existsSync()) deleteTempDir(root);
   });
 
   ProjectDoc project(String name) {

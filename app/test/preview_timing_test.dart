@@ -7,6 +7,7 @@ import 'package:crazycut_app/state/editor_controller.dart';
 
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/preview_renderer.dart';
+import 'temp_dir.dart';
 
 Rt s(double value) => Rt.fromSeconds(value);
 
@@ -164,7 +165,7 @@ void main() {
 
     tearDown(() {
       c.dispose();
-      tmp.deleteSync(recursive: true);
+      deleteTempDir(tmp);
     });
 
     test('parked monitor renders at the size it is displayed', () {

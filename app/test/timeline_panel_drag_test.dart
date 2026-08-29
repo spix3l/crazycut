@@ -11,6 +11,7 @@ import 'package:crazycut_app/features/editor/presentation/widgets/timeline/timel
 import 'package:crazycut_app/features/editor/presentation/widgets/timeline/timeline_panel.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
+import 'temp_dir.dart';
 
 void main() {
   testWidgets(
@@ -40,7 +41,7 @@ void main() {
         path: '${temp.path}/timeline.crazycut',
       );
       addTearDown(() {
-        if (temp.existsSync()) temp.deleteSync(recursive: true);
+        if (temp.existsSync()) deleteTempDir(temp);
       });
 
       await tester.pumpWidget(
@@ -117,7 +118,7 @@ void main() {
       path: '${temp.path}/timeline.crazycut',
     );
     addTearDown(() {
-      if (temp.existsSync()) temp.deleteSync(recursive: true);
+      if (temp.existsSync()) deleteTempDir(temp);
     });
 
     await tester.pumpWidget(
@@ -204,7 +205,7 @@ void main() {
       path: '${temp.path}/timeline.crazycut',
     );
     addTearDown(() {
-      if (temp.existsSync()) temp.deleteSync(recursive: true);
+      if (temp.existsSync()) deleteTempDir(temp);
     });
 
     await tester.pumpWidget(
@@ -301,7 +302,7 @@ void main() {
       path: '${temp.path}/timeline.crazycut',
     );
     addTearDown(() {
-      if (temp.existsSync()) temp.deleteSync(recursive: true);
+      if (temp.existsSync()) deleteTempDir(temp);
     });
 
     controller.selectClip('a');
@@ -428,7 +429,7 @@ void main() {
       path: '${temp.path}/timeline.crazycut',
     );
     addTearDown(() {
-      if (temp.existsSync()) temp.deleteSync(recursive: true);
+      if (temp.existsSync()) deleteTempDir(temp);
     });
 
     await tester.pumpWidget(

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:crazycut_app/data/repository.dart';
 import 'package:crazycut_app/state/onboarding.dart';
+import 'temp_dir.dart';
 
 void main() {
   late Directory root;
@@ -15,7 +16,7 @@ void main() {
 
   tearDown(() {
     ProjectRepository.rootOverride = null;
-    if (root.existsSync()) root.deleteSync(recursive: true);
+    if (root.existsSync()) deleteTempDir(root);
   });
 
   test('checklist progress and dismissal survive a new store', () async {

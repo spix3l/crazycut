@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
 import 'package:crazycut_app/state/proxy_service.dart';
+import 'temp_dir.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -38,7 +39,7 @@ void main() {
         second!.dispose();
       } finally {
         proxies.dispose();
-        if (temp.existsSync()) temp.deleteSync(recursive: true);
+        if (temp.existsSync()) deleteTempDir(temp);
       }
     },
   );

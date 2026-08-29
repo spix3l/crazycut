@@ -8,6 +8,7 @@ import 'package:crazycut_app/engine/engine.dart';
 import 'package:crazycut_app/models/rational.dart';
 
 import 'image_anim_test.dart' show Edits, s;
+import 'temp_dir.dart';
 
 /// End-to-end proof that a generated image animation reaches actual pixels.
 ///
@@ -42,7 +43,7 @@ void main() {
     File(imagePath).writeAsBytesSync(png!.buffer.asUint8List());
   });
 
-  tearDownAll(() => tmp.deleteSync(recursive: true));
+  tearDownAll(() => deleteTempDir(tmp));
 
   (Edits, Clip) project() {
     // 16:9 around a square source, so a fitted image leaves black bars: the

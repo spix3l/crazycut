@@ -11,6 +11,7 @@ import 'package:crazycut_app/features/editor/presentation/widgets/inspector/clip
 import 'package:crazycut_app/features/editor/presentation/widgets/inspector/inspector_transform_tab.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
+import 'temp_dir.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -21,7 +22,7 @@ void main() {
     tmp = await Directory.systemTemp.createTemp('cc-transform-tab');
   });
 
-  tearDownAll(() => tmp.deleteSync(recursive: true));
+  tearDownAll(() => deleteTempDir(tmp));
 
   (EditorController, Clip) videoHarness() {
     final doc = ProjectDoc.empty('P', width: 1920, height: 1080, fps: 30);

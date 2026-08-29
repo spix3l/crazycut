@@ -7,6 +7,7 @@ import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
 import 'package:crazycut_app/state/preview_renderer.dart';
+import 'temp_dir.dart';
 
 /// What made the preview feel heavy was never the composite — the engine turns
 /// one out in ~3 ms at playback resolution (`preview_perf_test.dart`). It was
@@ -24,7 +25,7 @@ void main() {
   setUp(() async {
     tmp = await Directory.systemTemp.createTemp('cc-preview-pipeline');
   });
-  tearDown(() => tmp.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(tmp));
 
   EditorController controller() {
     final doc = ProjectDoc.empty('P', width: 1280, height: 720, fps: 30);
