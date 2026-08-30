@@ -591,6 +591,31 @@ class EditorController extends ChangeNotifier
   bool _supported(String path) =>
       kSupportedExtensions.contains(path.split('.').last.toLowerCase());
 
+  /// Imports [path] and returns the asset it resolves to.
+  ///
+  /// Not the same as "the asset that appeared": **IMP-3** dedupes by content
+  /// hash, so re-importing something already in the project selects the
+  /// existing asset and adds nothing. Callers that diff the media list before
+  /// and after therefore find nothing and conclude the import failed — which
+  /// is how "replace with image" worked the first time and silently did
+  /// nothing every time after.
+  Future<MediaAsset?> importAndResolve(String path) async {
+    final before = {for (final m in doc.media) m.id};
+    await importPaths([path]);
+    final added = doc.media.where((m) => !before.contains(m.id));
+    if (added.isNotEmpty) return added.last;
+    // Deduped, or already present: find what it collapsed onto.
+    try {
+      final hash = CrazyCutEngine.instance.hashFile(path);
+      final match = doc.media.firstWhereOrNull((m) => m.hash == hash);
+      if (match != null) return match;
+    } on Object {
+      // An unreadable file falls through to the path match, which is the
+      // honest answer when hashing is not available.
+    }
+    return doc.media.firstWhereOrNull((m) => m.path == path);
+  }
+
   /// With [addToTimeline] every imported asset also lands on the timeline at
   /// the playhead, one after another so a multi-file paste keeps its order,
   /// pushing whatever sat there to the right. The playhead itself does not

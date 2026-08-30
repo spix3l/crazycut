@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -410,6 +411,39 @@ void main() {
         tracksAfterFirst,
         reason: 'a free track should be reused, not stacked on',
       );
+    });
+
+    test('an image already in the project still resolves on import', () async {
+      // IMP-3 dedupes by content hash, so a second import of the same file adds
+      // nothing to doc.media. Detecting the asset by diffing that list made
+      // "replace with image" work once and then do nothing at all.
+      final (c, _, _) = harness();
+      final png = File('${tmp.path}/dedupe.png');
+      final recorder = ui.PictureRecorder();
+      ui.Canvas(recorder).drawRect(
+        const ui.Rect.fromLTWH(0, 0, 32, 32),
+        ui.Paint()..color = const ui.Color(0xFF00FF00),
+      );
+      final image = await recorder.endRecording().toImage(32, 32);
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      png.writeAsBytesSync(bytes!.buffer.asUint8List());
+
+      final first = await c.importAndResolve(png.path);
+      expect(first, isNotNull, reason: 'the first import should land');
+
+      final countAfterFirst = c.doc.media.length;
+      final again = await c.importAndResolve(png.path);
+
+      // The assertion the whole test rests on: the second import genuinely
+      // added nothing, so anything reading "what appeared" would see nothing.
+      expect(
+        c.doc.media.length,
+        countAfterFirst,
+        reason: 'the second import should have been deduped, or this proves '
+            'nothing about the bug it guards',
+      );
+      expect(again, isNotNull, reason: 'a deduped import still has an answer');
+      expect(again!.id, first!.id, reason: 'and it is the same asset');
     });
 
     test('a region is anchored to the frame it was drawn on', () {

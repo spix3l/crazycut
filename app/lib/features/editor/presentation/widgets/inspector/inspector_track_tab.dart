@@ -191,15 +191,23 @@ class TrackTab extends StatelessWidget {
     final file = await openFile(acceptedTypeGroups: types);
     if (file == null) return;
 
-    // importPaths reports a count, not ids, so the new asset is whatever
-    // appeared. Comparing before and after is exact, and avoids widening that
-    // API for one caller.
-    final before = {for (final m in c.doc.media) m.id};
-    await c.importPaths([file.path]);
-    final added = c.doc.media.where((m) => !before.contains(m.id)).toList();
-    if (added.isEmpty) return;
+    // Not "whatever appeared in doc.media": importing something already in the
+    // project adds nothing (IMP-3 dedupes by hash), and reading it that way
+    // made this work once and then silently do nothing.
+    final asset = await c.importAndResolve(file.path);
+    if (asset == null) {
+      c.reportTrackProblem('That image could not be imported.');
+      return;
+    }
 
-    c.replaceRegionWithAsset(trackerId: trackerId, assetId: added.last.id);
+    final id = c.replaceRegionWithAsset(
+      trackerId: trackerId,
+      assetId: asset.id,
+    );
+    if (id == null) {
+      c.reportTrackProblem('The tracked region could not take an image.');
+      return;
+    }
     // The region is solved and filled; leaving the draw tool armed would put
     // grab handles over the result the user is now looking at.
     c.trackToolActive = false;

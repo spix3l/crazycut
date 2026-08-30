@@ -54,6 +54,10 @@ mixin AreaTrackEdits on TimelineEdits {
     notifyListeners();
   }
 
+  /// Surfaces a problem with a tracking action in the Track tab. Public so the
+  /// inspector can report failures that happen outside this mixin.
+  void reportTrackProblem(String why) => _reject(why);
+
   void _reject(String why) {
     _trackRejection = why;
     notifyListeners();
