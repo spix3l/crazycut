@@ -4,17 +4,26 @@ import 'package:flutter/widgets.dart' hide Clip;
 import '../../../../core/design/tokens.dart';
 import '../../../../data/area_track.dart';
 import '../../../../data/project.dart';
+import '../../../../models/rational.dart';
 import '../../../../state/canvas_geometry.dart';
 import '../../../../state/editor_controller.dart';
 import '../../../../state/tracking_service.dart';
 
-/// On-canvas region tool for area tracking (**TRK-1/2**).
+/// On-canvas region tool and tracked-region readout (**TRK-1/2**).
 ///
-/// Two states. With no tracker on the selected clip it draws a rectangle:
-/// press, drag, release, and the region is ready to solve. With a solved
-/// tracker it shows the tracked quad at the playhead, its four corners
-/// draggable so the user can correct a frame and re-track forward from there
-/// (**TRK-11**), plus a motion trail of where the region has been.
+/// Three states, and the middle one is the one that makes the feature legible:
+///
+/// - **Armed, nothing solved.** Press, drag, release to draw the region.
+/// - **Solved, tool disarmed.** The tracked quad is drawn following the region
+///   as the playhead moves, without handles. This is what shows a track is
+///   working *before* any image is attached to it — the outline moving with the
+///   subject is the whole evidence that the solve is good.
+/// - **Solved, tool armed.** As above with draggable corners, so a frame can be
+///   corrected and re-tracked forward from there (**TRK-11**).
+///
+/// The playhead is published on its own throttled channel rather than through
+/// the controller's listeners, so this widget watches `playheadNotifier`
+/// directly. Without that the outline simply does not follow a scrub.
 ///
 /// The pan recognizer is gated exactly like [CanvasGizmo]'s: it only competes
 /// for pointers that land on the tool, so the monitor keeps the gestures it had
@@ -54,7 +63,17 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
   double _seqPerPx(Size box) =>
       box.width <= 0 ? 1 : c.doc.settings.width / box.width;
 
-  Clip? get _clip => c.trackToolClip();
+  /// The clip whose region this draws: the one the tool would act on, or —
+  /// when a pinned overlay is selected — the clip its tracker was solved
+  /// against, so selecting the meme image still shows the region it sits on.
+  Clip? get _clip {
+    final clip = c.trackToolClip();
+    if (clip == null) return null;
+    final pin = TrackPin.fromExtra(clip.extra);
+    if (pin == null) return clip;
+    final tracker = c.doc.trackerById(pin.trackerId);
+    return tracker == null ? clip : (c.doc.clipById(tracker.sourceClipId) ?? clip);
+  }
 
   Tracker? get _tracker {
     final clip = _clip;
@@ -186,17 +205,24 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    // Same rule the gizmo follows: handles over moving frames are noise, and
-    // they would fight the transport for the pointer.
-    if (c.playing || !c.trackToolActive) return const SizedBox.shrink();
-    if (_clip == null) return const SizedBox.shrink();
+    // Handles over moving frames are noise and would fight the transport for
+    // the pointer, but the outline itself is worth keeping during playback:
+    // watching it stay on the subject is how you judge a track.
+    final clip = _clip;
+    if (clip == null) return const SizedBox.shrink();
+    final hasTracker = c.trackerForClip(clip) != null;
+    if (!c.trackToolActive && !hasTracker) return const SizedBox.shrink();
 
-    // The solve reports progress through TrackingService, which the monitor
-    // does not otherwise listen to; without this the outline never changed
-    // while a track was running.
+    // Two channels the monitor does not otherwise rebuild on: the solve's
+    // progress, and the playhead — which is published on its own throttled
+    // notifier so a scrub does not rebuild the whole editor. Without the
+    // second, the outline never moved.
     return ListenableBuilder(
       listenable: TrackingService.instance,
-      builder: (context, _) => _buildTool(),
+      builder: (context, _) => ValueListenableBuilder<Rt>(
+        valueListenable: c.playheadNotifier,
+        builder: (context, _, _) => _buildTool(),
+      ),
     );
   }
 
@@ -209,12 +235,32 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
         final solving =
             TrackingService.instance.jobForClip(_clip!.id)?.state ==
             TrackingState.running;
+        // Handles are for editing; the outline is for reading. Showing grab
+        // points while the tool is disarmed would advertise an interaction
+        // that is not listening.
+        final interactive = c.trackToolActive && !c.playing && !solving;
 
         Rect? drawing;
         final from = _dragStart;
         final to = _dragNow;
         if (_corner < 0 && from != null && to != null) {
           drawing = Rect.fromPoints(from, to);
+        }
+
+        final painter = _AreaTrackPainter(
+          quad: quad,
+          drawing: drawing,
+          trail: _trail(),
+          seqPerPx: seqPerPx,
+          lowConfidence: _lowConfidenceNow(),
+          solving: solving,
+          interactive: interactive,
+        );
+
+        if (!interactive) {
+          return IgnorePointer(
+            child: CustomPaint(size: box, painter: painter),
+          );
         }
 
         return MouseRegion(
@@ -234,17 +280,7 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
                     },
                   ),
             },
-            child: CustomPaint(
-              size: box,
-              painter: _AreaTrackPainter(
-                quad: quad,
-                drawing: drawing,
-                trail: _trail(),
-                seqPerPx: seqPerPx,
-                lowConfidence: _lowConfidenceNow(),
-                solving: solving,
-              ),
-            ),
+            child: CustomPaint(size: box, painter: painter),
           ),
         );
       },
@@ -297,6 +333,7 @@ class _AreaTrackPainter extends CustomPainter {
     required this.seqPerPx,
     required this.lowConfidence,
     required this.solving,
+    required this.interactive,
   });
 
   /// The tracked (or being-corrected) region, in sequence px.
@@ -315,6 +352,10 @@ class _AreaTrackPainter extends CustomPainter {
   /// without handles — the one visible difference between "tracked" and "still
   /// thinking".
   final bool solving;
+
+  /// Corners can be dragged, so they are drawn as grab points. When false this
+  /// is a readout, not a control.
+  final bool interactive;
 
   Offset _px(double x, double y) => Offset(x / seqPerPx, y / seqPerPx);
 
@@ -352,7 +393,7 @@ class _AreaTrackPainter extends CustomPainter {
           ..strokeWidth = 1.5
           ..color = solving ? colour.withValues(alpha: 0.55) : colour,
       );
-      if (solving) return;  // nothing to grab while it is being solved
+      if (!interactive) return;  // a readout has nothing to grab
       for (var i = 0; i < 4; i += 1) {
         final p = _px(active[2 * i], active[2 * i + 1]);
         final handle = Rect.fromCenter(
@@ -394,6 +435,7 @@ class _AreaTrackPainter extends CustomPainter {
       old.seqPerPx != seqPerPx ||
       old.lowConfidence != lowConfidence ||
       old.solving != solving ||
+      old.interactive != interactive ||
       old.trail.length != trail.length;
 }
 

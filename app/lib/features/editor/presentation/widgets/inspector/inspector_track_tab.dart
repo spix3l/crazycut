@@ -1,3 +1,4 @@
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/services.dart' show HardwareKeyboard;
 import 'package:flutter/widgets.dart' hide Clip;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -115,6 +116,28 @@ class TrackTab extends StatelessWidget {
                 const SizedBox(height: 14),
                 const Padding(
                   padding: EdgeInsets.fromLTRB(14, 0, 14, 8),
+                  child: CcSectionHeader('REPLACE'),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      CcButton(
+                        label: 'Replace with image…',
+                        onPressed: () => _replaceWithFile(tracker.id),
+                      ),
+                      const SizedBox(height: 6),
+                      const _Note(
+                        'Puts a picture on the region and pins it, on a track '
+                        'above this one, for exactly the tracked range.',
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(14, 0, 14, 8),
                   child: CcSectionHeader('SOLVE'),
                 ),
                 _Stat('Samples', '${tracker.sampleCount}'),
@@ -150,6 +173,36 @@ class TrackTab extends StatelessWidget {
         );
       },
     );
+  }
+
+  /// Import a picture and drop it straight onto the region.
+  ///
+  /// This is the feature in one action. Doing it by hand means importing,
+  /// finding a free track, dragging the clip to the tracked range, selecting
+  /// it, and pinning it to a tracker named after a different clip — enough
+  /// steps that nobody would guess the feature was there.
+  Future<void> _replaceWithFile(String trackerId) async {
+    const types = [
+      XTypeGroup(
+        label: 'Images',
+        extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tiff'],
+      ),
+    ];
+    final file = await openFile(acceptedTypeGroups: types);
+    if (file == null) return;
+
+    // importPaths reports a count, not ids, so the new asset is whatever
+    // appeared. Comparing before and after is exact, and avoids widening that
+    // API for one caller.
+    final before = {for (final m in c.doc.media) m.id};
+    await c.importPaths([file.path]);
+    final added = c.doc.media.where((m) => !before.contains(m.id)).toList();
+    if (added.isEmpty) return;
+
+    c.replaceRegionWithAsset(trackerId: trackerId, assetId: added.last.id);
+    // The region is solved and filled; leaving the draw tool armed would put
+    // grab handles over the result the user is now looking at.
+    c.trackToolActive = false;
   }
 
   static String _percent(double v) => '${(v * 100).round()}%';

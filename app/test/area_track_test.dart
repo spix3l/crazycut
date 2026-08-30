@@ -359,6 +359,62 @@ void main() {
       expect(report.issues, isNotEmpty);
     });
 
+    test('replacing a region places a pinned overlay in one step', () {
+      // The feature in one action: no importing, no finding a free track, no
+      // dragging a clip to the right range, no hunting for a tracker id.
+      final (c, source, _) = harness();
+      c.installTracker(slidingTracker());
+
+      final id = c.replaceRegionWithAsset(trackerId: 't1', assetId: 'meme');
+      expect(id, isNotNull);
+      final overlay = c.doc.clipById(id!)!;
+
+      // Spans exactly the tracked range, on a track above the tracked clip.
+      expect(overlay.start, source.start + c.doc.trackers.first.startTime);
+      expect(
+        overlay.duration,
+        c.doc.trackers.first.endTime - c.doc.trackers.first.startTime,
+      );
+      final above = c.doc.trackById(overlay.trackId)!;
+      final below = c.doc.trackById(source.trackId)!;
+      expect(above.index, greaterThan(below.index));
+
+      // Pinned and already following the region.
+      expect(TrackPin.fromExtra(overlay.extra)?.mode, PinMode.cornerPin);
+      final quad = (overlay.transform!.corners!.evaluate(Rt.zero()) as List)
+          .cast<double>();
+      expect(quad[0], closeTo(100, 0.01));
+      expect(quad[2], closeTo(500, 0.01));
+
+      // And it is one undo step.
+      c.undo();
+      expect(c.doc.clipById(id), isNull);
+    });
+
+    test('replacing twice reuses a free track instead of stacking new ones', () {
+      final (c, _, _) = harness();
+      c.installTracker(slidingTracker(id: 'a'));
+      final first = c.replaceRegionWithAsset(trackerId: 'a', assetId: 'meme');
+      final tracksAfterFirst = c.doc.videoTracks.length;
+
+      // A second tracker on a range that does not overlap the first overlay.
+      c.installTracker(
+        slidingTracker(id: 'b').copyWith(
+          startTime: Rt.fromSeconds(2),
+          endTime: Rt.fromSeconds(2 + 4 / 30),
+        ),
+      );
+      final second = c.replaceRegionWithAsset(trackerId: 'b', assetId: 'meme');
+
+      expect(first, isNotNull);
+      expect(second, isNotNull);
+      expect(
+        c.doc.videoTracks.length,
+        tracksAfterFirst,
+        reason: 'a free track should be reused, not stacked on',
+      );
+    });
+
     test('a refused region says why instead of doing nothing', () {
       // The bug this exists for: dragging a box that cannot be tracked used to
       // return null silently, so the user let go of the mouse and nothing

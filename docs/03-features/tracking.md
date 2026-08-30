@@ -1,6 +1,6 @@
 # Feature Spec — Area Tracking
 
-> Status: Draft v0.2 · Owner: @steve · Last updated: 2026-08-30
+> Status: Draft v0.3 · Owner: @steve · Last updated: 2026-08-30
 > Requirements prefix: **TRK** · Rendering: `01-architecture.md` §7 · Model: `02-data-model.md` §5
 > Transform: `03-features/effects.md` (**FX-9**) · Keyframes: `03-features/text-keyframes.md` (**KEY**)
 > Analysis-pass precedent: `03-features/ai-assist.md` (**AI-18–22**)
@@ -150,6 +150,11 @@ export read the same baked path out of the document, so they cannot disagree.
   Unpinning without baking restores the clip's pre-pin pose.
 - **TRK-22** Deleting a tracker, or relinking/removing the media it was solved against,
   unpins its clips and reports it. It never leaves a clip referencing a tracker that is gone.
+- **TRK-26** **Replace with image** is one action: pick a picture and it is imported, placed on
+  the first free video track above the tracked clip for exactly the solved range, and pinned
+  corner-pin — as a single undo step. Assembling that by hand takes six steps and requires
+  knowing which tracker belongs to which clip, which is enough friction that the feature would
+  go unused. A free track above is reused rather than adding one per region.
 
 ### Render
 - **TRK-23** A pinned clip renders through the **shared compositor** used by both preview and
@@ -163,8 +168,16 @@ export read the same baked path out of the document, so they cannot disagree.
 
 ## UX notes
 
-- The armed Track tool replaces the gizmo's handles with a crosshair; the drawn quad shows
-  four corner handles and an edge outline, and hides during playback like the gizmo does.
+- **The tracked region is drawn whenever its clip is selected, not only while the tool is
+  armed**, and it follows the subject as the playhead moves — through playback as well as
+  scrubbing. Watching the outline stay on the subject is the whole evidence that a solve is
+  good, and it is the only feedback there is before an image is attached to it. Selecting a
+  pinned overlay shows the region it sits on, rather than nothing.
+- Armed, the outline gains draggable corners and the tool takes pointer input; disarmed, it is a
+  readout and claims no pointers. A successful solve disarms the tool, so the user lands on a
+  result rather than in drawing mode.
+- The playhead is published on its own throttled channel, so this reads `playheadNotifier`
+  directly. Anything that rebuilds only on the controller's listeners does not follow a scrub.
 - After a solve the canvas draws a **motion trail** of the quad's centre across the tracked
   range, so the shape of the move is legible without scrubbing.
 - Where the solve is untrustworthy the region outline turns amber on the canvas, the Track tab
@@ -242,6 +255,8 @@ network- or model-backed tracker.
 
 ## Changelog
 
+- v0.3 — **TRK-26** replace-with-image in one action; the tracked region is a live readout
+  whenever its clip is selected and follows the playhead; a solve disarms the tool.
 - v0.2 — Menu-bar entry and shortcut for the region tool (**TRK-1**); refusals name their
   reason (**TRK-4**); timeline confidence stripe; nudge control; in-flight solves visible before
   the tracker exists.

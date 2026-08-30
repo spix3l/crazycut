@@ -123,7 +123,13 @@ mixin AreaTrackEdits on TimelineEdits {
       start: start ?? Rt.zero(),
       end: end ?? clip.duration,
     );
-    if (tracker != null) installTracker(tracker);
+    if (tracker != null) {
+      installTracker(tracker);
+      // Drawing is done; staying armed would leave grab handles over the result
+      // and keep the region tool eating pointers on the monitor. The outline
+      // stays visible either way — it just stops being a control.
+      trackToolActive = false;
+    }
     return tracker;
   }
 
@@ -295,6 +301,72 @@ mixin AreaTrackEdits on TimelineEdits {
     for (final clip in doc.clips)
       if (TrackPin.fromExtra(clip.extra)?.trackerId == trackerId) clip,
   ];
+
+  /// Puts [assetId] on the tracked region and pins it — the whole point of the
+  /// feature in one action (**TRK-18**).
+  ///
+  /// Before this existed, replacing a face meant importing the image, finding a
+  /// track above the shot, dragging the clip out to the right range, selecting
+  /// it, opening its Track tab and pinning it to a tracker named after some
+  /// other clip. Six steps to express "put this here".
+  ///
+  /// The overlay is created on the first video track above the tracked clip,
+  /// spanning exactly the solved range, and pinned corner-pin. One undo step.
+  /// Returns the new clip's id.
+  String? replaceRegionWithAsset({
+    required String trackerId,
+    required String assetId,
+  }) {
+    final tracker = doc.trackerById(trackerId);
+    final asset = doc.assetById(assetId);
+    final source = tracker == null ? null : doc.clipById(tracker.sourceClipId);
+    if (tracker == null || asset == null || source == null) return null;
+
+    final sourceTrack = doc.trackById(source.trackId);
+    if (sourceTrack == null) return null;
+
+    final start = source.start + tracker.startTime;
+    final duration = tracker.endTime - tracker.startTime;
+    if (duration <= Rt.zero()) return null;
+
+    return runEdit('Replace tracked region', (tx) {
+      final track = _trackAbove(tx, sourceTrack, start, start + duration);
+      final clip = Clip(
+        id: generateId(),
+        trackId: track.id,
+        mediaId: assetId,
+        label: asset.name,
+        start: start,
+        duration: duration,
+        sourceIn: Rt.zero(),
+      );
+      tx.clip(clip.id); // null "before", so undo deletes it
+      doc.clips.add(clip);
+
+      clip.extra[kTrackPinKey] =
+          TrackPin(trackerId: trackerId, mode: PinMode.cornerPin).toJson();
+      _rebuildPin(clip);
+
+      selection
+        ..clear()
+        ..add(clip.id);
+      return clip.id;
+    });
+  }
+
+  /// The nearest video track above [below] that is free across the range, or a
+  /// new one. Reusing a free track keeps a project from growing a track per
+  /// tracked region, which is what "always add one" would do.
+  Track _trackAbove(EditTransaction tx, Track below, Rt start, Rt end) {
+    for (final track in doc.videoTracks) {
+      if (track.index <= below.index || track.lock) continue;
+      final busy = doc
+          .clipsOn(track.id)
+          .any((c) => c.start < end && start < c.end);
+      if (!busy) return track;
+    }
+    return addTrackIn(tx, 'video');
+  }
 
   // --- Pinning --------------------------------------------------------------
 

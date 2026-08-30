@@ -69,8 +69,11 @@ class _MonitorPanelState extends State<MonitorPanel> {
           // tool takes the transform handles off the frame, so a drag is never
           // ambiguous about which one it meant.
           if (!empty && !c.trackToolActive) CanvasGizmo(controller: c),
-          // TRK-1/2: draw a region to track, or correct the tracked quad.
-          if (!empty && c.trackToolActive) AreaTrackOverlay(controller: c),
+          // TRK-1/2. Mounted whenever there is a clip, not only while the tool
+          // is armed: it also draws the solved region following the subject,
+          // which is what shows a track is working before any image is pinned
+          // to it. It renders nothing when there is neither.
+          if (!empty) AreaTrackOverlay(controller: c),
           if (c.showCanvasGrid) const IgnorePointer(child: _GridOverlay()),
           if (c.showSafeMargins)
             const IgnorePointer(child: _SafeMarginsOverlay()),
