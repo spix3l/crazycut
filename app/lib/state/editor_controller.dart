@@ -35,6 +35,7 @@ import 'package:crazycut_app/state/template_edits.dart';
 import 'package:crazycut_app/state/text_rasterizer.dart';
 import 'package:crazycut_app/state/timeline_edits.dart';
 import 'package:crazycut_app/state/transcription_service.dart';
+import 'package:crazycut_app/state/ui_preferences.dart';
 
 enum ImportStatus { probing, ready, failed, offline }
 
@@ -172,9 +173,24 @@ class EditorController extends ChangeNotifier
     required String path,
     ProxyService? proxies,
     ClipboardMediaReader? clipboard,
+    UiPreferences? uiPreferences,
   }) : proxies = proxies ?? ProxyService(),
        clipboard = clipboard ?? const SystemClipboardMediaReader(),
+       uiPreferences = uiPreferences ?? UiPreferences.instance,
        _ownsProxies = proxies == null {
+    magnetic = this.uiPreferences.magneticTimeline;
+    linkAudioOnAdd = this.uiPreferences.linkAudioOnAdd;
+    previewZoom = PreviewZoom.values.firstWhere(
+      (value) => value.name == this.uiPreferences.previewZoom,
+      orElse: () => PreviewZoom.fit,
+    );
+    previewQuality = PreviewQuality.values.firstWhere(
+      (value) => value.name == this.uiPreferences.previewQuality,
+      orElse: () => PreviewQuality.auto,
+    );
+    showSafeMargins = this.uiPreferences.showSafeMargins;
+    showCanvasGrid = this.uiPreferences.showCanvasGrid;
+    outputDeviceName = this.uiPreferences.outputDeviceName;
     autosave = ProjectAutosave(
       doc,
       path: path,
@@ -228,6 +244,7 @@ class EditorController extends ChangeNotifier
   late final ProjectAutosave autosave;
   final ProxyService proxies;
   final ClipboardMediaReader clipboard;
+  final UiPreferences uiPreferences;
   final MediaUrlService mediaUrls = MediaUrlService();
   final TranscriptionService transcription = TranscriptionService.instance;
 
@@ -468,6 +485,7 @@ class EditorController extends ChangeNotifier
   void setPreviewZoom(PreviewZoom value) {
     if (previewZoom == value) return;
     previewZoom = value;
+    uiPreferences.setPreviewZoom(value.name);
     notifyListeners();
   }
 
@@ -480,6 +498,7 @@ class EditorController extends ChangeNotifier
   void setPreviewQuality(PreviewQuality value) {
     if (previewQuality == value) return;
     previewQuality = value;
+    uiPreferences.setPreviewQuality(value.name);
     _previewRevision++;
     notifyListeners();
     unawaited(updatePreviewFrame());
@@ -492,13 +511,29 @@ class EditorController extends ChangeNotifier
   void setShowSafeMargins(bool value) {
     if (showSafeMargins == value) return;
     showSafeMargins = value;
+    uiPreferences.setShowSafeMargins(value);
     notifyListeners();
   }
 
   void setShowCanvasGrid(bool value) {
     if (showCanvasGrid == value) return;
     showCanvasGrid = value;
+    uiPreferences.setShowCanvasGrid(value);
     notifyListeners();
+  }
+
+  @override
+  void setMagnetic(bool value) {
+    if (magnetic == value) return;
+    super.setMagnetic(value);
+    uiPreferences.setMagneticTimeline(value);
+  }
+
+  @override
+  void setLinkAudioOnAdd(bool value) {
+    if (linkAudioOnAdd == value) return;
+    super.setLinkAudioOnAdd(value);
+    uiPreferences.setLinkAudioOnAdd(value);
   }
 
   @override
@@ -1497,6 +1532,7 @@ class EditorController extends ChangeNotifier
   void setOutputDevice(String name) {
     if (name == outputDeviceName) return;
     outputDeviceName = name;
+    uiPreferences.setOutputDeviceName(name);
     _audio?.outputDevice = name;
     if (playing) {
       _audio?.stop();

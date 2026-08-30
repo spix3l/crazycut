@@ -7,6 +7,7 @@ import 'package:crazycut_app/data/project.dart';
 import 'package:crazycut_app/features/editor/presentation/widgets/media_pool.dart';
 import 'package:crazycut_app/models/rational.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
+import 'package:crazycut_app/state/ui_preferences.dart';
 import 'temp_dir.dart';
 
 void main() {
@@ -81,5 +82,60 @@ void main() {
 
     expect(find.text('logo.svg'), findsOneWidget);
     expect(find.text('song.wav'), findsNothing);
+  });
+
+  testWidgets('media view choice is restored and persisted', (tester) async {
+    final temp = Directory.systemTemp.createTempSync('cc_media_pool_view');
+    final preferences = UiPreferences(storageDirOverride: temp)
+      ..mediaPoolListView = true;
+    final doc = ProjectDoc.empty(
+      'Pool view',
+      width: 1920,
+      height: 1080,
+      fps: 30,
+    );
+    doc.media.add(
+      MediaAsset(
+        id: 'image',
+        name: 'image.png',
+        path: '${temp.path}/image.png',
+        type: 'image',
+        duration: Rt.zero(),
+        hasAudio: false,
+      ),
+    );
+    final controller = EditorController(
+      doc,
+      path: '${temp.path}/pool.crazycut',
+      uiPreferences: preferences,
+    );
+    addTearDown(() async {
+      await controller.close();
+      deleteTempDir(temp);
+    });
+
+    await tester.pumpWidget(
+      WidgetsApp(
+        color: const Color(0xFF000000),
+        pageRouteBuilder:
+            <T>(settings, builder) => PageRouteBuilder<T>(
+              settings: settings,
+              pageBuilder: (context, _, _) => builder(context),
+            ),
+        home: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: MediaPool.width,
+            height: 700,
+            child: MediaPool(controller: controller),
+          ),
+        ),
+      ),
+    );
+
+    expect(preferences.mediaPoolListView, isTrue);
+    await tester.tap(find.byKey(const ValueKey('media-grid-view')));
+    await tester.pump();
+    expect(preferences.mediaPoolListView, isFalse);
   });
 }

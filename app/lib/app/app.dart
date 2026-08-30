@@ -4,6 +4,8 @@ import 'package:flutter/widgets.dart';
 import '../core/design/tokens.dart';
 import 'platform_menu.dart';
 import 'router/app_router.dart';
+import '../state/ui_preferences.dart';
+import 'session.dart';
 
 /// Application root. Deliberately not a `MaterialApp`: CrazyCut ships its own
 /// design system, so it only needs the plumbing `WidgetsApp` provides.
@@ -25,6 +27,10 @@ class _CrazyCutAppState extends State<CrazyCutApp> {
     // which is exactly the behaviour we want.
     AiSettings.instance.load().whenComplete(() {
       if (mounted) setState(() {});
+    });
+    UiPreferences.instance.load().then((_) {
+      AppSession.instance.proxies.enabled =
+          UiPreferences.instance.generateProxies;
     });
   }
 

@@ -39,7 +39,7 @@ class MediaPool extends StatefulWidget {
 
 class _MediaPoolState extends State<MediaPool> {
   final _search = TextEditingController();
-  bool _listView = false;
+  late bool _listView;
 
   /// 0 = media, 1 = references, 2 = templates. The rail hosts all three because they answer the
   /// same question — "what do I put on the timeline next?" (TPL-2).
@@ -51,7 +51,13 @@ class _MediaPoolState extends State<MediaPool> {
   @override
   void initState() {
     super.initState();
+    _listView = c.uiPreferences.mediaPoolListView;
     _search.addListener(() => setState(() {}));
+  }
+
+  void _setListView(bool value) {
+    setState(() => _listView = value);
+    c.uiPreferences.setMediaPoolListView(value);
   }
 
   @override
@@ -207,7 +213,8 @@ class _MediaPoolState extends State<MediaPool> {
                 children: [
                   const Spacer(),
                   CcTappable(
-                    onTap: () => setState(() => _listView = false),
+                    key: const ValueKey('media-grid-view'),
+                    onTap: () => _setListView(false),
                     child: CcIcon(
                       LucideIcons.layoutGrid,
                       size: 14,
@@ -219,7 +226,8 @@ class _MediaPoolState extends State<MediaPool> {
                   ),
                   const SizedBox(width: 10),
                   CcTappable(
-                    onTap: () => setState(() => _listView = true),
+                    key: const ValueKey('media-list-view'),
+                    onTap: () => _setListView(true),
                     child: CcIcon(
                       LucideIcons.list,
                       size: 14,

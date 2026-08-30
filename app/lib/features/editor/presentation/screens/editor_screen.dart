@@ -22,6 +22,7 @@ import '../../../../state/onboarding.dart';
 import '../../../../state/project_tools.dart';
 import '../../../../state/speech_model.dart';
 import '../../../../state/transcription_service.dart';
+import '../../../../state/ui_preferences.dart';
 import '../models/editor_models.dart';
 import '../../../../ai/ai_settings.dart';
 import '../widgets/editor_toolbar.dart';
@@ -94,13 +95,13 @@ class _EditorScreenState extends State<EditorScreen> {
 
   final _focus = FocusNode(debugLabel: 'editor');
   int _tool = 0;
-  bool _snap = true;
+  bool _snap = UiPreferences.instance.timelineSnap;
   bool _dropActive = false;
   bool _fullscreen = false;
 
   /// The mixer replaces the inspector column when open (AUD-10).
   bool _mixer = false;
-  double _pxPerSec = kPixelsPerSecond;
+  double _pxPerSec = UiPreferences.instance.timelinePixelsPerSecond;
   double _lanesWidth = 800;
 
   EditorController? get _controller =>
@@ -150,6 +151,12 @@ class _EditorScreenState extends State<EditorScreen> {
     setState(() {
       _pxPerSec = timelinePixelsPerSecondForZoom(t);
     });
+    UiPreferences.instance.setTimelinePixelsPerSecond(_pxPerSec);
+  }
+
+  void _setSnap(bool value) {
+    setState(() => _snap = value);
+    UiPreferences.instance.setTimelineSnap(value);
   }
 
   double get _zoomT => timelineZoomForPixelsPerSecond(_pxPerSec);
@@ -165,6 +172,7 @@ class _EditorScreenState extends State<EditorScreen> {
     setState(() {
       _pxPerSec = (_lanesWidth / seconds).clamp(kMinPxPerSec, kMaxPxPerSec);
     });
+    UiPreferences.instance.setTimelinePixelsPerSecond(_pxPerSec);
   }
 
   // --- Import / export ------------------------------------------------------
@@ -536,7 +544,7 @@ class _EditorScreenState extends State<EditorScreen> {
                             canUndo: c.canUndo,
                             canRedo: c.canRedo,
                             snap: _snap,
-                            onSnapChanged: (v) => setState(() => _snap = v),
+                            onSnapChanged: _setSnap,
                             saveState: c.saveState,
                             projectName: c.doc.name,
                             onRename: () => _renameProject(c),
@@ -590,8 +598,7 @@ class _EditorScreenState extends State<EditorScreen> {
                                   controller: c,
                                   pxPerSec: _pxPerSec,
                                   snap: _snap,
-                                  onSnapChanged:
-                                      (v) => setState(() => _snap = v),
+                                  onSnapChanged: _setSnap,
                                   onZoomChanged: _setZoom,
                                   onZoomAt: _zoomAt,
                                   onFit: () => _fit(c),

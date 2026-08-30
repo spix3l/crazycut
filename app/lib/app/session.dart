@@ -8,6 +8,7 @@ import 'package:crazycut_app/data/repository.dart';
 import 'package:crazycut_app/state/editor_controller.dart';
 import 'package:crazycut_app/state/proxy_service.dart';
 import 'package:crazycut_app/state/sandbox_access.dart';
+import 'package:crazycut_app/state/ui_preferences.dart';
 
 /// App-scoped editing session: which project is open, its controller, and the
 /// recent-projects list (PRJ-4). Routes read this instead of threading models
@@ -41,6 +42,8 @@ class AppSession extends ChangeNotifier {
 
   Future<void> open(ProjectDoc doc, String projectPath) async {
     await close();
+    await UiPreferences.instance.load();
+    proxies.enabled = UiPreferences.instance.generateProxies;
     project = doc;
     path = projectPath;
     _controller = EditorController(doc, path: projectPath, proxies: proxies);
@@ -144,7 +147,9 @@ class AppSession extends ChangeNotifier {
   Future<void> _rememberRecent(String projectPath) async {
     recents.remove(projectPath);
     recents.insert(0, projectPath);
-    if (recents.length > maxRecents) recents.removeRange(maxRecents, recents.length);
+    if (recents.length > maxRecents) {
+      recents.removeRange(maxRecents, recents.length);
+    }
     await _writeRecents();
   }
 

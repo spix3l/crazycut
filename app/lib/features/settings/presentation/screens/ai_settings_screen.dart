@@ -10,6 +10,7 @@ import '../../../../core/widgets/primitives.dart';
 import '../../../../app/session.dart';
 import '../../../../state/editor_controller.dart';
 import '../../../../state/speech_model.dart';
+import '../../../../state/ui_preferences.dart';
 
 enum _SettingsSection { canvas, playback, audio, shortcuts, ai }
 
@@ -169,9 +170,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ..setPreviewQuality(_previewQuality)
         ..setShowSafeMargins(_showSafeMargins)
         ..setShowCanvasGrid(_showCanvasGrid);
-      if (_outputDevice.isNotEmpty) editor.setOutputDevice(_outputDevice);
+      editor.setOutputDevice(_outputDevice);
     }
     AppSession.instance.proxies.enabled = _generateProxies;
+    UiPreferences.instance.setGenerateProxies(_generateProxies);
     final enteredKey = _key.text.trim();
     if (_settings.config != null ||
         _aiTouched ||
