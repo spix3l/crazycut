@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -517,6 +518,44 @@ const double kKeyframeRibbonHeight = 11;
 /// Below this lane height the ribbon would crowd the name plate off the tile,
 /// so an animated clip shows nothing rather than an illegible smear.
 const double kKeyframeRibbonMinTrackHeight = 34;
+
+/// Height of the stripe marking where a track stopped being trustworthy.
+const double kTrackConfidenceStripeHeight = 3;
+
+/// Spans where an area-tracking solve fell below its confidence threshold
+/// (**TRK-8**).
+///
+/// A drifting track is otherwise only findable by watching the whole clip: the
+/// solve reports a number per frame and nothing surfaced it. These say where to
+/// look, in the one place the user is already scanning for what a clip does.
+class TrackConfidenceStripePainter extends CustomPainter {
+  const TrackConfidenceStripePainter({
+    required this.spans,
+    required this.pxPerSec,
+  });
+
+  /// Clip-local `(start, end)` seconds, one per weak span.
+  final List<(double, double)> spans;
+
+  final double pxPerSec;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = CcColors.warning;
+    for (final (start, end) in spans) {
+      final left = start * pxPerSec;
+      // A single weak frame is a hairline at any sensible zoom, so give every
+      // span a floor — the point is to be findable, not to be to scale.
+      final width = math.max(2.0, (end - start) * pxPerSec);
+      if (left > size.width || left + width < 0) continue;
+      canvas.drawRect(Rect.fromLTWH(left, 0, width, size.height), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(TrackConfidenceStripePainter old) =>
+      old.pxPerSec != pxPerSec || !listEquals(old.spans, spans);
+}
 
 /// A diamond for each instant a clip has keyframes at (KEY-5).
 ///

@@ -39,6 +39,25 @@ mixin AreaTrackEdits on TimelineEdits {
   // --- Tool state and entry points -----------------------------------------
 
   bool _trackToolActive = false;
+  String? _trackRejection;
+
+  /// Why the last attempt to track a region was refused, or null.
+  ///
+  /// Refusals used to be a silent `return null`: the user dragged a box, let
+  /// go, and nothing whatsoever happened. Anything that declines to solve now
+  /// says so here and the Track tab shows it.
+  String? get trackRejection => _trackRejection;
+
+  void clearTrackRejection() {
+    if (_trackRejection == null) return;
+    _trackRejection = null;
+    notifyListeners();
+  }
+
+  void _reject(String why) {
+    _trackRejection = why;
+    notifyListeners();
+  }
 
   /// Whether the canvas region tool is armed (**TRK-1**). Mutually exclusive
   /// with the transform gizmo: only one tool owns the canvas at a time.
@@ -75,10 +94,26 @@ mixin AreaTrackEdits on TimelineEdits {
     Rt? start,
     Rt? end,
   }) async {
+    _trackRejection = null;
     final asset = doc.assetById(clip.mediaId);
-    if (asset == null) return null;
-    final source = sequenceQuadToSource(clip, regionInSequence, start ?? Rt.zero());
-    if (source == null || !_regionIsUsable(source, clip)) return null;
+    if (asset == null) {
+      _reject('That clip has no media to track.');
+      return null;
+    }
+    final source =
+        sequenceQuadToSource(clip, regionInSequence, start ?? Rt.zero());
+    if (source == null) {
+      _reject(
+        'That clip has not been probed yet, so there is nothing to measure '
+        'the region against.',
+      );
+      return null;
+    }
+    final why = _regionRefusal(source, clip);
+    if (why != null) {
+      _reject(why);
+      return null;
+    }
 
     final tracker = await solveTrackedRegion(
       trackerId: trackerForClip(clip)?.id ?? generateId(),
@@ -95,12 +130,18 @@ mixin AreaTrackEdits on TimelineEdits {
   /// Corrects the region at the playhead and re-solves forward from there,
   /// keeping the samples before it (**TRK-11**). One undo step.
   Future<Tracker?> retrackFromPlayhead(Clip clip, Quad regionInSequence) async {
+    _trackRejection = null;
     final existing = trackerForClip(clip);
     final asset = doc.assetById(clip.mediaId);
     if (asset == null) return null;
     final at = clipLocalTime(clip);
     final source = sequenceQuadToSource(clip, regionInSequence, at);
-    if (source == null || !_regionIsUsable(source, clip)) return null;
+    if (source == null) return null;
+    final why = _regionRefusal(source, clip);
+    if (why != null) {
+      _reject(why);
+      return null;
+    }
 
     final solved = await solveTrackedRegion(
       trackerId: existing?.id ?? generateId(),
@@ -135,10 +176,13 @@ mixin AreaTrackEdits on TimelineEdits {
     );
   }
 
-  /// **TRK-4**: too small, or off the frame, is refused rather than solved.
-  bool _regionIsUsable(Quad source, Clip clip) {
+  /// **TRK-4**: too small, or off the frame, is refused rather than solved —
+  /// and says which, because a refusal the user cannot see is the same to them
+  /// as a feature that does not work.
+  String? _regionRefusal(Quad source, Clip clip) {
     final size = gizmoSourceSize(clip);
-    if (size == null || !quadIsUsable(source)) return false;
+    if (size == null) return 'That clip has no measured size yet.';
+    if (!quadIsUsable(source)) return 'That region is not a usable shape.';
     var minX = source[0], maxX = source[0], minY = source[1], maxY = source[1];
     for (var i = 1; i < 4; i += 1) {
       minX = math.min(minX, source[2 * i]);
@@ -146,8 +190,14 @@ mixin AreaTrackEdits on TimelineEdits {
       minY = math.min(minY, source[2 * i + 1]);
       maxY = math.max(maxY, source[2 * i + 1]);
     }
-    if (maxX - minX < 16 || maxY - minY < 16) return false;
-    return minX >= 0 && minY >= 0 && maxX <= size.$1 && maxY <= size.$2;
+    if (maxX - minX < 16 || maxY - minY < 16) {
+      return 'That region is too small to track — draw a bigger box.';
+    }
+    if (minX < 0 || minY < 0 || maxX > size.$1 || maxY > size.$2) {
+      return 'That region falls outside the picture. Keep the box inside the '
+          'frame.';
+    }
+    return null;
   }
 
   /// Runs the solve. Overridden in tests, and by the controller to route
@@ -180,6 +230,35 @@ mixin AreaTrackEdits on TimelineEdits {
         ..add((p.dy - rect.top) / rect.height * size.$2);
     }
     return out;
+  }
+
+  /// Clip-local `(start, end)` seconds where the solve behind [clip] fell below
+  /// [threshold], clamped to the clip and ready for the timeline's stripe
+  /// (**TRK-8**).
+  ///
+  /// Reported for the clip that was *tracked* and for anything pinned to it, so
+  /// the warning appears wherever the user is looking when it matters.
+  List<(double, double)> lowConfidenceSpansFor(
+    Clip clip, {
+    double threshold = 0.4,
+  }) {
+    final tracker = trackerForClip(clip);
+    if (tracker == null) return const [];
+    final source = doc.clipById(tracker.sourceClipId);
+    if (source == null) return const [];
+
+    final spans = <(double, double)>[];
+    for (final span in tracker.lowConfidenceSpans(threshold: threshold)) {
+      // Tracker times are local to the tracked clip; a pinned overlay may start
+      // anywhere, so go through sequence time rather than assuming they align.
+      final start = source.start + span.start - clip.start;
+      final end = source.start + span.end - clip.start;
+      final clampedStart = start.clampTo(Rt.zero(), clip.duration);
+      final clampedEnd = end.clampTo(Rt.zero(), clip.duration);
+      if (clampedEnd <= clampedStart) continue;
+      spans.add((clampedStart.seconds, clampedEnd.seconds));
+    }
+    return spans;
   }
 
   // --- Trackers -------------------------------------------------------------

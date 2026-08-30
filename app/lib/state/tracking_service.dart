@@ -146,6 +146,21 @@ class TrackingService extends ChangeNotifier {
 
   TrackingJob? jobFor(String trackerId) => jobs[trackerId];
 
+  /// The most recent job solving a region on [clipId].
+  ///
+  /// A first solve has no tracker in the document yet — it is created from the
+  /// result — so anything keyed on a tracker id cannot find the run that is
+  /// currently happening. Without this the UI showed no progress, no cancel and
+  /// no error for exactly the run the user is waiting on, which reads as the
+  /// tool having done nothing at all.
+  TrackingJob? jobForClip(String clipId) {
+    TrackingJob? found;
+    for (final job in jobs.values) {
+      if (job.request.sourceClipId == clipId) found = job;
+    }
+    return found;
+  }
+
   /// Queues a solve and completes with the finished [Tracker], or null when the
   /// run failed or was cancelled. The document is not touched here — the caller
   /// installs the result as one undoable command (**TRK-15**).

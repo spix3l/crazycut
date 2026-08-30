@@ -1,4 +1,6 @@
+import 'package:flutter/services.dart' show HardwareKeyboard;
 import 'package:flutter/widgets.dart' hide Clip;
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../../../core/design/tokens.dart';
 import '../../../../../core/widgets/primitives.dart';
@@ -28,11 +30,16 @@ class TrackTab extends StatelessWidget {
     return ListenableBuilder(
       listenable: TrackingService.instance,
       builder: (context, _) {
-        final job = tracker == null
-            ? null
-            : TrackingService.instance.jobFor(tracker.id);
+        // Keyed on the clip, not the tracker: a first solve has no tracker in
+        // the document yet, so looking it up by tracker id showed nothing at
+        // all for the run the user is actually waiting on.
+        final job = TrackingService.instance.jobForClip(clip.id) ??
+            (tracker == null
+                ? null
+                : TrackingService.instance.jobFor(tracker.id));
         final running = job?.state == TrackingState.running ||
             job?.state == TrackingState.queued;
+        final rejection = c.trackRejection;
 
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
@@ -69,6 +76,10 @@ class TrackTab extends StatelessWidget {
                                 'region, and it re-tracks forward from that '
                                 'frame.',
                     ),
+                    if (rejection != null) ...[
+                      const SizedBox(height: 8),
+                      _Note(rejection, tone: CcColors.warning),
+                    ],
                   ],
                 ),
               ),
@@ -85,8 +96,9 @@ class TrackTab extends StatelessWidget {
                       CcButton(
                         label: 'Cancel',
                         kind: CcButtonKind.secondary,
-                        onPressed: () =>
-                            TrackingService.instance.cancel(tracker!.id),
+                        onPressed: () => TrackingService.instance.cancel(
+                          job.request.trackerId,
+                        ),
                       ),
                     ],
                   ),
@@ -222,7 +234,16 @@ class _PinControls extends StatelessWidget {
           'Simpler modes keep this clip’s own shape and borrow only part '
           'of the solve, which is what makes a jittery track usable.',
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
+        const CcSectionHeader('NUDGE'),
+        const SizedBox(height: 6),
+        const _Note(
+          'Offsets the overlay from the region it follows. The offset is kept '
+          'on the pin, so a re-track does not undo it.',
+        ),
+        const SizedBox(height: 6),
+        _NudgePad(controller: controller, clip: clip, pin: pin),
+        const SizedBox(height: 12),
         Row(
           children: [
             Expanded(
@@ -250,6 +271,125 @@ class _PinControls extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Arrow pad for [EditorController.nudgePin], plus a reset. One step is one
+/// sequence pixel; holding Shift moves ten, matching the timeline's nudge.
+class _NudgePad extends StatelessWidget {
+  const _NudgePad({
+    required this.controller,
+    required this.clip,
+    required this.pin,
+  });
+
+  final EditorController controller;
+  final Clip clip;
+  final TrackPin pin;
+
+  static const double _step = 1;
+  static const double _coarse = 10;
+
+  void _nudge(double dx, double dy) {
+    final shift =
+        HardwareKeyboard.instance.isShiftPressed ? _coarse : _step;
+    controller.nudgePin(clip.id, Offset(dx * shift, dy * shift));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final offset = pin.offset;
+    // Every corner carries the same nudge, so the first is the whole story.
+    final dx = offset[0], dy = offset[1];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _NudgeButton(
+              icon: LucideIcons.arrowUp,
+              onPressed: () => _nudge(0, -1),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _NudgeButton(
+              icon: LucideIcons.arrowLeft,
+              onPressed: () => _nudge(-1, 0),
+            ),
+            const SizedBox(width: 4),
+            _NudgeButton(
+              icon: LucideIcons.rotateCcw,
+              enabled: dx != 0 || dy != 0,
+              onPressed: () => controller.nudgePin(
+                clip.id,
+                Offset(-dx, -dy),
+              ),
+            ),
+            const SizedBox(width: 4),
+            _NudgeButton(
+              icon: LucideIcons.arrowRight,
+              onPressed: () => _nudge(1, 0),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _NudgeButton(
+              icon: LucideIcons.arrowDown,
+              onPressed: () => _nudge(0, 1),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Center(
+          child: Text(
+            dx == 0 && dy == 0
+                ? 'On the region'
+                : '${dx.round()}, ${dy.round()} px',
+            style: CcType.style(size: 11, color: CcColors.textTertiary),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _NudgeButton extends StatelessWidget {
+  const _NudgeButton({
+    required this.icon,
+    required this.onPressed,
+    this.enabled = true,
+  });
+
+  final IconData icon;
+  final VoidCallback onPressed;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) => CcTappable(
+    onTap: enabled ? onPressed : null,
+    child: Container(
+      width: 30,
+      height: 26,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: CcColors.elevated,
+        borderRadius: BorderRadius.circular(CcRadius.sm),
+        border: Border.all(color: CcColors.border),
+      ),
+      child: CcIcon(
+        icon,
+        size: 13,
+        color: enabled ? CcColors.textSecondary : CcColors.textTertiary,
+      ),
+    ),
+  );
 }
 
 class _Stat extends StatelessWidget {

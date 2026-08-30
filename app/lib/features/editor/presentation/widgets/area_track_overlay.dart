@@ -6,6 +6,7 @@ import '../../../../data/area_track.dart';
 import '../../../../data/project.dart';
 import '../../../../state/canvas_geometry.dart';
 import '../../../../state/editor_controller.dart';
+import '../../../../state/tracking_service.dart';
 
 /// On-canvas region tool for area tracking (**TRK-1/2**).
 ///
@@ -42,6 +43,13 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
   Offset? _dragNow;
   int _corner = -1;
   Quad? _editing;
+
+  /// The box the user drew, kept on screen until the solve it started resolves.
+  ///
+  /// Clearing it on pointer-up made a solve look like nothing had happened: the
+  /// rectangle vanished and, for the seconds before the first result, there was
+  /// no evidence the tool had done anything at all.
+  Quad? _pending;
 
   double _seqPerPx(Size box) =>
       box.width <= 0 ? 1 : c.doc.settings.width / box.width;
@@ -154,16 +162,19 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
     }
     final a = _toSeq(from, box);
     final b = _toSeq(to, box);
-    c.trackRegion(
-      clip,
-      quadFromRect(
-        left: a.dx < b.dx ? a.dx : b.dx,
-        top: a.dy < b.dy ? a.dy : b.dy,
-        right: a.dx < b.dx ? b.dx : a.dx,
-        bottom: a.dy < b.dy ? b.dy : a.dy,
-      ),
+    final region = quadFromRect(
+      left: a.dx < b.dx ? a.dx : b.dx,
+      top: a.dy < b.dy ? a.dy : b.dy,
+      right: a.dx < b.dx ? b.dx : a.dx,
+      bottom: a.dy < b.dy ? b.dy : a.dy,
     );
     _reset();
+    setState(() => _pending = region);
+    // Not awaited for its value — the result installs itself — but the pending
+    // box has to come down either way, including when the solve is refused.
+    c.trackRegion(clip, region).whenComplete(() {
+      if (mounted) setState(() => _pending = null);
+    });
   }
 
   void _reset() => setState(() {
@@ -180,11 +191,24 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
     if (c.playing || !c.trackToolActive) return const SizedBox.shrink();
     if (_clip == null) return const SizedBox.shrink();
 
+    // The solve reports progress through TrackingService, which the monitor
+    // does not otherwise listen to; without this the outline never changed
+    // while a track was running.
+    return ListenableBuilder(
+      listenable: TrackingService.instance,
+      builder: (context, _) => _buildTool(),
+    );
+  }
+
+  Widget _buildTool() {
     return LayoutBuilder(
       builder: (context, constraints) {
         final box = constraints.biggest;
         final seqPerPx = _seqPerPx(box);
-        final quad = _editing ?? _quadSeq();
+        final quad = _editing ?? _pending ?? _quadSeq();
+        final solving =
+            TrackingService.instance.jobForClip(_clip!.id)?.state ==
+            TrackingState.running;
 
         Rect? drawing;
         final from = _dragStart;
@@ -218,6 +242,7 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
                 trail: _trail(),
                 seqPerPx: seqPerPx,
                 lowConfidence: _lowConfidenceNow(),
+                solving: solving,
               ),
             ),
           ),
@@ -271,6 +296,7 @@ class _AreaTrackPainter extends CustomPainter {
     required this.trail,
     required this.seqPerPx,
     required this.lowConfidence,
+    required this.solving,
   });
 
   /// The tracked (or being-corrected) region, in sequence px.
@@ -284,6 +310,11 @@ class _AreaTrackPainter extends CustomPainter {
 
   final double seqPerPx;
   final bool lowConfidence;
+
+  /// A solve is in flight for this region, so the outline is drawn faded and
+  /// without handles — the one visible difference between "tracked" and "still
+  /// thinking".
+  final bool solving;
 
   Offset _px(double x, double y) => Offset(x / seqPerPx, y / seqPerPx);
 
@@ -319,8 +350,9 @@ class _AreaTrackPainter extends CustomPainter {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.5
-          ..color = colour,
+          ..color = solving ? colour.withValues(alpha: 0.55) : colour,
       );
+      if (solving) return;  // nothing to grab while it is being solved
       for (var i = 0; i < 4; i += 1) {
         final p = _px(active[2 * i], active[2 * i + 1]);
         final handle = Rect.fromCenter(
@@ -361,6 +393,7 @@ class _AreaTrackPainter extends CustomPainter {
       old.drawing != drawing ||
       old.seqPerPx != seqPerPx ||
       old.lowConfidence != lowConfidence ||
+      old.solving != solving ||
       old.trail.length != trail.length;
 }
 

@@ -359,6 +359,27 @@ void main() {
       expect(report.issues, isNotEmpty);
     });
 
+    test('a refused region says why instead of doing nothing', () {
+      // The bug this exists for: dragging a box that cannot be tracked used to
+      // return null silently, so the user let go of the mouse and nothing
+      // whatsoever happened — indistinguishable from the tool being broken.
+      final (c, source, _) = harness();
+
+      // Too small.
+      c.trackRegion(source, quadFromRect(left: 100, top: 100, right: 104, bottom: 104));
+      expect(c.trackRejection, contains('too small'));
+
+      // Off the picture.
+      c.trackRegion(
+        source,
+        quadFromRect(left: -400, top: 100, right: -100, bottom: 400),
+      );
+      expect(c.trackRejection, contains('outside the picture'));
+
+      c.clearTrackRejection();
+      expect(c.trackRejection, isNull);
+    });
+
     test('a solved region maps through the tracked clip own transform', () {
       // The point of storing the path in source px: shrink the footage and the
       // pinned overlay follows it down, because both go through one placement.

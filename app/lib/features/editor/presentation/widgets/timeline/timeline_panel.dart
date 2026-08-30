@@ -1388,8 +1388,31 @@ class _TimelinePanelState extends State<TimelinePanel> {
         track.hidden) {
       return const [];
     }
+    // The stripe is its own lane: a *tracked* clip usually has no keyframes of
+    // its own, so hanging it off the keyframe ribbon would hide it exactly
+    // where it is most useful.
+    final weak = c.lowConfidenceSpansFor(clip);
+    final stripe = weak.isEmpty
+        ? const <Widget>[]
+        : [
+            Positioned(
+              left: 0,
+              right: 0,
+              top: kKeyframeRibbonHeight,
+              height: kTrackConfidenceStripeHeight,
+              child: IgnorePointer(
+                child: CustomPaint(
+                  painter: TrackConfidenceStripePainter(
+                    spans: weak,
+                    pxPerSec: pxPerSec,
+                  ),
+                ),
+              ),
+            ),
+          ];
+
     final markers = c.clipKeyframeMarkers(clip);
-    if (markers.isEmpty) return const [];
+    if (markers.isEmpty) return stripe;
     final local = c.playhead.minus(clip.start);
     ClipKeyframeMarker? nearest(double dx) {
       ClipKeyframeMarker? best;
@@ -1447,6 +1470,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
           ),
         ),
       ),
+      ...stripe,
     ];
   }
 

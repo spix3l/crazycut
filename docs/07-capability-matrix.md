@@ -28,7 +28,7 @@ Legend: **Verified** has automated end-to-end coverage on the named platform;
 | Windows installer | Missing | Current artifact is a ZIP, not a signed installer |
 | Updates | Missing | No signed update feed or updater |
 | Accessibility/i18n | Partial | Some keyboard behavior and contrast design exist; ARB localization and complete semantic/focus audit are missing |
-| Area tracking | Implemented (macOS) | Region solve (OpenCV, static, `CC_WITH_TRACKING`), `trackers[]`, corner-pin warp in the shared preview/export compositor, canvas tool and Track inspector tab. Deterministic and cancellable, with engine and Dart coverage including a known-motion fixture and Dart↔engine warp parity. Windows build and physical QA of the solver remain unverified |
+| Area tracking | Implemented (macOS) | Region solve (OpenCV, static, `CC_WITH_TRACKING`), `trackers[]`, corner-pin warp in the shared preview/export compositor, canvas tool (menu bar + inspector), Track tab with live progress, and a timeline confidence stripe. Deterministic and cancellable, with engine and Dart coverage including a known-motion fixture and Dart↔engine warp parity. Windows build and physical QA of the solver remain unverified |
 | Multiple sequences | Missing | One sequence per project |
 
 ## Evidence gates

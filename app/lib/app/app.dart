@@ -186,6 +186,15 @@ class _CrazyCutAppState extends State<CrazyCutApp> {
   }
   void _pasteSettings() => _editor?.pasteAttributes();
   void _delete() => _editor?.deleteSelected();
+  /// Arms or disarms the on-canvas region tool (**TRK-1**). Reachable from the
+  /// menu bar as well as the inspector's Track tab, because a drawing tool is
+  /// something you reach for while looking at the picture, not at a panel.
+  void _toggleTrackTool() {
+    final editor = _editor;
+    if (editor == null) return;
+    editor.trackToolActive = !editor.trackToolActive;
+  }
+
   void _togglePlay() => _editor?.togglePlay();
   void _goToStart() => _editor?.goToStart();
   void _goToEnd() => _editor?.goToEnd();
@@ -349,6 +358,23 @@ class _CrazyCutAppState extends State<CrazyCutApp> {
               onSelected: _selectAll,
             ),
           ],
+        ),
+      ],
+    ),
+    PlatformMenu(
+      label: 'Clip',
+      menus: [
+        // A static label that toggles, rather than one reading "Stop…" while
+        // armed: this State does not listen to the editor, so a stateful label
+        // would sit there stale and lie about what the item does.
+        PlatformMenuItem(
+          label: 'Track Region',
+          shortcut: const SingleActivator(
+            LogicalKeyboardKey.keyT,
+            meta: true,
+            shift: true,
+          ),
+          onSelected: _toggleTrackTool,
         ),
       ],
     ),

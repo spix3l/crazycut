@@ -1,6 +1,6 @@
 # Feature Spec — Area Tracking
 
-> Status: Draft v0.1 · Owner: @steve · Last updated: 2026-08-30
+> Status: Draft v0.2 · Owner: @steve · Last updated: 2026-08-30
 > Requirements prefix: **TRK** · Rendering: `01-architecture.md` §7 · Model: `02-data-model.md` §5
 > Transform: `03-features/effects.md` (**FX-9**) · Keyframes: `03-features/text-keyframes.md` (**KEY**)
 > Analysis-pass precedent: `03-features/ai-assist.md` (**AI-18–22**)
@@ -47,17 +47,20 @@ export read the same baked path out of the document, so they cannot disagree.
 ## Functional requirements
 
 ### Region and entry
-- **TRK-1** A **Track** tab in the inspector, present only for a clip that has source pixels to
-  solve against or is already pinned. Its *Draw region* control arms the canvas tool. The tool
-  is mutually exclusive with the transform gizmo (**TXT-6**): arming it takes the transform
-  handles off the frame, so a drag is never ambiguous about which tool it meant.
+- **TRK-1** The region tool is armed from either **Clip → Track Region** (⇧⌘T) or the *Draw
+  region* control in the inspector's **Track** tab, which appears for a clip that has source
+  pixels to solve against or is already pinned. A drawing tool is something the user reaches for
+  while looking at the picture, so it does not live only behind a panel. The tool is mutually
+  exclusive with the transform gizmo (**TXT-6**): arming it takes the transform handles off the
+  frame, so a drag is never ambiguous about which tool it meant.
 - **TRK-2** With the tool armed the user drags a rectangle on the monitor. The rectangle is
   stored as a **quad** (four corners, `TL/TR/BR/BL`) in **source pixels** of the tracked media,
   so it is independent of preview size, sequence resolution and the clip's own transform.
 - **TRK-3** The tracked range defaults to the clip's full duration and is adjustable to any
   sub-range. Range endpoints are clip-local rational times (`02-data-model.md` §2).
 - **TRK-4** A region smaller than 16×16 source px, or one that falls outside the source frame,
-  is rejected with an inline message rather than solved.
+  is rejected **with a message naming the reason**, shown in the Track tab. A refusal the user
+  cannot see is indistinguishable from a tool that does nothing.
 
 ### Solve
 - **TRK-5** The solve runs in the **export worker process** as a `track` job over the existing
@@ -164,17 +167,19 @@ export read the same baked path out of the document, so they cannot disagree.
   four corner handles and an edge outline, and hides during playback like the gizmo does.
 - After a solve the canvas draws a **motion trail** of the quad's centre across the tracked
   range, so the shape of the move is legible without scrubbing.
-- Where the solve is untrustworthy the region outline turns amber on the canvas, and the Track
-  tab reports the confidence at the playhead and how many weak spans the solve contains.
-  - A **warning stripe on the timeline clip** is the better affordance and is not built yet:
-    `Tracker.lowConfidenceSpans()` already returns the ranges it needs, but the timeline ribbon
-    does not draw them, so finding a drift still means scrubbing to it.
+- Where the solve is untrustworthy the region outline turns amber on the canvas, the Track tab
+  reports the confidence at the playhead and how many weak spans there are, and an **amber
+  stripe along the timeline clip** marks where they fall — on the tracked clip and on anything
+  pinned to it. Finding a drift should not mean watching the whole clip.
 - Tracking progress uses the export queue's cards, progress bar and ETA. Nothing is modal.
 - The inspector's **Track** tab carries: draw/adjust region, solve progress with cancel, sample
-  count and confidence readout, pin target, pin mode, *Bake*, *Unpin* and *Delete tracker*.
+  count and confidence readout, pin target, pin mode, an arrow pad for nudging the overlay off
+  the region (Shift for ten pixels, with a reset), *Bake*, *Unpin* and *Delete tracker*.
   Re-tracking is a canvas gesture — drag a corner and it re-solves forward from that frame.
-  - Nudging a pinned overlay exists as an operation but has no control in the tab yet, so a
-    nudge is currently only reachable programmatically.
+- **A solve in flight is visible from the moment the box is released**: the drawn rectangle stays
+  on screen, faded and without handles, and the Track tab shows progress, ETA and cancel. The
+  first solve has no tracker in the document yet, so this is tracked per *clip* — keying it on a
+  tracker id showed nothing at all for the run the user was waiting on.
 
 ## Edge cases
 
@@ -237,4 +242,7 @@ network- or model-backed tracker.
 
 ## Changelog
 
+- v0.2 — Menu-bar entry and shortcut for the region tool (**TRK-1**); refusals name their
+  reason (**TRK-4**); timeline confidence stripe; nudge control; in-flight solves visible before
+  the tracker exists.
 - v0.1 — Initial draft.
