@@ -57,7 +57,7 @@ const List<AiProviderDescriptor> kAiProviders = [
     id: 'openai-compatible',
     name: 'OpenAI-compatible',
     blurb:
-        'Any service speaking the /v1/chat/completions API — OpenAI, '
+        'Any service speaking the /v1/chat/completions API: OpenAI, '
         'OpenRouter, Groq, Together, LM Studio, vLLM, llama.cpp and others. '
         'Set the base URL to whichever you use.',
     defaultBaseUrl: 'https://api.openai.com/v1',

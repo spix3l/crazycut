@@ -133,7 +133,7 @@ class _YouTubeReferencesPanelState extends State<YouTubeReferencesPanel> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Range  ${_time(selected.rangeIn)} — '
+              'Range  ${_time(selected.rangeIn)} - '
               '${selected.rangeOut == null ? 'not set' : _time(selected.rangeOut!)}',
               style: CcType.tiny,
               textAlign: TextAlign.center,

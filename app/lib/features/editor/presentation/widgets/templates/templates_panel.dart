@@ -75,7 +75,7 @@ class _TemplatesPanelState extends State<TemplatesPanel> {
       _warnings = result.warnings;
       _status =
           result.isEmpty
-              ? 'Nothing was inserted — the target lanes are locked'
+              ? 'Nothing was inserted: the target lanes are locked'
               : 'Inserted ${result.clipIds.length} clips';
     });
   }
@@ -181,8 +181,8 @@ class _TemplatesPanelState extends State<TemplatesPanel> {
                                   : 'Nothing matches',
                           description:
                               _library.templates.isEmpty
-                                  ? 'Select a chunk of timeline — a title card, a '
-                                      'bumper — and save it here to reuse it.'
+                                  ? 'Select a chunk of timeline, a title card or a '
+                                      'bumper, and save it here to reuse it.'
                                   : 'Try another search.',
                         ),
                       )

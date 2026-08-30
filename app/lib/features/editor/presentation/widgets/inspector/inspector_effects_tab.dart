@@ -32,7 +32,7 @@ class EffectsTab extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14),
               child: Text(
-                'Many effects on one clip — this may reduce playback smoothness.',
+                'Many effects on one clip. This may reduce playback smoothness.',
                 style: CcType.nano,
               ),
             ),

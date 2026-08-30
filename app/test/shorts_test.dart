@@ -271,7 +271,7 @@ void main() {
         asset: doc.media.single,
         sourceProjectPath: '${temp.path}/Stream VOD.crazycut',
       );
-      expect(file.path, endsWith('Stream VOD — The good bit.crazycut'));
+      expect(file.path, endsWith('Stream VOD - The good bit.crazycut'));
     });
 
     test('falls back to a timecode when the title is unusable', () async {
@@ -282,7 +282,7 @@ void main() {
         asset: doc.media.single,
         sourceProjectPath: '${temp.path}/Stream VOD.crazycut',
       );
-      expect(file.path, endsWith('Stream VOD — 01.30.crazycut'));
+      expect(file.path, endsWith('Stream VOD - 01.30.crazycut'));
     });
 
     test('strips characters that cannot be in a filename', () async {

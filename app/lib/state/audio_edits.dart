@@ -169,7 +169,7 @@ mixin AudioEdits on TimelineEdits {
     if (video.start != audio.start ||
         video.duration != audio.duration ||
         video.sourceIn != audio.sourceIn) {
-      lastAudioNotice = 'Clips are out of sync — align them before relinking';
+      lastAudioNotice = 'Clips are out of sync. Align them before relinking';
       notifyListeners();
       return false;
     }

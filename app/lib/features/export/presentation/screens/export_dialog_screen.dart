@@ -363,7 +363,7 @@ class _ExportDialogScreenState extends State<ExportDialogScreen> {
   /// Content-calibrated estimate (EXP-8). A sample encode would be more
   /// accurate but costs seconds before the dialog is usable.
   String _estimate(int width, int height, double seconds) {
-    if (width <= 0 || seconds <= 0) return '—';
+    if (width <= 0 || seconds <= 0) return '';
     final fps = AppSession.instance.project?.settings.fpsValue ?? 30;
     final bytes = estimateExportBytes(
       preset: _preset,

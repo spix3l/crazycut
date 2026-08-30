@@ -181,7 +181,7 @@ class ExportJob {
   }
 
   static String _formatBytes(int bytes) {
-    if (bytes <= 0) return '—';
+    if (bytes <= 0) return '';
     const units = ['B', 'KB', 'MB', 'GB'];
     var value = bytes.toDouble();
     var unit = 0;
@@ -410,7 +410,7 @@ class ExportService extends ChangeNotifier {
 
     final worker = PlatformHelper.workerBinary();
     if (worker == null || !File(worker).existsSync()) {
-      _fail(job, 'export worker binary not found — build the engine');
+      _fail(job, 'export worker binary not found. Build the engine');
       return;
     }
     job.log.add('Worker: $worker');
@@ -806,7 +806,7 @@ class ExportService extends ChangeNotifier {
           ..writeln('CrazyCut export diagnostics')
           ..writeln('output: ${job.outputPath}')
           ..writeln('state: ${job.state.name}')
-          ..writeln('error: ${job.error ?? '—'}')
+          ..writeln('error: ${job.error ?? 'none'}')
           ..writeln('frames: ${job.framesDone}/${job.totalFrames}')
           ..writeln('---');
     for (final line in job.log) {

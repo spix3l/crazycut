@@ -1496,7 +1496,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
       ),
       CcMenuItem(
         marker.allGenerated
-            ? 'From clip animation — clear the preset'
+            ? 'From clip animation. Clear the preset'
             : deletable == 1
             ? 'Delete keyframe'
             : 'Delete $deletable keyframes here',

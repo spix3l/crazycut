@@ -263,7 +263,7 @@ Future<void> _endToEnd(String? modelPath) async {
     );
 
     expect(file.existsSync(), isTrue);
-    expect(file.path, endsWith('E2E VOD — The good bit.crazycut'));
+    expect(file.path, endsWith('E2E VOD - The good bit.crazycut'));
 
     final report = RepairReport();
     final made = ProjectDoc.decode(await file.readAsString(), report: report);

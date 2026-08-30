@@ -83,7 +83,7 @@ class _NewProjectDialogScreenState extends State<NewProjectDialogScreen> {
       'Dec',
     ];
     final now = DateTime.now();
-    return 'Untitled — ${months[now.month - 1]} ${now.day}';
+    return 'Untitled, ${months[now.month - 1]} ${now.day}';
   }
 
   @override

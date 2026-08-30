@@ -101,7 +101,7 @@ class _ShortsReviewScreenState extends State<ShortsReviewScreen> {
           label: 'Listening to the recording',
           detail:
               flow.transcriptionJob?.statusLine ??
-              'Transcribing on this machine — nothing is uploaded.',
+              'Transcribing on this machine. Nothing is uploaded.',
           progress: flow.transcriptionJob?.progress,
         ),
         ShortsStage.proposing => const _Progress(

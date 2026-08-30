@@ -356,12 +356,12 @@ class ShortsService {
     extra: Map<String, dynamic>.of(asset.extra),
   );
 
-  /// `<project> — <title>`, falling back to the in-point's timecode when the
+  /// `<project> - <title>`, falling back to the in-point's timecode when the
   /// model gave us nothing usable (SHT-16).
   String _projectName(ShortCandidate candidate, ProjectDoc source) {
     final safe = _safeTitle(candidate.title);
     final label = safe.isEmpty ? _timecode(candidate.startSec) : safe;
-    return '${source.name} — $label';
+    return '${source.name} - $label';
   }
 
   static String _safeTitle(String title) {

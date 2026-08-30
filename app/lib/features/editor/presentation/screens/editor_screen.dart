@@ -306,7 +306,7 @@ class _EditorScreenState extends State<EditorScreen> {
       context,
       title: 'Collect media to project folder',
       message:
-          'Copy ${plan.assets.length} file(s) — ${plan.sizeLabel} — into '
+          'Copy ${plan.assets.length} file(s) (${plan.sizeLabel}) into '
           '${ProjectTools.mediaFolder(projectPath).path} and repoint the '
           'project at the copies?',
       confirmLabel: 'Collect',

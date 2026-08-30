@@ -48,7 +48,10 @@ class CcDialogShell extends StatelessWidget {
               children: [
                 Expanded(child: Text(title, style: CcType.dialogTitle)),
                 const SizedBox(width: 12),
-                CcTappable(onTap: onClose, child: const CcIcon(LucideIcons.x, size: 18)),
+                CcTappable(
+                  onTap: onClose,
+                  child: const CcIcon(LucideIcons.x, size: 18),
+                ),
               ],
             ),
           ),
@@ -153,10 +156,14 @@ Future<String?> promptForText(
   String initialValue = '',
   String label = 'Name',
   String confirmLabel = 'Rename',
+  OverlayState? overlay,
 }) {
   final completer = Completer<String?>();
   final controller = TextEditingController(text: initialValue);
-  final overlay = Overlay.of(context);
+  // Callers above the navigator (platform menu items) hand the overlay in:
+  // `Overlay.of` can't resolve through the navigator's context, whose own
+  // Overlay lives *below* it.
+  final host = overlay ?? Overlay.of(context);
   late OverlayEntry entry;
 
   void finish(String? value) {
@@ -199,7 +206,7 @@ Future<String?> promptForText(
       ),
     ),
   );
-  overlay.insert(entry);
+  host.insert(entry);
   return completer.future;
 }
 
@@ -209,9 +216,10 @@ Future<bool> confirmAction(
   required String title,
   required String message,
   String confirmLabel = 'Delete',
+  OverlayState? overlay,
 }) {
   final completer = Completer<bool>();
-  final overlay = Overlay.of(context);
+  final host = overlay ?? Overlay.of(context);
   late OverlayEntry entry;
 
   void finish(bool value) {
@@ -230,7 +238,11 @@ Future<bool> confirmAction(
         sections: [
           Text(
             message,
-            style: CcType.style(size: 13, color: CcColors.textSecondary, height: 1.5),
+            style: CcType.style(
+              size: 13,
+              color: CcColors.textSecondary,
+              height: 1.5,
+            ),
           ),
         ],
         actions: [
@@ -249,7 +261,7 @@ Future<bool> confirmAction(
       ),
     ),
   );
-  overlay.insert(entry);
+  host.insert(entry);
   return completer.future;
 }
 
@@ -259,9 +271,10 @@ Future<void> showMessageDialog(
   required String title,
   required String message,
   String closeLabel = 'Close',
+  OverlayState? overlay,
 }) {
   final completer = Completer<void>();
-  final overlay = Overlay.of(context);
+  final host = overlay ?? Overlay.of(context);
   late OverlayEntry entry;
 
   void finish() {
@@ -280,13 +293,17 @@ Future<void> showMessageDialog(
         sections: [
           Text(
             message,
-            style: CcType.style(size: 13, color: CcColors.textSecondary, height: 1.5),
+            style: CcType.style(
+              size: 13,
+              color: CcColors.textSecondary,
+              height: 1.5,
+            ),
           ),
         ],
         actions: [CcButton(label: closeLabel, onPressed: finish)],
       ),
     ),
   );
-  overlay.insert(entry);
+  host.insert(entry);
   return completer.future;
 }

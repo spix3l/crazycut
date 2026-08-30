@@ -261,7 +261,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     controller: _key,
                     placeholder:
                         _settings.hasKey
-                            ? 'Stored in your keychain — type to replace'
+                            ? 'Stored in your keychain. Type to replace'
                             : 'Paste your key',
                     onSubmitted: (_) => setState(() => _keyTouched = true),
                     onTapOutside: (_) => setState(() => _keyTouched = true),
@@ -1019,7 +1019,7 @@ class _Explainer extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             'You pick where requests go. Only transcript text and project '
-            'details are ever sent — never your video or audio. Pick Ollama '
+            'details are ever sent, never your video or audio. Pick Ollama '
             'to keep everything on this machine. Results depend on the model '
             'you choose.',
             style: CcType.style(

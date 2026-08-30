@@ -33,7 +33,7 @@ LlmRequest describeToolsInPrompt(LlmRequest request) {
     '$_callMarker followed by a JSON object of the form '
     '{"name": "<tool>", "arguments": {...}}, and nothing else on that line. '
     'Emit one such line per tool you want to run; you may emit several. '
-    'Do not describe the call in prose instead of emitting it — a call that is '
+    'Do not describe the call in prose instead of emitting it. A call that is '
     'only described never runs. When you have the answer and need no more '
     'tools, reply normally with no $_callMarker line.\n\n'
     'Available tools:\n$catalogue',

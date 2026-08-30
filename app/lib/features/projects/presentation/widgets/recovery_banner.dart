@@ -90,7 +90,7 @@ Future<RecoveryChoice?> showRecoveryChooser(
         onClose: () => finish(null),
         sections: [
           Text(
-            'CrazyCut found autosaved changes newer than the saved project — '
+            'CrazyCut found autosaved changes newer than the saved project: '
             'about ${candidate.unsavedWindow.inSeconds}s of work.',
             style: CcType.style(size: 12, color: CcColors.textSecondary, height: 1.5),
           ),

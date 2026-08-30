@@ -143,7 +143,7 @@ void main() {
       expect(id, isNull);
       expect(
         e.lastTransitionError,
-        'No extra media at this cut — trim the clips to make room',
+        'No extra media at this cut. Trim the clips to make room',
       );
       expect(clipJson(e.doc), before);
       expect(e.history.depth, 0);
@@ -157,7 +157,7 @@ void main() {
       expect(e.addTransition('a', 'b'), isNull);
       expect(
         e.lastTransitionError,
-        'No extra media at this cut — trim the clips to make room',
+        'No extra media at this cut. Trim the clips to make room',
       );
     });
 

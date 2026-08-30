@@ -306,7 +306,7 @@ void main() {
       expect(clip.sourceIn, s(7));
     });
 
-    test('slip clamps at source bounds — no negative durations (criterion 4)', () {
+    test('slip clamps at source bounds, no negative durations (criterion 4)', () {
       final e = harness(assetSeconds: 10);
       addClip(e, id: 'a', start: 0, duration: 10, sourceIn: 0);
 

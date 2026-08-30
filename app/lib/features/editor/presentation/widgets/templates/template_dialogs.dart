@@ -375,7 +375,7 @@ class _InsertTemplateDialogState extends State<_InsertTemplateDialog> {
       sections: [
         if (slots.isEmpty)
           Text(
-            'This template has no editable parts — it inserts as authored.',
+            'This template has no editable parts. It inserts as authored.',
             style: CcType.style(size: 12, color: CcColors.textSecondary),
           ),
         for (final slot in slots)

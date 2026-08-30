@@ -389,7 +389,7 @@ mixin TemplateEdits on TimelineEdits {
     );
     if (id == null) {
       warnings.add(
-        '${side == 'in' ? 'Opening' : 'Closing'} transition skipped — '
+        '${side == 'in' ? 'Opening' : 'Closing'} transition skipped: '
         '${lastTransitionError ?? 'not possible at this cut'}',
       );
     }
@@ -444,7 +444,7 @@ mixin TemplateEdits on TimelineEdits {
       final asset = ref.toOfflineAsset(generateId());
       doc.media.add(asset);
       map[ref.id] = asset.id;
-      warnings.add('${ref.name} is offline — relink to see it');
+      warnings.add('${ref.name} is offline. Relink to see it');
     }
     return map;
   }
@@ -498,7 +498,7 @@ mixin TemplateEdits on TimelineEdits {
     if ((scale - 1).abs() < 0.0001) return 1.0;
     if (scale > 1) {
       warnings.add(
-        'Stretched to ${wanted.toStringAsFixed(2)} s — clip animations keep '
+        'Stretched to ${wanted.toStringAsFixed(2)} s. Clip animations keep '
         'their authored timing',
       );
     }
@@ -557,7 +557,7 @@ mixin TemplateEdits on TimelineEdits {
     if (clip.duration > maxDuration) {
       copy['duration'] = maxDuration.atLeast(frameDuration).toString();
       warnings.add(
-        '${asset.name} is shorter than the template slot — clip trimmed',
+        '${asset.name} is shorter than the template slot. Clip trimmed',
       );
     }
   }

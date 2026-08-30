@@ -421,7 +421,7 @@ class _MissingMediaBanner extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              '$count file${count == 1 ? '' : 's'} offline — right-click to relink',
+              '$count file${count == 1 ? '' : 's'} offline. Right-click to relink',
               style: CcType.style(size: 10, color: CcColors.textSecondary),
             ),
           ),

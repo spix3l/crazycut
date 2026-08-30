@@ -42,9 +42,7 @@ Future<Object?> completeJson(
 
   // No server-side enforcement: teach the schema in the prompt instead.
   final guided = request.copyWith(
-    messages: [
-      ..._withSchemaInstruction(request.messages, schema),
-    ],
+    messages: [..._withSchemaInstruction(request.messages, schema)],
     clearResponseSchema: true,
   );
 
@@ -125,7 +123,7 @@ List<LlmMessage> _withSchemaInstruction(
   Map<String, dynamic> schema,
 ) {
   final instruction = LlmMessage.system(
-    'Reply with a single JSON value and nothing else — no prose before or '
+    'Reply with a single JSON value and nothing else: no prose before or '
     'after, no markdown code fence. It must validate against this JSON Schema:\n'
     '${const JsonEncoder.withIndent('  ').convert(schema)}',
   );

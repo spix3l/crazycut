@@ -232,7 +232,7 @@ void main() {
   });
 
   group('rebuilding', () {
-    test('is idempotent — reapplying the same preset changes nothing', () {
+    test('is idempotent; reapplying the same preset changes nothing', () {
       final (e, clip) = harness();
       e.setImageEntryExit(clip.id, appear: 'blur');
       final first = clip.transform!.opacity.toJson().toString();

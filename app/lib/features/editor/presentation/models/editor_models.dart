@@ -61,7 +61,7 @@ extension AssetPresentation on MediaAsset {
       if (vfr) 'VFR',
       if (hdr != 'none') hdr.toUpperCase(),
     ];
-    return parts.isEmpty ? '—' : parts.join(' · ');
+    return parts.isEmpty ? 'None' : parts.join(' · ');
   }
 }
 

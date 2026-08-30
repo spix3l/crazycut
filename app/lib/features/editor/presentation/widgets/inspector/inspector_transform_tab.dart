@@ -250,7 +250,7 @@ class _AlignSection extends StatelessWidget {
                   message:
                       canDistribute
                           ? label
-                          : '$label — needs three or more images',
+                          : '$label (needs three or more images)',
                   child: CcIconButton(
                     icon: icon,
                     size: 28,

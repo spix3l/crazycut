@@ -35,6 +35,12 @@ class CrazyCutMenuBar extends StatelessWidget {
   EditorController? get _editor =>
       _hasProject ? AppSession.instance.editor : null;
 
+  /// The root navigator's own Overlay, for menu actions that show a dialog.
+  /// Menu callbacks only have the navigator's context, and `Overlay.of` can't
+  /// resolve through it (the navigator's Overlay lives *below* it), so the
+  /// overlay is handed to the dialog helpers directly.
+  OverlayState? get _dialogOverlay => router.navigatorKey.currentState?.overlay;
+
   void _newProject() {
     router.push(const NewProjectRoute());
   }
@@ -113,12 +119,14 @@ class CrazyCutMenuBar extends StatelessWidget {
   Future<void> _importMediaUrl() async {
     final editor = _editor;
     final context = router.navigatorKey.currentContext;
-    if (editor == null || context == null) return;
+    final overlay = _dialogOverlay;
+    if (editor == null || context == null || overlay == null) return;
     final value = await promptForText(
       context,
       title: 'Add from URL',
       label: 'Direct media or YouTube URL',
       confirmLabel: 'Add',
+      overlay: overlay,
     );
     if (value == null || value.isEmpty) return;
     try {
@@ -129,17 +137,17 @@ class CrazyCutMenuBar extends StatelessWidget {
         context,
         title: 'Couldn’t add URL',
         message: error.toString(),
+        overlay: overlay,
       );
     }
   }
 
-  /// Help ▸ CrazyCut Help. Goes through the navigator's context because the
-  /// menu bar sits above the app, and the dialog needs the Overlay underneath
-  /// it to insert into.
+  /// Help ▸ CrazyCut Help.
   Future<void> _showHelp() async {
     final context = router.navigatorKey.currentContext;
-    if (context == null) return;
-    await showHelpDialog(context);
+    final overlay = _dialogOverlay;
+    if (context == null || overlay == null) return;
+    await showHelpDialog(context, overlay: overlay);
   }
 
   void _undo() => _editor?.undo();
@@ -160,15 +168,24 @@ class CrazyCutMenuBar extends StatelessWidget {
       return;
     }
     final context = router.navigatorKey.currentContext;
-    if (result.error == null || context == null || !context.mounted) return;
+    final overlay = _dialogOverlay;
+    if (result.error == null ||
+        context == null ||
+        overlay == null ||
+        !context.mounted) {
+      return;
+    }
     await showMessageDialog(
       context,
       title: 'Couldn\u2019t paste',
       message: result.error!,
+      overlay: overlay,
     );
   }
+
   void _pasteSettings() => _editor?.pasteAttributes();
   void _delete() => _editor?.deleteSelected();
+
   /// Arms or disarms the on-canvas region tool (**TRK-1**). Reachable from the
   /// menu bar as well as the inspector's Track tab, because a drawing tool is
   /// something you reach for while looking at the picture, not at a panel.

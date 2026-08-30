@@ -1,1 +1,4 @@
 - Work on cloud media libraries. The goal being to be able to upload medias to the cloud so the local machine isn't bloated  
+- Autofocus textfield in the "media via URl import" dialog
+- Increase tap area on buttons
+- Pressing "Esc" should close any open modal/dialog

@@ -928,7 +928,7 @@ mixin TimelineEdits on ChangeNotifier {
   String? lastTransitionError;
 
   static const _errNoHandles =
-      'No extra media at this cut — trim the clips to make room';
+      'No extra media at this cut. Trim the clips to make room';
   static const _errNotNeighbours = 'Clips must be neighbours on the same track';
 
   /// Shown when a drop lands on an occupied cut and the caller wants to

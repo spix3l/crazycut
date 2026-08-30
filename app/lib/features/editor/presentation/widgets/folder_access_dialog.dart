@@ -115,7 +115,7 @@ class _FolderAccessDialogState extends State<_FolderAccessDialog> {
       sections: [
         Text(
           'macOS only lets CrazyCut open files you pick, and only until it '
-          'quits. Nothing has moved — this project just needs its folders '
+          'quits. Nothing has moved. This project just needs its folders '
           'handed back once. Each grant is remembered from then on.',
           style: CcType.style(
             size: 12,

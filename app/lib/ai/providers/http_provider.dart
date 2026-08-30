@@ -200,7 +200,7 @@ abstract class HttpLlmProvider extends LlmProvider {
         );
       case 404:
         return LlmProviderError(
-          'Not found — check the base URL and model name: $detail',
+          'Not found. Check the base URL and model name: $detail',
           provider: id,
           statusCode: status,
         );

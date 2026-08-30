@@ -75,7 +75,7 @@ class ClipTimingTab extends StatelessWidget {
                   'Speed',
                   _speedControl(controller, clip, locked),
                 ),
-                InfoRow('Track', _value(track?.name ?? '—')),
+                InfoRow('Track', _value(track?.name ?? 'None')),
                 if (asset != null)
                   InfoRow('Available', _value(Rt.toTimecode(asset.duration, fps))),
                 InfoRow('Handles', _value(_handles(asset, fps))),
@@ -133,7 +133,7 @@ class ClipTimingTab extends StatelessWidget {
         );
     return CcTooltip(
       message: canChange
-          ? 'Clip speed — the clip retimes around it'
+          ? 'Clip speed: the clip retimes around it'
           : 'Unlock linked tracks to change speed',
       child: Builder(
         builder: (anchorContext) => CcDropdown(

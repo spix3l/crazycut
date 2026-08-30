@@ -80,7 +80,7 @@ class _ListClips extends CcTool {
 
   @override
   String get description =>
-      'Call this whenever you need to know what is on the timeline — before '
+      'Call this whenever you need to know what is on the timeline, before '
       'proposing or making any change to a clip. Returns every clip with its '
       'id, track, label, and timing in seconds. Optionally filtered to one '
       'track.';
@@ -177,7 +177,7 @@ class _SetClipRange extends CcTool {
     final sourceIn = _seconds(args['sourceInSeconds']);
     if (start == null && duration == null && sourceIn == null) {
       throw ArgumentError(
-        'Nothing to change — give at least one of startSeconds, '
+        'Nothing to change: give at least one of startSeconds, '
         'durationSeconds or sourceInSeconds.',
       );
     }
@@ -197,9 +197,8 @@ class _SetClipRange extends CcTool {
     if (newSourceIn < 0) newSourceIn = 0;
 
     // A clip must last at least one frame, or it is not a clip.
-    final oneFrame = 1 / (c.doc.settings.fpsValue == 0
-        ? 30
-        : c.doc.settings.fpsValue);
+    final oneFrame =
+        1 / (c.doc.settings.fpsValue == 0 ? 30 : c.doc.settings.fpsValue);
     if (newDuration < oneFrame) newDuration = oneFrame;
 
     if (mediaSeconds != null && mediaSeconds > 0) {
