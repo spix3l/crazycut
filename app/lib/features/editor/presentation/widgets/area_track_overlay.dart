@@ -205,8 +205,14 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
     // watching it stay on the subject is how you judge a track.
     final clip = _clip;
     if (clip == null) return const SizedBox.shrink();
-    final hasTracker = c.trackerForClip(clip) != null;
-    if (!c.trackToolActive && !hasTracker) return const SizedBox.shrink();
+    final tracker = c.trackerForClip(clip);
+    // The outline is feedback of last resort. It earns its place while the tool
+    // is armed, and while a solve has nothing following it yet — but once an
+    // overlay is pinned, that overlay *is* the evidence the track works, and
+    // the outline is only clutter drawn over the result.
+    final worthShowing =
+        c.trackToolActive || (tracker != null && !c.trackerHasPins(tracker.id));
+    if (!worthShowing) return const SizedBox.shrink();
 
     // Two channels the monitor does not otherwise rebuild on: the solve's
     // progress, and the playhead — which is published on its own throttled

@@ -215,6 +215,49 @@ void main() {
     expect(region[4], closeTo(1200, 1.0));
     expect(region[5], closeTo(700, 1.0));
   });
+  testWidgets('the outline steps aside once something is pinned to it', (
+    tester,
+  ) async {
+    // The outline is feedback of last resort: it is worth drawing while there
+    // is nothing else showing the track, and is clutter over the result once
+    // there is.
+    final (c, clip) = harness();
+    c.trackToolActive = false;
+    c.installTracker(
+      Tracker(
+        id: 't1',
+        mediaId: 'v',
+        sourceClipId: clip.id,
+        startTime: Rt.zero(),
+        endTime: Rt.fromSeconds(1),
+        searchQuad: const [200, 200, 600, 200, 600, 600, 200, 600],
+        fps: Rt(1, 1),
+        path: const [200, 200, 600, 200, 600, 600, 200, 600],
+        confidence: const [1.0],
+      ),
+    );
+    c.autosave.dispose();
+    await pump(tester, c);
+
+    // Nothing follows it yet, so it is drawn.
+    expect(find.byType(CustomPaint), findsWidgets);
+
+    // Pin the region's own clip to it — enough to make something follow it.
+    c.pinClipToTracker(clip.id, 't1');
+    c.autosave.dispose();
+    await tester.pump();
+    expect(
+      find.byType(CustomPaint),
+      findsNothing,
+      reason: 'the pinned clip is the evidence now; the outline is clutter',
+    );
+
+    // Arming the tool brings it back, because then it is a control again.
+    c.trackToolActive = true;
+    await tester.pump();
+    expect(find.byType(CustomPaint), findsWidgets);
+  });
+
   testWidgets('the outline follows the playhead and survives leaving the clip', (
     tester,
   ) async {

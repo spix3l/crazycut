@@ -177,7 +177,9 @@ export read the same baked path out of the document, so they cannot disagree.
 
 - **The tracked region is drawn whenever its clip is selected, not only while the tool is
   armed**, and it follows the subject as the playhead moves — through playback as well as
-  scrubbing. Watching the outline stay on the subject is the whole evidence that a solve is
+  scrubbing. It is feedback of last resort, so it steps aside once an overlay is pinned to it:
+  from then on that overlay is the evidence the track works, and an outline drawn over the
+  result is only clutter. Arming the tool brings it back, because then it is a control again. Watching the outline stay on the subject is the whole evidence that a solve is
   good, and it is the only feedback there is before an image is attached to it. Selecting a
   pinned overlay shows the region it sits on, rather than nothing.
 - Armed, the outline gains draggable corners and the tool takes pointer input; disarmed, it is a

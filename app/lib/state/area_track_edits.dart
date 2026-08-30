@@ -306,6 +306,13 @@ mixin AreaTrackEdits on TimelineEdits {
     });
   }
 
+  /// Whether anything follows [trackerId]. Once something does, that clip is
+  /// the visible evidence the track works, and drawing the region on top of it
+  /// is clutter over the result.
+  bool trackerHasPins(String trackerId) => doc.clips.any(
+    (clip) => TrackPin.fromExtra(clip.extra)?.trackerId == trackerId,
+  );
+
   List<Clip> _clipsPinnedTo(String trackerId) => [
     for (final clip in doc.clips)
       if (TrackPin.fromExtra(clip.extra)?.trackerId == trackerId) clip,
