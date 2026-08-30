@@ -83,7 +83,11 @@ Text clips and images live on any video track with free duration. A single keyfr
 
 ## Out of scope (v1)
 
-Bezier custom curves/graph editor [v1.5], rich text/multi-style, text-on-path, shape layers, motion-tracked text, auto-captions from speech [v1.5 candidate], per-character 3D.
+Bezier custom curves/graph editor [v1.5], rich text/multi-style, text-on-path, shape layers, auto-captions from speech [v1.5 candidate], per-character 3D.
+
+Motion-tracked *text* remains out of scope. Area tracking itself is specced in
+`03-features/tracking.md` (**TRK**) and pins image/video clips only; pinning a text clip needs
+the text model to gain a size in the document (**FX-15**) and is a separate change.
 
 ## Changelog
 

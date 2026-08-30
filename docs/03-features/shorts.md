@@ -25,7 +25,9 @@ without having scrubbed the timeline once.
 ## Non-goals (v1)
 
 - No subject tracking or auto-reframe. Framing is centre-crop; the user drags it if they want
-  something else. Face/saliency-driven reframing is its own feature.
+  something else. Face/saliency-driven reframing is its own feature. (Note that
+  `03-features/tracking.md` (**TRK**) tracks a *user-drawn* region and does not detect subjects,
+  so it does not supply auto-reframe either.)
 - No caption burn-in. (`00-product-overview.md` §5 keeps subtitle tooling out of v1.)
 - No batch export. Accepted shorts become projects; exporting them uses the normal queue.
 - No downloading from YouTube or any other platform. The user imports the file.

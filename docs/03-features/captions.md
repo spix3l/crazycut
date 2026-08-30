@@ -68,5 +68,9 @@ standards-compatible sidecars.
 ## Out of scope for the first caption release
 
 CEA-608/708 and broadcast subtitle formats, live transcription, collaborative
-review, automatic speaker recognition, automatic translation, and motion
-tracking. These require separate specs.
+review, automatic speaker recognition, and automatic translation. These require
+separate specs.
+
+Motion-tracked captions also stay out. Area tracking now has its spec
+(`03-features/tracking.md`, **TRK**), but it pins clips, and captions are cues on a caption
+track rather than clips — attaching one to a tracker is its own change.

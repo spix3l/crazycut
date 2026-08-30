@@ -1,6 +1,6 @@
 # CrazyCut — Technical Architecture
 
-> Status: Draft v0.1 · Owner: @steve · Last updated: 2026-08-21
+> Status: Draft v0.2 · Owner: @steve · Last updated: 2026-08-30
 > Companion docs: `00-product-overview.md`, `02-data-model.md`
 
 ## 1. Overview
@@ -49,6 +49,7 @@ CrazyCut is a native desktop app: a **Flutter UI** for all interaction, and a **
 | | **Audio callback** (RT thread) | Mix audio into device buffer, drives master clock |
 | | **IO pool** (2) | Probing, thumbnails, waveform peaks, proxy transcodes |
 | Export child | Render + decode pool + encoder thread | Offline render at target fps, encode, progress events |
+| Worker child (analysis) | Decode + solver thread | Transcription (**AI-20**) and area-tracking solves (**TRK-5**). Out of process so a long CV or STT pass never competes with the render thread, and a crash in one cannot take the editor down. |
 
 Rules:
 
@@ -68,6 +69,7 @@ engine/
   media/       probe, decoder sessions, thumbnailer, waveform peaks, proxy transcoder
   graph/       render graph: nodes, params, keyframe evaluation, topological eval
   render/      compositor; backends: metal/, d3d/, cpu/ ; effect kernels (shared HLSL→Metal source)
+  track/       area-tracking solver: feature flow + RANSAC homography (03-features/tracking.md)
   audio/       mixer nodes, resampler (swresample), fades, device I/O (miniaudio)
   export/      offline renderer loop, encoder pipeline (x264/x265/prores, AAC), loudnorm
   bindings/    crazycut.h (stable C ABI), lifecycle, command dispatch, event callbacks
@@ -99,7 +101,7 @@ Flutter packages (recommended): flutter_riverpod, freezed, ffigen, uuid, intl, d
   - Every function returns `cc_result` (int32 error code); detailed message fetched via `cc_last_error()`.
   - Structs are fixed-layout (`#pragma pack` asserted statically); time values are rational `{int64 num, int32 den}` pairs.
 - Async: long operations (probe, thumbnail batch, proxy, export submit) return job ids; progress/results arrive as JSON events through a single registered callback → Dart `ReceivePort`.
-- Versioning: `cc_abi_version()` must match what the generated bindings expect; mismatch blocks startup with a clear build error.
+- Versioning: `cc_abi_version()` must match what the generated bindings expect; mismatch blocks startup with a clear build error. The document snapshot travels over this ABI, so a schema addition that the engine reads — `trackers[]` and the transform's `corners` param (**TRK-13**, **TRK-20**) — bumps it alongside signature changes.
 
 ## 5. Media pipeline
 
@@ -132,6 +134,7 @@ Flutter packages (recommended): flutter_riverpod, freezed, ffigen, uuid, intl, d
 - **Evaluation:** deterministic topological evaluation per frame time `t`. Same document + same `t` ⇒ same pixels (enforced by golden tests).
 - **Color processing:** internal pipeline is F16 RGBA linear-light where GPU allows; RGBA8 sRGB elsewhere. v1 exports 8-bit SDR Rec.709. Documented limitation: no float export pipeline until v1.5.
 - **Effects:** each effect = parameter schema + fragment kernel(s) + CPU reference. Stack order = application order (top of list applied last). Params are animatable (keyframes evaluated at clip-local time).
+- **Tracked pins:** a clip pinned to a tracker (`03-features/tracking.md`) is *not* a new node type. The pin resolves to ordinary transform parameters at clip-local time — a `corners` quad for perspective pins, plain position/scale/rotation otherwise — and flows through the same clip-reader transform stage as everything else. **Nothing is solved at render time**; the path was baked by an earlier analysis pass, which is what keeps preview and export identical by construction.
 - **GPU abstraction:** minimal RHI (device, texture, pipeline, uniform buffer, blit). Backends: Metal, D3D11, CPU (SIMD: SSE4.2/AVX2). Effect kernels authored once in a common subset translated to MSL/HLSL at build time; CPU versions hand-written and kept bit-comparable within tolerance for tests.
 
 ## 8. Export pipeline
@@ -141,6 +144,7 @@ Flutter packages (recommended): flutter_riverpod, freezed, ffigen, uuid, intl, d
 - Hardware encoders (VideoToolbox, NVENC, QSV) are opt-in per job with a quality caveat tooltip.
 - Progress events every 250 ms (frame count, fps, ETA); cancel is cooperative (checked between frames); failed jobs clean partial outputs and attach the last 50 log lines.
 - Queue lives in the main process (survives worker crashes; auto-retry once). Editing continues freely — jobs operate on their snapshot.
+- The same worker binary and the same line protocol carry the non-export analysis jobs — `transcribe` (**AI-20**) and `track` (**TRK-5**) — so they inherit progress, ETA, cooperative cancel and partial-artifact cleanup rather than reimplementing them.
 
 ## 9. Data flow example (edit → preview)
 
@@ -179,6 +183,8 @@ Reference hardware: **M1 MacBook Air 8 GB** and **Ryzen 5 5600 / 16 GB / GTX 165
 
 Nightly benchmarks run on fixed runners; > 10% regression fails the build (see `05-roadmap.md` §Testing).
 
+The project-open budget covers everything in the document, including baked tracking paths, which are the one entity that can grow large without the clip count growing (`03-features/tracking.md` §Performance).
+
 ## 13. Build & distribution
 
 - Engine: CMake ≥ 3.24 + Ninja; static lib `libcrazycut.dylib/.dll` + separate `crazycut_worker` executable linking the same objects.
@@ -191,7 +197,7 @@ Nightly benchmarks run on fixed runners; > 10% regression fails the build (see `
 - Application code: **MIT**.
 - ffmpeg: bundled as GPL-built separate binaries/libs. Because CrazyCut is open-source and distributed free, combined distribution complies with GPLv2 for the ffmpeg parts; the repo ships license texts + source links in `licenses/` and an About → Licenses panel in-app.
 - Escape hatch documented: if CrazyCut ever goes proprietary, switch to LGPL ffmpeg build (drop x264/x265/postproc; use HW encoders + open codecs) — architecture already isolates encoder selection behind `export/` interfaces.
-- Other deps respect their licenses (miniaudio MIT, etc.); `licenses/` aggregates all third-party notices, regenerated in CI (`tools/license-check`).
+- Other deps respect their licenses (miniaudio MIT, whisper.cpp MIT, OpenCV Apache-2.0, etc.); `licenses/` aggregates all third-party notices, regenerated in CI (`tools/license-check`). OpenCV is linked **statically** into the engine and the worker: permissive licensing makes that unproblematic, and it keeps the shipped bundle free of a dozen extra libraries to sign and notarize.
 
 ## 15. Security & privacy
 
@@ -212,4 +218,5 @@ Nightly benchmarks run on fixed runners; > 10% regression fails the build (see `
 
 ## Changelog
 
+- v0.2 — Area tracking: analysis worker row (§2), `track/` layout (§3), ABI note (§4), tracked pins (§7), `track` job (§8), OpenCV licensing (§14).
 - v0.1 — Initial draft.

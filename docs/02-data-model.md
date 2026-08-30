@@ -1,6 +1,6 @@
 # CrazyCut — Data Model & Project Format
 
-> Status: Draft v0.2 · Owner: @steve · Last updated: 2026-08-23
+> Status: Draft v0.3 · Owner: @steve · Last updated: 2026-08-30
 > Companion docs: `01-architecture.md`, `03-features/*`
 
 ## 1. Principles
@@ -31,6 +31,7 @@ Project ─┬─ settings (sequence settings)
          ├─ clips[]        (Clip)          → trackId, mediaId?
          ├─ transitions[]  (Transition)    → aClipId, bClipId
          ├─ markers[]      (Marker)
+         ├─ trackers[]     (Tracker)        → mediaId, sourceClipId
          └─ meta (ids, timestamps, app version)
 ```
 
@@ -64,7 +65,8 @@ Top-level:
   "tracks": [ /* Track, ordered bottom→top for video; top→bottom listed audio-first? see below */ ],
   "clips": [ /* Clip */ ],
   "transitions": [ /* Transition */ ],
-  "markers": [ /* Marker */ ]
+  "markers": [ /* Marker */ ],
+  "trackers": [ /* Tracker — 03-features/tracking.md */ ]
 }
 ```
 
@@ -129,7 +131,9 @@ Viewing-only provider links live in top-level `references[]` and cannot satisfy 
   "fadeOut": { "duration": "1/2", "curve": "exponential" },
   "linkedGroup": "…",           // optional: links A/V clips split from one clip
   "effects": [ /* EffectInstance, ordered */ ],
-  "text": { /* TextContent — text clips only */ }
+  "transform": { /* ClipTransform — FX-9; params encoded as in EffectInstance */ },
+  "text": { /* TextContent — text clips only */ },
+  "extra": { /* forward-safe bag: clipAnim (TXT-10), trackPin (TRK-17), … */ }
 }
 ```
 
@@ -182,6 +186,52 @@ Rules:
 
 `{ "id", "time": "n/d", "name": string?, "color": enum }` — sequence-level.
 
+### Tracker
+
+A solved motion path for a user-drawn region (`03-features/tracking.md`, **TRK-13**).
+
+```json
+{
+  "id": "…",
+  "mediaId": "…",                 // asset the region was solved against
+  "sourceClipId": "…",            // clip the region was drawn on
+  "startTime": "0/1",             // clip-local, rational
+  "endTime": "300/30",
+  "searchQuad": [x0,y0, x1,y1, x2,y2, x3,y3],   // source px, TL/TR/BR/BL
+  "algorithm": "lk-homography",
+  "algorithmVersion": 1,
+  "analysisWidth": 720,
+  "fps": "30/1",                  // sample rate of `path`
+  "path": [ /* 8 numbers per sample: the quad, source px, TL/TR/BR/BL */ ],
+  "confidence": [ /* one 0..1 per sample */ ]
+}
+```
+
+- The path is stored **packed and flat**, not as `EffectInstance`-style keyframe objects. It is
+  dense derived data, so per-sample objects would multiply its size several times over for no
+  gain — samples are addressed by index from `startTime` at `fps`, never searched.
+- Values are rounded to three decimals, and the path is **uniformly decimated** at solve time —
+  `fps` records the reduced rate — so a locked-off shot stores a handful of samples rather than
+  one per frame (**TRK-14**). Decimation is uniform, and only by divisors of the span, because
+  samples are addressed by index: an unevenly thinned path would put everything after a wider
+  gap at the wrong time.
+- Coordinates are **source pixels**, so a tracker survives a change of sequence resolution and
+  is unaffected by the tracked clip's own transform.
+- Unlike thumbnails, peaks, transcripts and proxies (§7), a tracker is **not** a deletable
+  cache artifact: it combines user-authored input (the drawn region, any corrections) with an
+  expensive solve, so it lives in the document and travels with the project.
+
+### ClipTransform
+
+Encoded exactly like `EffectInstance.params` (§5), one param per key: `x`, `y`, `scale`,
+`rotation`, `anchor` (point), `opacity`, plus non-animatable `flipH`/`flipV`/`framing`
+(`03-features/effects.md` **FX-9**).
+
+- **`corners`** — optional, a `[x0,y0, x1,y1, x2,y2, x3,y3]` quad in **sequence** pixels
+  (**TRK-20**). When present it supersedes `x`/`y`/`scale`/`rotation`/`anchor`, because a
+  perspective quad cannot be expressed by a single uniform scale and a roll. Animatable like
+  any other param; the shared evaluator interpolates it component-wise.
+
 ## 6. Text content (summary)
 
 Text clips carry `text` (string, `\n` allowed), style block (font family/postscript name, size, weight, color, stroke, shadow, background box, alignment, letter spacing, line height), and no animation of its own — a text clip animates through the same
@@ -220,6 +270,9 @@ Autosave cadence: 2 s debounce after each committed change, plus hard save every
 3. Every `trackId`/`mediaId`/clip reference resolves; transitions reference clips sharing a track.
 4. Rational times normalized; keyframe times within `[0, clip.duration]` and strictly increasing.
 5. Track indices unique per kind; exactly ≥ 1 track of each kind may exist but zero-clip tracks are prunable.
+6. Every tracker's `mediaId`/`sourceClipId` resolves; `searchQuad` has exactly 8 numbers;
+   `path` length is a non-zero multiple of 8; `confidence` length is `len(path)/8`; the range
+   lies within the source clip's duration. A clip's `extra.trackPin.trackerId` resolves.
 
 Violations never crash the app: loader quarantines invalid entities into a report shown once ("3 items repaired — details").
 
@@ -292,5 +345,6 @@ template under `<CrazyCut>/Templates` (`03-features/templates.md`):
 
 ## Changelog
 
+- v0.3 — `trackers[]` and `extra.trackPin` for area tracking (`03-features/tracking.md`); `transform`/`extra` made explicit on Clip.
 - v0.2 — §12 template files.
 - v0.1 — Initial draft.

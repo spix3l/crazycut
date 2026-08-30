@@ -90,6 +90,10 @@ Per-clip effect stacks covering the creator basics: color correction, blur famil
 
 Custom LUT import (.cube) [v1.5], curves/wheels/keyer, motion blur, optical-flow retiming, third-party plugin API, masks beyond blur-island shapes.
 
+Driving **FX-8**'s blur-island from a tracked region — auto face blur — is deliberately out of
+v1 tracking scope too. The tracker exists (`03-features/tracking.md`, **TRK**) and blur-island
+already takes an animatable centre, so this is a small follow-on rather than a new capability.
+
 ## Changelog
 
 - v0.1 — Initial draft.

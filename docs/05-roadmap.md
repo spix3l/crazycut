@@ -1,6 +1,6 @@
 # CrazyCut — Roadmap, Risks & Testing Strategy
 
-> Status: Draft v0.1 · Owner: @steve · Last updated: 2026-08-21
+> Status: Draft v0.2 · Owner: @steve · Last updated: 2026-08-30
 > Milestone gates reference requirement ids from `03-features/*`.
 
 ## 1. Milestones
@@ -104,6 +104,18 @@ half being a vendor-neutral LLM provider layer — with
 `00-product-overview.md` §6 and `01-architecture.md` §15, which previously
 assumed no outbound calls beyond update checks and crash reporting.
 
+Area tracking was never on this list — it was forbidden outright, by the
+out-of-scope sections of `03-features/text-keyframes.md`, `03-features/captions.md`
+and `03-features/effects.md`, and named as "its own feature" by
+`03-features/shorts.md`. It now has that spec (`03-features/tracking.md`, **TRK**)
+and those four sections are amended to point at it. It is the first feature to add
+a computer-vision dependency (OpenCV, static and trimmed) and the first to put
+*dense derived data* in the document rather than the deletable cache — the
+reasoning for both is in the spec, and the second is the one to watch against the
+project-open budget. Tracked masks, tracked text and tracked captions stay out;
+they remain in their own docs' out-of-scope lists.
+
 ## Changelog
 
+- v0.2 — §4: area tracking pulled out of the forbidden list into `03-features/tracking.md` (**TRK**).
 - v0.1 — Initial draft.

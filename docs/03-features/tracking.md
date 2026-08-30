@@ -1,0 +1,240 @@
+# Feature Spec — Area Tracking
+
+> Status: Draft v0.1 · Owner: @steve · Last updated: 2026-08-30
+> Requirements prefix: **TRK** · Rendering: `01-architecture.md` §7 · Model: `02-data-model.md` §5
+> Transform: `03-features/effects.md` (**FX-9**) · Keyframes: `03-features/text-keyframes.md` (**KEY**)
+> Analysis-pass precedent: `03-features/ai-assist.md` (**AI-18–22**)
+
+## Summary
+
+Draw a rectangle over something in the footage, run a tracking pass, and pin an asset to the
+result. The region's motion is solved once as a per-frame homography and stored in the
+document; from then on an image or video clip can be glued to it, following translation,
+scale, rotation and perspective.
+
+The driving case: Dev drops a meme face onto a character in a clip and it stays on the face
+for the whole shot, including as the head turns — work that today means keyframing position
+and scale by hand, frame by frame.
+
+Tracking is an **explicit analysis pass**, never a render-time computation. That is what keeps
+`00-product-overview.md` pillar 3 ("WYSIWYG, guaranteed by construction") true: preview and
+export read the same baked path out of the document, so they cannot disagree.
+
+## User stories
+
+- As Dev, I box a character's face, hit Track, and drop a PNG on it that stays put for the shot.
+- As Maya, the track slips halfway through a whipe pan, so I scrub to the bad frame, drag the
+  box back onto the subject, and re-track forward from there.
+- As Sam, I pin a screenshot to a laptop screen filmed at an angle and it sits in the screen's
+  plane rather than floating flat on top of it.
+- As Dev, I want to see at a glance where the track got unreliable, without scrubbing the
+  whole clip to find it.
+
+## Non-goals (v1)
+
+- **No face or object detection.** The user draws the box. No bundled or downloaded model —
+  tracking works offline with no first-use download, unlike transcription (**AI-19**).
+- **No occlusion recovery.** When the subject is hidden the track holds its last good pose and
+  reports low confidence; it does not re-acquire on its own.
+- **No multiple concurrent trackers per clip.** One tracker per region, any number of regions
+  per project, but no solving several at once in one pass.
+- **No tracked masks or tracked blur-island.** Driving **FX-8** from a tracker is the obvious
+  next feature and is deliberately left out; see *Out of scope*.
+- **No tracker in `.cctemplate`.** Templates carry clips, and a tracker is scoped to media a
+  template cannot guarantee is present (`02-data-model.md` §12).
+- **No graph editor for the solved path.** Corrections are made on the canvas, not in curves.
+
+## Functional requirements
+
+### Region and entry
+- **TRK-1** A **Track** tab in the inspector, present only for a clip that has source pixels to
+  solve against or is already pinned. Its *Draw region* control arms the canvas tool. The tool
+  is mutually exclusive with the transform gizmo (**TXT-6**): arming it takes the transform
+  handles off the frame, so a drag is never ambiguous about which tool it meant.
+- **TRK-2** With the tool armed the user drags a rectangle on the monitor. The rectangle is
+  stored as a **quad** (four corners, `TL/TR/BR/BL`) in **source pixels** of the tracked media,
+  so it is independent of preview size, sequence resolution and the clip's own transform.
+- **TRK-3** The tracked range defaults to the clip's full duration and is adjustable to any
+  sub-range. Range endpoints are clip-local rational times (`02-data-model.md` §2).
+- **TRK-4** A region smaller than 16×16 source px, or one that falls outside the source frame,
+  is rejected with an inline message rather than solved.
+
+### Solve
+- **TRK-5** The solve runs in the **export worker process** as a `track` job over the existing
+  JSON-lines protocol (`01-architecture.md` §8), exactly as transcription does (**AI-20**). It
+  reports progress with an ETA and a cancel affordance in the export queue's visual language,
+  and is **non-modal — editing continues throughout**.
+- **TRK-6** Per frame the solver tracks feature points inside the current quad, rejects them by
+  forward-backward consistency, and fits a homography by RANSAC over the survivors. The quad is
+  carried forward through that homography. Features are re-seeded when the inlier count falls
+  below threshold.
+- **TRK-7** Analysis runs on frames decoded at a reduced width (default 720 px) through the
+  engine's own decoder, not a second decoding stack. Solved quads are scaled back to full
+  source pixels before storage, so changing the analysis width changes cost and accuracy but
+  not the coordinate space of the result.
+- **TRK-8** Each sample carries a **confidence** in 0…1 derived from the inlier ratio. When a
+  frame solves below threshold the quad **holds its last good pose** and records low
+  confidence. The quad never collapses, inverts or leaves the frame as a result of a failed
+  solve.
+- **TRK-9** **Determinism.** The same media, quad, range, analysis width and algorithm version
+  produce a bit-identical path. No wall-clock, no thread-count dependence, no RNG without a
+  fixed seed. This is the tracking counterpart of **KEY-9**.
+- **TRK-10** Cancelling mid-solve leaves the document byte-identical to before the run and
+  writes no partial artifact.
+- **TRK-11** **Re-track from the playhead.** The user drags the quad back onto the subject at
+  any frame and re-solves forward from there, keeping samples before that frame. This is one
+  undoable edit, following **CAP-7a**.
+- **TRK-12** Tracking is optional at build time (`CC_WITH_TRACKING`). A build without it reports
+  "not built with tracking support" and leaves the rest of the editor unaffected, mirroring how
+  transcription degrades.
+
+### Storage
+- **TRK-13** Trackers live in a new top-level `trackers[]` array in the document
+  (`02-data-model.md` §5). This stays within `crazycut/project@1`: unknown fields already
+  round-trip verbatim (§9), so older builds preserve trackers rather than dropping them, and no
+  migration is needed.
+- **TRK-14** The solved path is stored **packed** — a flat array of eight numbers per sample,
+  rounded to three decimals — alongside the sample rate, not as keyframe objects. At solve time
+  it is **uniformly decimated**: the solver keeps every *n*th sample for the largest whole *n*
+  that divides the span exactly and whose linear reconstruction stays within a quarter of a
+  pixel, and stores the reduced rate. A locked-off shot therefore collapses to a handful of
+  samples while a moving one keeps every frame.
+  - Decimation is uniform, and only by divisors of the span, because the path is addressed by
+    **index** at a fixed rate. A variable-spaced simplification would store fewer samples still,
+    but every sample after an uneven gap would then sit at the wrong time.
+- **TRK-15** Installing, re-solving or deleting a track is a **single undoable command**
+  carrying the whole path, and must stay inside the 50 ms undo/redo commit budget
+  (`01-architecture.md` §12).
+- **TRK-16** A malformed tracker is quarantined into the repair report on load, not thrown:
+  wrong quad arity, a `path` length not divisible by eight, a `confidence` length that does not
+  match, or times outside the clip. Valid siblings survive.
+
+### Pinning
+- **TRK-17** Any visual clip can be pinned to a tracker. The pin is stored on the clip, in the
+  same generated-spec style as `extra.clipAnim` (**TXT-10**): `transform.corners` is *generated*
+  from the tracker and **rebuilt from scratch** whenever the tracker, the pin, or the tracked
+  clip's own transform changes. Nothing is ever patched in place, which is why a re-solve
+  cannot leave stale keys behind.
+  - The cost, stated plainly: a moving pin stores the path twice — once as the tracker's packed
+    samples, once as generated corner keyframes. Resolving the pin inside the compositor instead
+    would avoid that, at the price of teaching the renderer to map one clip's source pixels
+    through another clip's placement. Generating keeps the engine's contract unchanged and makes
+    preview/export agreement structural rather than argued. Decimation (**TRK-14**) bounds the
+    duplicate, and a pin that never moves collapses to a single static quad.
+- **TRK-18** Pin modes, all decoded from the same solved homography:
+
+  | Mode | Follows |
+  |---|---|
+  | `position` | centre only |
+  | `positionScale` | centre + uniform scale |
+  | `positionScaleRotation` | centre + uniform scale + roll |
+  | `cornerPin` | the full quad, including perspective |
+
+  The simpler modes exist because they discard the noisiest components of a solve; a jittery
+  track is usually usable in `positionScale` when it is not in `cornerPin`.
+- **TRK-19** Pinning **moves** the overlay onto the region: in `cornerPin` it adopts the
+  tracked quad outright, which is the point of dropping an image onto a face. The simpler
+  modes keep the clip's own shape and take only the components their name lists. Any
+  subsequent nudge is stored on the pin, so it is preserved for the whole track and survives
+  a re-solve rather than being flattened into the generated keyframes.
+- **TRK-20** `cornerPin` cannot be expressed by **FX-9**'s transform, which carries a single
+  uniform scale. It is therefore carried by a **`corners` parameter** on the clip transform,
+  in sequence pixels, which **supersedes** position/scale/rotation/anchor when present. Like
+  every other transform parameter it is keyframeable and is evaluated by the shared evaluator,
+  so it interpolates and behaves identically in preview and export.
+- **TRK-21** **Bake to keyframes** converts a pin into ordinary keyframes on the clip and
+  removes the pin, so a user can leave the tracking system entirely and hand-edit the result.
+  Unpinning without baking restores the clip's pre-pin pose.
+- **TRK-22** Deleting a tracker, or relinking/removing the media it was solved against,
+  unpins its clips and reports it. It never leaves a clip referencing a tracker that is gone.
+
+### Render
+- **TRK-23** A pinned clip renders through the **shared compositor** used by both preview and
+  export. `cornerPin` adds a projective warp path to the rasterizer; the other modes reuse the
+  existing transform path unchanged.
+- **TRK-24** A `corners` parameter is a non-identity transform and therefore **disqualifies a
+  clip from the export passthrough fast path**, exactly as effects and transforms already do.
+  This is a real cost and is called out here so it is not mistaken for a regression.
+- **TRK-25** A `corners` quad that is degenerate (zero area, or self-intersecting) renders
+  nothing for that frame rather than producing undefined pixels.
+
+## UX notes
+
+- The armed Track tool replaces the gizmo's handles with a crosshair; the drawn quad shows
+  four corner handles and an edge outline, and hides during playback like the gizmo does.
+- After a solve the canvas draws a **motion trail** of the quad's centre across the tracked
+  range, so the shape of the move is legible without scrubbing.
+- Where the solve is untrustworthy the region outline turns amber on the canvas, and the Track
+  tab reports the confidence at the playhead and how many weak spans the solve contains.
+  - A **warning stripe on the timeline clip** is the better affordance and is not built yet:
+    `Tracker.lowConfidenceSpans()` already returns the ranges it needs, but the timeline ribbon
+    does not draw them, so finding a drift still means scrubbing to it.
+- Tracking progress uses the export queue's cards, progress bar and ETA. Nothing is modal.
+- The inspector's **Track** tab carries: draw/adjust region, solve progress with cancel, sample
+  count and confidence readout, pin target, pin mode, *Bake*, *Unpin* and *Delete tracker*.
+  Re-tracking is a canvas gesture — drag a corner and it re-solves forward from that frame.
+  - Nudging a pinned overlay exists as an operation but has no control in the tab yet, so a
+    nudge is currently only reachable programmatically.
+
+## Edge cases
+
+- **Subject leaves frame** — quad holds, confidence drops, warning stripe appears. No crash, no
+  collapse.
+- **Cut inside the tracked range** — the solve will fail across the cut and hold. Tracking
+  across a hard cut is user error; the confidence display is the feedback.
+- **Clip trimmed after tracking** — the tracker's range is clamped to the new duration; samples
+  beyond it are dropped, matching the keyframe trimming rule in **TXT**/**KEY**.
+- **Clip speed changed** — tracker sample times rescale proportionally, as keyframe times do.
+- **Reversed clip** — the path is read back to front; it is not re-solved.
+- **Sequence resolution changed** — the path is in source pixels, so it is unaffected; only the
+  derived `corners` in sequence pixels change, and they are derived per render.
+- **Still image or single-frame media** — tracking is refused; there is no motion to solve.
+- **Media relinked to a different file** — the tracker is invalidated and its clips unpinned
+  (**TRK-22**), because a path solved against other pixels is meaningless.
+
+## Performance
+
+- The solve is decode-bound. The engine decodes in software today
+  (`07-capability-matrix.md`), and a forward pass at reduced width is roughly the cost of a
+  proxy transcode of the same range. It runs out of process, so it never competes with preview
+  for the render thread.
+- Path storage is small but not free: a 30 s shot at 30 fps is about 900 samples ≈ 55 KB of
+  JSON before decimation, and a moving pin stores it a second time as generated keyframes
+  (**TRK-17**). This counts against the "open a 500-clip project in under 2 s" budget
+  (`01-architecture.md` §12); decimation (**TRK-14**) is what keeps typical projects well clear
+  of it. A project with dozens of long, genuinely moving tracks is the case to watch.
+- The projective warp iterates only the bounding box of the quad, not the whole canvas.
+- A quad equal to the layer's plain rectangle must render **bit-identically** to the
+  non-corner path, so pinning cannot silently degrade the common case.
+
+## Acceptance criteria
+
+1. Boxing a moving, rotating subject and hitting Track reports monotonic progress with an ETA,
+   leaves the editor responsive throughout, and can be cancelled mid-run leaving the document
+   byte-identical (**TRK-5**, **TRK-10**).
+2. An image pinned in `cornerPin` mode stays on the subject through translation, scale, roll
+   and perspective; scrubbing to any frame lands it in the same place playback does
+   (**TRK-18**, **TRK-20**).
+3. Saving, closing and reopening preserves the track and the pin, and the project still opens
+   inside its budget (**TRK-13**, §Performance).
+4. Undo after a solve removes it in one step; redo restores it in one step, within 50 ms
+   (**TRK-15**).
+5. Exported frames of a pinned clip are **bit-identical** to `cc_render_frame_rgba` at the same
+   timestamps (**TRK-23**, **TRK-24**).
+6. Tracking a shot where the subject leaves frame degrades to a held quad with a visible
+   warning stripe, and never collapses or crashes (**TRK-8**).
+7. Re-solving the same region twice produces a bit-identical path (**TRK-9**).
+8. A document with a corrupt tracker loads with the tracker quarantined and every other
+   tracker, clip and effect intact (**TRK-16**).
+
+## Out of scope
+
+Face/subject detection and auto-reframe (`03-features/shorts.md` non-goals), tracked masks and
+tracked blur-island driving **FX-8**, motion-tracked text (`03-features/text-keyframes.md`),
+motion-tracked captions (`03-features/captions.md`), planar surface *replacement* with
+relighting, stabilisation, 3D camera solve, multi-region solves in one pass, and any
+network- or model-backed tracker.
+
+## Changelog
+
+- v0.1 — Initial draft.

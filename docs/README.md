@@ -23,6 +23,7 @@ CrazyCut is a native desktop video editor for solo creators: Flutter UI + C++ en
 | 3 | [`03-features/export.md`](03-features/export.md) | Presets, queue, hardware encoders, integrity (**EXP**) |
 | 3 | [`03-features/ai-assist.md`](03-features/ai-assist.md) | Local transcription, vendor-neutral LLM providers, agent loop (**AI**) |
 | 3 | [`03-features/shorts.md`](03-features/shorts.md) | Model-proposed short moments reviewed into 9:16 projects (**SHT**) |
+| 3 | [`03-features/tracking.md`](03-features/tracking.md) | Region tracking and pinning an asset to the solved path (**TRK**) |
 | 4 | [`04-ui-ux.md`](04-ui-ux.md) | Design principles, layout, panels, shortcuts, theming, a11y (**UIX**) |
 | 5 | [`05-roadmap.md`](05-roadmap.md) | Milestones M0–M5, testing strategy, risk register |
 | 6 | [`06-implementation-plan.md`](06-implementation-plan.md) | Dependency-aware creator-ready v1 plan and agent-sized assignments |

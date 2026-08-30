@@ -1,6 +1,6 @@
 # CrazyCut — Creator-Ready v1 Implementation Plan
 
-> Status: In progress · Last updated: 2026-08-28
+> Status: In progress · Last updated: 2026-08-30
 > Purpose: bounded, dependency-aware work packages for future agent delegation.
 
 ## 1. Target outcome
@@ -237,6 +237,29 @@ permission denial and device removal fail safely.
 Gate: CPU/GPU goldens cover alpha edges; masks compose correctly with crop,
 transform, effects, and blend modes.
 
+#### E1b. Area tracking — Extra Large
+
+Spec: `03-features/tracking.md` (**TRK**). Sibling of E1 — both add region
+geometry to the compositor — but independent of it: E1 masks a clip against
+itself, E1b moves one clip with another's pixels. Sequenced as six packages so
+each lands green on its own, because it touches four §3 hotspots.
+
+- **T1 Model.** `trackers[]` and the transform's `corners` param in both the
+  Dart and C++ models; validation, quarantine, round-trip.
+- **T2 Warp.** Projective branch in `rasterizeLayer`, mirrored in
+  `canvas_geometry.dart`; export passthrough excludes pinned clips.
+- **T3 Solver.** OpenCV (static, trimmed) behind `CC_WITH_TRACKING`; feature
+  flow + RANSAC homography over engine-decoded frames.
+- **T4 Job.** `track` worker job on the existing JSON-lines protocol, and its
+  Dart service.
+- **T5 UI.** Canvas draw tool, Track inspector tab, pin/unpin/bake/re-track ops.
+- **T6 Evidence.** Capability-matrix row, build note, perf fixture.
+
+Gate: a solve is deterministic and cancellable leaving nothing behind; an
+identity quad renders bit-identically to the non-corner path; export of a pinned
+clip matches preview bit for bit; a corrupt tracker is quarantined without
+losing siblings; undo of a solve commits inside 50 ms.
+
 #### E2. LUTs, adjustment layers, and effect presets — Large
 
 - Import/validate `.cube` LUTs.
@@ -303,6 +326,8 @@ D1 source viewer ──> D2 media pool
 D3 audio DSP ──────> D4 ducking/voice-over
 
 C1/C3 + B4 ───────> E1/E2
+T1 model ──> T2 warp ──┐
+T3 solver ──> T4 job ──┴──> T5 UI ──> T6 evidence   (E1b, independent of E1)
 D4 timing contract ───────────────> E3
 B1 + stable commands ─────────────> E4
 

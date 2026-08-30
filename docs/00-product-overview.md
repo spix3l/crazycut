@@ -1,6 +1,6 @@
 # CrazyCut — Product Overview
 
-> Status: Draft v0.1 · Owner: @steve · Last updated: 2026-08-21
+> Status: Draft v0.2 · Owner: @steve · Last updated: 2026-08-30
 
 ## 1. Vision
 
@@ -56,6 +56,7 @@ All three share the same loop: **import → cut → polish → export**, in one 
 7. Projects management: browser, autosave, backups, crash recovery, settings presets (16:9 / 9:16 / 1:1).
 8. Background export queue with presets (YouTube, TikTok/Reels, custom), H.264 default, HEVC/ProRes options.
 9. Native performance budgets (see §8) on mid-range hardware — "not slow" is a feature, measured in CI.
+10. Area tracking: draw a region, solve its motion once, and pin an image or video clip to it — including perspective. See `03-features/tracking.md`.
 
 ### Non-goals (v1)
 - Multicam, color wheels/scopes/curves, speed ramps/time-remap curves (basic constant speed only).
@@ -123,6 +124,7 @@ Adoption proxies (open source): GitHub stars, release downloads, issue responsiv
 | Export | `03-features/export.md` |
 | AI assist (transcription + LLM providers) | `03-features/ai-assist.md` |
 | Shorts | `03-features/shorts.md` |
+| Area tracking | `03-features/tracking.md` |
 | UI/UX system | `04-ui-ux.md` |
 | Roadmap, risks, testing | `05-roadmap.md` |
 
@@ -136,4 +138,5 @@ Adoption proxies (open source): GitHub stars, release downloads, issue responsiv
 
 ## Changelog
 
+- v0.2 — Area tracking added as goal 10 and to the spec map (`03-features/tracking.md`).
 - v0.1 — Initial draft.
