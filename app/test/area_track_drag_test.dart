@@ -215,6 +215,86 @@ void main() {
     expect(region[4], closeTo(1200, 1.0));
     expect(region[5], closeTo(700, 1.0));
   });
+  testWidgets('the outline follows the playhead and survives leaving the clip', (
+    tester,
+  ) async {
+    // Two bugs in one place. The outline never moved, because the playhead is
+    // published on its own throttled notifier and this widget rebuilt only on
+    // the controller's listeners. And scrubbing past the end of the clip threw
+    // a null check *during layout* — LayoutBuilder's callback re-read the clip
+    // under the playhead, which by then was gone — which also aborted the
+    // rebuild and froze the outline where it was last painted.
+    final (c, clip) = harness();
+    c.trackToolActive = false;  // a readout, which is the state that was broken
+    // A region sliding right by 100 px per sample, at 1 sample per second.
+    c.installTracker(
+      Tracker(
+        id: 't1',
+        mediaId: 'v',
+        sourceClipId: clip.id,
+        startTime: Rt.zero(),
+        endTime: Rt.fromSeconds(3),
+        searchQuad: const [200, 200, 600, 200, 600, 600, 200, 600],
+        fps: Rt(1, 1),
+        path: const [
+          200, 200, 600, 200, 600, 600, 200, 600,
+          300, 200, 700, 200, 700, 600, 300, 600,
+          400, 200, 800, 200, 800, 600, 400, 600,
+        ],
+        confidence: const [1.0, 1.0, 1.0],
+      ),
+    );
+    c.autosave.dispose();
+    await pump(tester, c);
+
+    // A single frame, deliberately. seekTo publishes on playheadNotifier
+    // immediately but only notifies the controller's listeners on a 100 ms
+    // throttle, so pumping past that would let the trailing notify do the work
+    // and the assertion would pass whether or not this widget watches the
+    // playhead at all. One frame is also what a scrub actually looks like.
+    Future<void> seek(double seconds) async {
+      c.seekTo(Rt.fromSeconds(seconds));
+      await tester.pump();
+    }
+
+    List<double>? painted() {
+      final paints = tester.widgetList<CustomPaint>(
+        find.descendant(
+          of: find.byType(AreaTrackOverlay),
+          matching: find.byType(CustomPaint),
+        ),
+      );
+      for (final p in paints) {
+        final painter = p.painter;
+        if (painter == null) continue;
+        final quad = (painter as dynamic).quad as List<double>?;
+        if (quad != null) return quad;
+      }
+      return null;
+    }
+
+    await seek(0);
+    final atStart = painted();
+    expect(atStart, isNotNull, reason: 'the region should be drawn when solved');
+    expect(atStart![0], closeTo(200, 1));
+
+    await seek(2);
+    final atTwo = painted();
+    expect(atTwo, isNotNull);
+    expect(
+      atTwo![0],
+      closeTo(400, 1),
+      reason: 'the outline must follow the playhead, not sit where it was drawn',
+    );
+
+    // Past the end of the clip there is nothing under the playhead. This threw
+    // during layout before; it must simply draw nothing.
+    await seek(9);
+    expect(tester.takeException(), isNull);
+    // Drain the trailing notify the seeks armed, or the binding fails the test
+    // on a pending timer.
+    await tester.pump(const Duration(milliseconds: 200));
+  });
 }
 
 /// Intercepts the solve so the gesture tests never spawn a worker. Everything

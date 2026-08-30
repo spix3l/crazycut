@@ -75,17 +75,11 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
     return tracker == null ? clip : (c.doc.clipById(tracker.sourceClipId) ?? clip);
   }
 
-  Tracker? get _tracker {
-    final clip = _clip;
-    return clip == null ? null : c.trackerForClip(clip);
-  }
-
   /// The tracked quad at the playhead, in sequence px, or null when there is
   /// no solve yet.
-  Quad? _quadSeq() {
-    final clip = _clip;
-    final tracker = _tracker;
-    if (clip == null || tracker == null) return null;
+  Quad? _quadSeqFor(Clip clip) {
+    final tracker = c.trackerForClip(clip);
+    if (tracker == null) return null;
     return c.trackedQuadInSequence(tracker, clip, c.clipLocalTime(clip));
   }
 
@@ -101,7 +95,8 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
   }
 
   bool _onPointerDown(Offset local, Size box) {
-    final quad = _editing ?? _quadSeq();
+    final clip = _clip;
+    final quad = _editing ?? (clip == null ? null : _quadSeqFor(clip));
     if (quad != null) {
       final corner = _cornerAt(local, box, quad);
       if (corner >= 0) {
@@ -221,19 +216,30 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
       listenable: TrackingService.instance,
       builder: (context, _) => ValueListenableBuilder<Rt>(
         valueListenable: c.playheadNotifier,
-        builder: (context, _, _) => _buildTool(),
+        // Resolved per playhead value rather than once per build: the clip
+        // under the playhead is exactly what changes as it moves.
+        builder: (context, _, _) {
+          final at = _clip;
+          return at == null ? const SizedBox.shrink() : _buildTool(at);
+        },
       ),
     );
   }
 
-  Widget _buildTool() {
+  /// [clip] is passed in rather than re-read. `_clip` resolves through
+  /// `gizmoClipUnderPlayhead()`, which is null once the playhead leaves the
+  /// clip — and LayoutBuilder's callback runs during *layout*, by which time
+  /// the playhead may already have moved. Re-reading it here threw a null check
+  /// mid-layout, which also aborted the rebuild and left the outline frozen
+  /// where it was last painted.
+  Widget _buildTool(Clip clip) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final box = constraints.biggest;
         final seqPerPx = _seqPerPx(box);
-        final quad = _editing ?? _pending ?? _quadSeq();
+        final quad = _editing ?? _pending ?? _quadSeqFor(clip);
         final solving =
-            TrackingService.instance.jobForClip(_clip!.id)?.state ==
+            TrackingService.instance.jobForClip(clip.id)?.state ==
             TrackingState.running;
         // Handles are for editing; the outline is for reading. Showing grab
         // points while the tool is disarmed would advertise an interaction
@@ -250,9 +256,9 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
         final painter = _AreaTrackPainter(
           quad: quad,
           drawing: drawing,
-          trail: _trail(),
+          trail: _trailFor(clip),
           seqPerPx: seqPerPx,
-          lowConfidence: _lowConfidenceNow(),
+          lowConfidence: _lowConfidenceFor(clip),
           solving: solving,
           interactive: interactive,
         );
@@ -289,10 +295,9 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
 
   /// Centre of the tracked quad across the whole solve, so the shape of the
   /// move is legible without scrubbing (UX notes).
-  List<Offset> _trail() {
-    final clip = _clip;
-    final tracker = _tracker;
-    if (clip == null || tracker == null) return const [];
+  List<Offset> _trailFor(Clip clip) {
+    final tracker = c.trackerForClip(clip);
+    if (tracker == null) return const [];
     return [
       for (final entry in c.trackedQuadsInSequence(tracker, clip))
         () {
@@ -302,10 +307,9 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
     ];
   }
 
-  bool _lowConfidenceNow() {
-    final clip = _clip;
-    final tracker = _tracker;
-    if (clip == null || tracker == null) return false;
+  bool _lowConfidenceFor(Clip clip) {
+    final tracker = c.trackerForClip(clip);
+    if (tracker == null) return false;
     return tracker.confidenceAt(c.clipLocalTime(clip)) < 0.4;
   }
 }
