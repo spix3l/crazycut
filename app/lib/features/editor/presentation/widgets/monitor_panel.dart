@@ -447,14 +447,14 @@ class _TransportBar extends StatelessWidget {
                   ValueListenableBuilder<Rt>(
                     valueListenable: c.playheadNotifier,
                     builder: (context, _, _) =>
-                        Text(c.timecode, style: CcType.bodyStrong),
+                        Text(c.timecode, style: CcType.timecode),
                   ),
                   const SizedBox(width: 4),
                   Text('/', style: CcType.style(size: 13, color: CcColors.textTertiary)),
                   const SizedBox(width: 4),
                   Text(
                     c.durationTimecode,
-                    style: CcType.style(size: 13, color: CcColors.textTertiary),
+                    style: CcType.value.copyWith(color: CcColors.textTertiary),
                   ),
                   if (c.shuttleRate != 1 && c.playing) ...[
                     const SizedBox(width: 10),

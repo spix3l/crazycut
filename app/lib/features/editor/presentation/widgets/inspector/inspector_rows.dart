@@ -197,7 +197,11 @@ class SliderRow extends StatelessWidget {
               child: Text(
                 display,
                 textAlign: TextAlign.right,
-                style: CcType.style(size: 11, weight: CcType.medium),
+                style: CcType.style(
+                  size: 11,
+                  weight: CcType.medium,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
               ),
             ),
           ],

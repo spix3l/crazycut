@@ -58,10 +58,11 @@ class _BrowserHeaderState extends State<BrowserHeader> {
             height: 28,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: CcColors.accent,
+              color: CcColors.elevated,
               borderRadius: BorderRadius.circular(8),
+              border: CcBorders.allStrong,
             ),
-            child: const CcIcon(LucideIcons.scissors, size: 16, color: CcColors.onAccent),
+            child: const CcIcon(LucideIcons.scissors, size: 16, color: CcColors.textSecondary),
           ),
           const SizedBox(width: 10),
           Text('CrazyCut', style: CcType.appName),

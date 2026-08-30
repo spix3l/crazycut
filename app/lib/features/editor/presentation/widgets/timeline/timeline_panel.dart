@@ -1698,7 +1698,12 @@ class RulerPainter extends CustomPainter {
       final x = t * pxPerSec;
       canvas.drawRect(Rect.fromLTWH(x, size.height - 8, 1, 8), tickPaint);
       final painter = TextPainter(
-        text: TextSpan(text: label(t), style: CcType.nano),
+        text: TextSpan(
+          text: label(t),
+          style: CcType.nano.copyWith(
+            fontFeatures: const [ui.FontFeature.tabularFigures()],
+          ),
+        ),
         textDirection: TextDirection.ltr,
       )..layout();
       painter.paint(canvas, Offset(x + 4, 4));

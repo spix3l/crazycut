@@ -39,3 +39,4 @@ private_keys/
 .secrets
 
 .zcode/
+.commandcode/

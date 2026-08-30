@@ -200,8 +200,7 @@ class SequenceSettingsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = controller.doc.settings;
     final fps = s.fpsValue;
-    Widget value(String text) =>
-        Text(text, style: CcType.style(size: 12, weight: CcType.medium));
+    Widget value(String text) => Text(text, style: CcType.value);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
@@ -288,18 +287,13 @@ class _LoudnessSection extends StatelessWidget {
         if (report != null) ...[
           InfoRow(
             'Integrated',
-            Text(
-              '${report.lufs.toStringAsFixed(1)} LUFS',
-              style: CcType.style(size: 12, weight: CcType.medium),
-            ),
+            Text('${report.lufs.toStringAsFixed(1)} LUFS', style: CcType.value),
           ),
           InfoRow(
             'True peak',
             Text(
               '${report.truePeakDb.toStringAsFixed(1)} dBTP',
-              style: CcType.style(
-                size: 12,
-                weight: CcType.medium,
+              style: CcType.value.copyWith(
                 color:
                     report.truePeakDb > -1.0
                         ? CcColors.warning
@@ -312,7 +306,7 @@ class _LoudnessSection extends StatelessWidget {
             Text(
               '${report.lufs > -14 ? '+' : ''}'
               '${(report.lufs + 14).toStringAsFixed(1)} LU',
-              style: CcType.style(size: 12, weight: CcType.medium),
+              style: CcType.value,
             ),
           ),
           const SizedBox(height: 8),

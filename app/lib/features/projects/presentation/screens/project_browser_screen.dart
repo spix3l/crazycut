@@ -71,11 +71,7 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
       _recovery = recovery;
       _projects = [
         for (final (file, doc) in entries)
-          ProjectSummary.fromDoc(
-            doc,
-            path: file.path,
-            modified: file.statSync().modified,
-          ),
+          ProjectSummary.fromDoc(doc, path: file.path, modified: file.statSync().modified),
       ];
     });
   }
@@ -89,9 +85,7 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
     final sorted = [...list];
     switch (_sort) {
       case _Sort.name:
-        sorted.sort(
-          (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-        );
+        sorted.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
       case _Sort.created:
         sorted.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       case _Sort.lastOpened:
@@ -166,12 +160,7 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
     final files = await openFiles(acceptedTypeGroups: types);
     if (files.isEmpty || !mounted) return;
     final session = AppSession.instance;
-    await session.createNew(
-      name: 'Untitled',
-      width: 1920,
-      height: 1080,
-      fps: 30,
-    );
+    await session.createNew(name: 'Untitled', width: 1920, height: 1080, fps: 30);
     await session.editor.importPaths(files.map((f) => f.path).toList());
     if (!mounted) return;
     await context.router.push(EditorRoute());
@@ -243,11 +232,7 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
   Future<void> _review(RecoveryCandidate candidate) async {
     final backups = await ProjectRepository.backupsFor(candidate.projectPath);
     if (!mounted) return;
-    final choice = await showRecoveryChooser(
-      context,
-      candidate: candidate,
-      backups: backups,
-    );
+    final choice = await showRecoveryChooser(context, candidate: candidate, backups: backups);
     if (choice == null) return;
     switch (choice) {
       case RecoveryChoice.restoreAutosave:
@@ -260,10 +245,7 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
     await _reload();
   }
 
-  Future<void> _openBackup(
-    RecoveryCandidate candidate,
-    String backupPath,
-  ) async {
+  Future<void> _openBackup(RecoveryCandidate candidate, String backupPath) async {
     await ProjectRecovery.openBackup(backupPath, candidate.projectPath);
     await _reload();
   }
@@ -283,48 +265,38 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
               _Sort.name => 'Name',
               _Sort.created => 'Created',
             },
-            onSortTapped:
-                (anchor) => showCcMenu(anchor, [
-                  CcMenuItem(
-                    'Last opened',
-                    checked: _sort == _Sort.lastOpened,
-                    onTap: () => setState(() => _sort = _Sort.lastOpened),
-                  ),
-                  CcMenuItem(
-                    'Name',
-                    checked: _sort == _Sort.name,
-                    onTap: () => setState(() => _sort = _Sort.name),
-                  ),
-                  CcMenuItem(
-                    'Created',
-                    checked: _sort == _Sort.created,
-                    onTap: () => setState(() => _sort = _Sort.created),
-                  ),
-                ]),
+            onSortTapped: (anchor) => showCcMenu(anchor, [
+              CcMenuItem(
+                'Last opened',
+                checked: _sort == _Sort.lastOpened,
+                onTap: () => setState(() => _sort = _Sort.lastOpened),
+              ),
+              CcMenuItem(
+                'Name',
+                checked: _sort == _Sort.name,
+                onTap: () => setState(() => _sort = _Sort.name),
+              ),
+              CcMenuItem(
+                'Created',
+                checked: _sort == _Sort.created,
+                onTap: () => setState(() => _sort = _Sort.created),
+              ),
+            ]),
             onOpenProject: _openExistingProject,
             onNewProject: _newProject,
           ),
           if (_recovery.isNotEmpty)
-            RecoveryBanner(
-              candidates: _recovery,
-              onReview: _review,
-              onOpenBackup: _openBackup,
-            ),
+            RecoveryBanner(candidates: _recovery, onReview: _review, onOpenBackup: _openBackup),
           Expanded(
-            child:
-                _loading
-                    ? const SizedBox.shrink()
-                    : _projects.isEmpty
-                    ? WelcomePanel(
-                      onNewProject: _newProject,
-                      onOpenSample: _openSampleProject,
-                      onImportFiles: _importIntoNewProject,
-                    )
-                    : _ProjectGrid(
-                      projects: projects,
-                      onOpen: _open,
-                      onMenu: _cardMenu,
-                    ),
+            child: _loading
+                ? const SizedBox.shrink()
+                : _projects.isEmpty
+                ? WelcomePanel(
+                    onNewProject: _newProject,
+                    onOpenSample: _openSampleProject,
+                    onImportFiles: _importIntoNewProject,
+                  )
+                : _ProjectGrid(projects: projects, onOpen: _open, onMenu: _cardMenu),
           ),
         ],
       ),
@@ -333,11 +305,7 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
 }
 
 class _ProjectGrid extends StatelessWidget {
-  const _ProjectGrid({
-    required this.projects,
-    required this.onOpen,
-    required this.onMenu,
-  });
+  const _ProjectGrid({required this.projects, required this.onOpen, required this.onMenu});
 
   final List<ProjectSummary> projects;
   final ValueChanged<ProjectSummary> onOpen;
@@ -358,16 +326,8 @@ class _ProjectGrid extends StatelessWidget {
                 height: 30,
                 selectedIndex: 0,
                 children: const [
-                  CcIcon(
-                    LucideIcons.layoutGrid,
-                    size: 14,
-                    color: CcColors.textPrimary,
-                  ),
-                  CcIcon(
-                    LucideIcons.list,
-                    size: 14,
-                    color: CcColors.textTertiary,
-                  ),
+                  CcIcon(LucideIcons.layoutGrid, size: 14, color: CcColors.textPrimary),
+                  CcIcon(LucideIcons.list, size: 14, color: CcColors.textTertiary),
                 ],
               ),
             ],
@@ -377,12 +337,11 @@ class _ProjectGrid extends StatelessWidget {
             builder: (context, constraints) {
               const gap = 20.0;
               const idealWidth = 320.0;
-              final columns = ((constraints.maxWidth + gap) /
-                      (idealWidth + gap))
-                  .floor()
-                  .clamp(1, 6);
-              final cardWidth =
-                  (constraints.maxWidth - gap * (columns - 1)) / columns;
+              final columns = ((constraints.maxWidth + gap) / (idealWidth + gap)).floor().clamp(
+                1,
+                6,
+              );
+              final cardWidth = (constraints.maxWidth - gap * (columns - 1)) / columns;
               return Wrap(
                 spacing: gap,
                 runSpacing: gap,

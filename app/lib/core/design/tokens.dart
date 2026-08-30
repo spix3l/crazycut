@@ -11,7 +11,7 @@ abstract final class CcColors {
 
   static const textPrimary = Color(0xFFE8EAED);
   static const textSecondary = Color(0xFF9AA0A6);
-  static const textTertiary = Color(0xFF6B7076);
+  static const textTertiary = Color(0xFF7A7F86);
 
   static const accent = Color(0xFFFF5A5F);
   static const accentDim = Color(0xFF4A2426);
@@ -71,6 +71,7 @@ abstract final class CcType {
     Color color = CcColors.textPrimary,
     double? height,
     double? letterSpacing,
+    List<FontFeature> fontFeatures = const [],
   }) {
     return TextStyle(
       fontFamily: family,
@@ -80,6 +81,7 @@ abstract final class CcType {
       color: color,
       height: height,
       letterSpacing: letterSpacing,
+      fontFeatures: fontFeatures,
       leadingDistribution: TextLeadingDistribution.even,
     );
   }
@@ -107,6 +109,22 @@ abstract final class CcType {
     weight: semibold,
     color: CcColors.textTertiary,
     letterSpacing: 0.4,
+  );
+
+  /// Timecode and read-out values. Tabular figures keep `00:00:12:05` from
+  /// shifting width as the playhead moves (UIX-5).
+  static final timecode = style(
+    size: 13,
+    weight: semibold,
+    fontFeatures: const [FontFeature.tabularFigures()],
+  );
+
+  /// Numeric values inside inspector rows and the transport (`12.5`, `48 kHz`,
+  /// `00:01:23:04`). Tabular so a column of values reads as one instrument.
+  static final value = style(
+    size: 12,
+    weight: medium,
+    fontFeatures: const [FontFeature.tabularFigures()],
   );
 }
 

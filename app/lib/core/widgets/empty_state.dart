@@ -3,8 +3,9 @@ import 'package:flutter/widgets.dart';
 import '../design/tokens.dart';
 import 'primitives.dart';
 
-/// Centred icon-badge + title + description block, used by every empty state
-/// in the app (media pool, export queue, monitor).
+/// Empty state: a compact icon chip inline with the title, then teaching copy
+/// and actions below. The icon is a small inline mark, not a centered badge
+/// stamped above every empty space.
 class CcEmptyState extends StatelessWidget {
   const CcEmptyState({
     super.key,
@@ -31,30 +32,34 @@ class CcEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          width: badgeSize,
-          height: badgeSize,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: CcColors.elevated,
-            borderRadius: BorderRadius.circular(badgeRadius),
-            border: bordered ? CcBorders.allStrong : null,
-          ),
-          child: CcIcon(icon, size: iconSize, color: CcColors.textSecondary),
+    final actions = <Widget>[
+      Container(
+        width: 32,
+        height: 32,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: CcColors.elevated,
+          borderRadius: BorderRadius.circular(9),
+          border: bordered ? CcBorders.allStrong : null,
         ),
-        const SizedBox(height: 16),
-        Text(title, style: CcType.style(size: 13, weight: CcType.semibold)),
+        child: CcIcon(icon, size: 16, color: CcColors.textSecondary),
+      ),
+      const SizedBox(width: 12),
+      Expanded(child: Text(title, style: CcType.style(size: 13, weight: CcType.semibold))),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(children: actions),
         if (description != null) ...[
-          const SizedBox(height: 8),
-          Text(description!, textAlign: TextAlign.center, style: CcType.tiny),
+          const SizedBox(height: 10),
+          Text(description!, style: CcType.tiny),
         ],
-        if (action != null) ...[const SizedBox(height: 8), action!],
+        if (action != null) ...[const SizedBox(height: 12), Align(alignment: Alignment.centerLeft, child: action!)],
         if (footnote != null) ...[
           const SizedBox(height: 8),
-          Text(footnote!, textAlign: TextAlign.center, style: CcType.micro),
+          Text(footnote!, style: CcType.micro),
         ],
       ],
     );

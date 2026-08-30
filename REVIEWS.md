@@ -2,3 +2,4 @@
 - Autofocus textfield in the "media via URl import" dialog
 - Increase tap area on buttons
 - Pressing "Esc" should close any open modal/dialog
+- Trim white spaces

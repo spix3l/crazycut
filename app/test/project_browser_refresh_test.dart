@@ -38,7 +38,7 @@ void main() {
     final router = AppRouter();
     await tester.pumpWidget(MaterialApp.router(routerConfig: router.config()));
     await tester.pumpAndSettle();
-    expect(find.text("Let's make something"), findsOneWidget);
+    expect(find.text('Start cutting'), findsOneWidget);
 
     // What the new-project dialog does, then what the editor's back button
     // does. The dialog replaces its own route with the editor, so the browser
@@ -57,7 +57,7 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text("Let's make something"), findsNothing);
+    expect(find.text('Start cutting'), findsNothing);
     expect(find.text('Fresh cut'), findsOneWidget);
   });
 }
