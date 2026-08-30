@@ -20,7 +20,7 @@ void main() {
 
   // A 1920x1080 sequence with a 1920x1080 source clip, so source px and
   // sequence px coincide and the expected numbers are readable.
-  (EditorController, Clip, Clip) harness() {
+  (_ProbeController, Clip, Clip) harness() {
     final doc = ProjectDoc.empty('P', width: 1920, height: 1080, fps: 30);
     doc.media.add(
       MediaAsset(
@@ -66,10 +66,7 @@ void main() {
       sourceIn: Rt.zero(),
     );
     doc.clips.addAll([source, overlay]);
-    final controller = EditorController(
-      doc,
-      path: '${tmp.path}/track.crazycut',
-    );
+    final controller = _ProbeController(doc, '${tmp.path}/track.crazycut');
     return (controller, source, overlay);
   }
 
@@ -415,6 +412,32 @@ void main() {
       );
     });
 
+    test('a region is anchored to the frame it was drawn on', () {
+      // Drawing at frame 0 and drawing at 2 s are different requests: the box
+      // is positioned for the frame the user is looking at, and the solve has
+      // to start there. Anchoring both at the clip's start put the box on one
+      // frame and solved from another, which is wrong from the first sample.
+      final (c, source, _) = harness();
+      final asked = <Rt>[];
+      c.onSolveRequested = (start) => asked.add(start);
+
+      c.seekTo(source.start + Rt.fromSeconds(2));
+      c.trackRegion(
+        source,
+        quadFromRect(left: 100, top: 100, right: 500, bottom: 400),
+      );
+      expect(asked.single.seconds, closeTo(2, 1e-6));
+
+      // An explicit range still wins, for a re-solve that knows its own bounds.
+      asked.clear();
+      c.trackRegion(
+        source,
+        quadFromRect(left: 100, top: 100, right: 500, bottom: 400),
+        start: Rt.zero(),
+      );
+      expect(asked.single, Rt.zero());
+    });
+
     test('a refused region says why instead of doing nothing', () {
       // The bug this exists for: dragging a box that cannot be tracked used to
       // return null silently, so the user let go of the mouse and nothing
@@ -476,4 +499,25 @@ void main() {
       }
     });
   });
+}
+
+/// Records the range a solve was asked for instead of running one, so the
+/// request can be asserted without a worker.
+class _ProbeController extends EditorController {
+  _ProbeController(super.doc, String path) : super(path: path);
+
+  void Function(Rt start)? onSolveRequested;
+
+  @override
+  Future<Tracker?> solveTrackedRegion({
+    required String trackerId,
+    required Clip clip,
+    required MediaAsset asset,
+    required Quad searchQuad,
+    required Rt start,
+    required Rt end,
+  }) async {
+    onSolveRequested?.call(start);
+    return null;
+  }
 }

@@ -88,6 +88,11 @@ mixin AreaTrackEdits on TimelineEdits {
   /// it is converted into the clip's source px here, so the stored path is
   /// independent of sequence resolution and of the clip's own transform
   /// (**TRK-2**).
+  /// [start] defaults to the frame the user is looking at, because that is the
+  /// frame they drew the region on. Anchoring it at the clip's start instead
+  /// positions the box for one frame and solves from another, which is wrong
+  /// from the very first sample — and looks exactly like a tracker that cannot
+  /// follow anything.
   Future<Tracker?> trackRegion(
     Clip clip,
     Quad regionInSequence, {
@@ -95,13 +100,13 @@ mixin AreaTrackEdits on TimelineEdits {
     Rt? end,
   }) async {
     _trackRejection = null;
+    final from = start ?? clipLocalTime(clip);
     final asset = doc.assetById(clip.mediaId);
     if (asset == null) {
       _reject('That clip has no media to track.');
       return null;
     }
-    final source =
-        sequenceQuadToSource(clip, regionInSequence, start ?? Rt.zero());
+    final source = sequenceQuadToSource(clip, regionInSequence, from);
     if (source == null) {
       _reject(
         'That clip has not been probed yet, so there is nothing to measure '
@@ -120,7 +125,7 @@ mixin AreaTrackEdits on TimelineEdits {
       clip: clip,
       asset: asset,
       searchQuad: source,
-      start: start ?? Rt.zero(),
+      start: from,
       end: end ?? clip.duration,
     );
     if (tracker != null) {
@@ -197,7 +202,7 @@ mixin AreaTrackEdits on TimelineEdits {
       maxY = math.max(maxY, source[2 * i + 1]);
     }
     if (maxX - minX < 16 || maxY - minY < 16) {
-      return 'That region is too small to track — draw a bigger box.';
+      return 'That region is too small to track. Draw a bigger box.';
     }
     if (minX < 0 || minY < 0 || maxX > size.$1 || maxY > size.$2) {
       return 'That region falls outside the picture. Keep the box inside the '
