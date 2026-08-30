@@ -124,6 +124,149 @@ void sampleBilinear(const RgbaSurface& src, const Tap& cx, const Tap& cy,
   out[3] = quantize(acc[3]);
 }
 
+// --- Corner pin (TRK-20) ----------------------------------------------------
+
+// A quad is usable if it is simple (not self-intersecting), convex, and encloses
+// at least a pixel. A planar rectangle seen through any real camera projects to
+// a convex quad, so anything else is a degenerate solve and renders nothing
+// rather than undefined pixels (TRK-25).
+bool quadIsUsable(const std::array<double, 8>& q) {
+  double twiceArea = 0.0;
+  int sign = 0;
+  for (int i = 0; i < 4; ++i) {
+    const int j = (i + 1) % 4, k = (i + 2) % 4;
+    const double ax = q[2 * j] - q[2 * i], ay = q[2 * j + 1] - q[2 * i + 1];
+    const double bx = q[2 * k] - q[2 * j], by = q[2 * k + 1] - q[2 * j + 1];
+    const double cross = ax * by - ay * bx;
+    if (!std::isfinite(cross) || cross == 0.0) return false;
+    const int s = cross > 0 ? 1 : -1;
+    if (sign == 0) sign = s;
+    else if (s != sign) return false;
+    twiceArea += q[2 * i] * q[2 * j + 1] - q[2 * j] * q[2 * i + 1];
+  }
+  return std::abs(twiceArea) >= 2.0;
+}
+
+// Heckbert's projective mapping of the unit square (0,0),(1,0),(1,1),(0,1) onto
+// a quad given TL,TR,BR,BL. Row-major 3x3 with m[8] == 1.
+bool unitSquareToQuad(const std::array<double, 8>& q, double m[9]) {
+  const double x0 = q[0], y0 = q[1], x1 = q[2], y1 = q[3];
+  const double x2 = q[4], y2 = q[5], x3 = q[6], y3 = q[7];
+  const double sx = x0 - x1 + x2 - x3;
+  const double sy = y0 - y1 + y2 - y3;
+  double a, b, c, d, e, f, g, h;
+  if (std::abs(sx) < 1e-12 && std::abs(sy) < 1e-12) {
+    // Parallelogram: the projective terms vanish and this is a plain affine
+    // map. Taking the general branch here would divide by a near-zero
+    // determinant for no reason.
+    a = x1 - x0; b = x2 - x1; c = x0;
+    d = y1 - y0; e = y2 - y1; f = y0;
+    g = 0.0; h = 0.0;
+  } else {
+    const double dx1 = x1 - x2, dx2 = x3 - x2;
+    const double dy1 = y1 - y2, dy2 = y3 - y2;
+    const double den = dx1 * dy2 - dx2 * dy1;
+    if (std::abs(den) < 1e-12) return false;
+    g = (sx * dy2 - dx2 * sy) / den;
+    h = (dx1 * sy - sx * dy1) / den;
+    a = x1 - x0 + g * x1;  b = x3 - x0 + h * x3;  c = x0;
+    d = y1 - y0 + g * y1;  e = y3 - y0 + h * y3;  f = y0;
+  }
+  m[0] = a; m[1] = b; m[2] = c;
+  m[3] = d; m[4] = e; m[5] = f;
+  m[6] = g; m[7] = h; m[8] = 1.0;
+  return true;
+}
+
+bool invert3x3(const double m[9], double out[9]) {
+  const double c0 = m[4] * m[8] - m[5] * m[7];
+  const double c1 = m[5] * m[6] - m[3] * m[8];
+  const double c2 = m[3] * m[7] - m[4] * m[6];
+  const double det = m[0] * c0 + m[1] * c1 + m[2] * c2;
+  if (!std::isfinite(det) || std::abs(det) < 1e-12) return false;
+  const double inv = 1.0 / det;
+  out[0] = c0 * inv;
+  out[1] = (m[2] * m[7] - m[1] * m[8]) * inv;
+  out[2] = (m[1] * m[5] - m[2] * m[4]) * inv;
+  out[3] = c1 * inv;
+  out[4] = (m[0] * m[8] - m[2] * m[6]) * inv;
+  out[5] = (m[2] * m[3] - m[0] * m[5]) * inv;
+  out[6] = c2 * inv;
+  out[7] = (m[1] * m[6] - m[0] * m[7]) * inv;
+  out[8] = (m[0] * m[4] - m[1] * m[3]) * inv;
+  return true;
+}
+
+// Inverse-maps every canvas pixel in the quad's bounding box back through the
+// homography and samples the source there. Same shape as the rotated branch of
+// rasterizeLayer(), and it reuses axisTap/sampleBilinear so the inside test,
+// the flips and the filtering stay identical across all three paths.
+//
+// Framing is deliberately ignored: the quad states the destination completely,
+// so corner pin maps the whole source image onto it. That is what corner pin
+// means, and letting "fill" crop underneath it would be unpredictable.
+Error rasterizeCornerPin(const RgbaSurface& src, const std::array<double, 8>& quad,
+                         const CompositedLayer& layer, RgbaSurface* out,
+                         LayerBounds* outBounds) {
+  double fwd[9], inv[9];
+  if (!quadIsUsable(quad) || !unitSquareToQuad(quad, fwd) || !invert3x3(fwd, inv)) {
+    return Error::None;  // empty footprint; the composite pass skips the layer
+  }
+
+  // Points "behind" the plane also satisfy the u/v bounds test after the
+  // perspective divide, and would paint a mirrored ghost outside the quad.
+  // Normalizing on the centroid's w lets a plain `w > 0` reject them.
+  double cxq = 0.0, cyq = 0.0;
+  for (int i = 0; i < 4; ++i) { cxq += quad[2 * i]; cyq += quad[2 * i + 1]; }
+  cxq *= 0.25; cyq *= 0.25;
+  if (inv[6] * cxq + inv[7] * cyq + inv[8] < 0.0) {
+    for (int i = 0; i < 9; ++i) inv[i] = -inv[i];
+  }
+
+  const int W = out->width, H = out->height;
+  double minX = quad[0], maxX = quad[0], minY = quad[1], maxY = quad[1];
+  for (int i = 1; i < 4; ++i) {
+    minX = std::min(minX, quad[2 * i]);
+    maxX = std::max(maxX, quad[2 * i]);
+    minY = std::min(minY, quad[2 * i + 1]);
+    maxY = std::max(maxY, quad[2 * i + 1]);
+  }
+  const int bx0 = std::max(0, static_cast<int>(std::floor(minX)));
+  const int bx1 = std::min(W - 1, static_cast<int>(std::ceil(maxX)));
+  const int by0 = std::max(0, static_cast<int>(std::floor(minY)));
+  const int by1 = std::min(H - 1, static_cast<int>(std::ceil(maxY)));
+
+  int firstCol = W, lastCol = -1, firstRow = H, lastRow = -1;
+  for (int py = by0; py <= by1; ++py) {
+    uint8_t* row = out->rgba.data() + static_cast<size_t>(py) * W * 4;
+    const double cy = py + 0.5;
+    for (int px = bx0; px <= bx1; ++px) {
+      const double cx = px + 0.5;
+      const double w = inv[6] * cx + inv[7] * cy + inv[8];
+      if (w <= 1e-12) continue;
+      const double u = (inv[0] * cx + inv[1] * cy + inv[2]) / w;
+      const double v = (inv[3] * cx + inv[4] * cy + inv[5]) / w;
+      // k = 1: u/v are already source pixel coordinates, so axisTap's own
+      // bounds check is the inside test for the quad.
+      const Tap tapX = axisTap(u * src.width, 1.0, src.width, layer.flipH);
+      const Tap tapY = axisTap(v * src.height, 1.0, src.height, layer.flipV);
+      if (tapX.a < 0 || tapY.a < 0) continue;
+      if (px < firstCol) firstCol = px;
+      if (px > lastCol) lastCol = px;
+      if (py < firstRow) firstRow = py;
+      if (py > lastRow) lastRow = py;
+      uint8_t px4[4];
+      sampleBilinear(src, tapX, tapY, px4);
+      if (px4[3] == 0) continue;
+      std::memcpy(row + static_cast<size_t>(px) * 4, px4, 4);
+    }
+  }
+  if (outBounds && lastCol >= 0 && lastRow >= 0) {
+    *outBounds = LayerBounds{firstCol, firstRow, lastCol, lastRow};
+  }
+  return Error::None;
+}
+
 double paramNum(const json& transform, const char* key, double fallback) {
   const auto it = transform.find(key);
   if (it == transform.end() || it->is_null()) return fallback;
@@ -148,6 +291,7 @@ void applyTransformJson(const json& transform, const RationalTime& local,
     layer->x = 0; layer->y = 0; layer->scale = 1.0; layer->rotationDeg = 0;
     layer->opacity = 1.0; layer->anchorX = 0; layer->anchorY = 0;
     layer->flipH = false; layer->flipV = false;
+    layer->corners.reset();
     return;
   }
   auto evalNum = [&](const char* key, double def) {
@@ -174,6 +318,32 @@ void applyTransformJson(const json& transform, const RationalTime& local,
   }
   layer->flipH = transform.value("flipH", false);
   layer->flipV = transform.value("flipV", false);
+
+  // Corner pin (TRK-20). Stored in document px like x/y, so it goes through the
+  // same positionScale as they do — a preview rendered small pins the overlay
+  // to the same place the delivered frame does.
+  layer->corners.reset();
+  const auto cit = transform.find("corners");
+  if (cit != transform.end() && !cit->is_null()) {
+    // Either the {static,keyframes} param form or a bare quad, as every other
+    // transform value may be written (see evaluatedParam above).
+    json quad;
+    bool haveQuad = cit->is_array();
+    if (haveQuad) quad = *cit;
+    else haveQuad = evaluateParameter(*cit, local, &quad) == Error::None;
+    if (haveQuad && quad.is_array() && quad.size() == 8) {
+      std::array<double, 8> corners{};
+      bool ok = true;
+      for (size_t i = 0; i < 8 && ok; ++i) {
+        ok = quad[i].is_number() && std::isfinite(quad[i].get<double>());
+        if (ok) {
+          corners[i] = quad[i].get<double>() *
+                       (i % 2 == 0 ? ctx.positionScaleX : ctx.positionScaleY);
+        }
+      }
+      if (ok) layer->corners = corners;
+    }
+  }
 }
 
 Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
@@ -187,6 +357,12 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
   // Nothing written yet; an early return leaves an empty footprint, which the
   // composite pass reads as "skip this layer".
   if (outBounds) *outBounds = LayerBounds{0, 0, -1, -1};
+
+  // A corner pin states its destination outright, so it supersedes framing and
+  // the whole position/scale/rotation chain below (TRK-20).
+  if (layer.corners) {
+    return rasterizeCornerPin(src, *layer.corners, layer, out, outBounds);
+  }
 
   // --- Framing: source px → canvas px, per axis -----------------------------
   // kx/ky are the whole mapping: framing chooses how the source is fitted to

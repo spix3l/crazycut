@@ -9,6 +9,7 @@ import '../../../../core/widgets/rgba_frame.dart';
 import '../../../../models/rational.dart';
 import '../../../../state/editor_controller.dart';
 import '../../../../state/preview_renderer.dart';
+import 'area_track_overlay.dart';
 import 'canvas_gizmo.dart';
 
 /// Centre column: overlay toggles, the program monitor and the transport bar.
@@ -64,7 +65,12 @@ class _MonitorPanelState extends State<MonitorPanel> {
           // TXT-6: move/resize/rotate handles over the frame.
           // Layered above the preview but only claims pointers
           // that land on it, so the double-tap above survives.
-          if (!empty) CanvasGizmo(controller: c),
+          // The two canvas tools are mutually exclusive: arming the region
+          // tool takes the transform handles off the frame, so a drag is never
+          // ambiguous about which one it meant.
+          if (!empty && !c.trackToolActive) CanvasGizmo(controller: c),
+          // TRK-1/2: draw a region to track, or correct the tracked quad.
+          if (!empty && c.trackToolActive) AreaTrackOverlay(controller: c),
           if (c.showCanvasGrid) const IgnorePointer(child: _GridOverlay()),
           if (c.showSafeMargins)
             const IgnorePointer(child: _SafeMarginsOverlay()),

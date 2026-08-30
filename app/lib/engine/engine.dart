@@ -105,7 +105,7 @@ class CrazyCutEngine {
   late final ffi.DynamicLibrary _lib;
   late final CrazyCutNativeBindings _native = CrazyCutNativeBindings(_lib);
 
-  static const int expectedAbiVersion = 3;
+  static const int expectedAbiVersion = 4;
 
   ffi.Pointer<cc_engine>? _handle;
 

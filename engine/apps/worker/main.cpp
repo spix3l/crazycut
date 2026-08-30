@@ -20,6 +20,7 @@ extern "C" {
 
 #include "ffmpeg_compat.h"
 #include "media/transcribe.h"
+#include "track/solve.hpp"
 #include "timeline_job.hpp"
 
 using nlohmann::json;
@@ -448,6 +449,121 @@ int run(const Job& job) {
   }
 }
 
+/// Area-tracking job (TRK-5).
+///
+/// Here for the same reasons transcription is: it runs for a long time on a
+/// decode-bound loop, has to report progress and stay cancellable while the
+/// user keeps editing, and a wedged computer-vision solve must not be able to
+/// take the editor down with it.
+int runTrackJob(const json& spec) {
+  const std::string input = spec.value("input", "");
+  const std::string output = spec.value("output", "");
+  if (input.empty() || output.empty()) {
+    emitFail("track job needs both input and output paths");
+    return 2;
+  }
+  if (!cc::trackingAvailable()) {
+    emitFail(
+        "this build of CrazyCut has no area tracking support "
+        "(configure the engine with -DCC_WITH_TRACKING=ON)");
+    return 2;
+  }
+
+  cc::TrackRequest request;
+  request.mediaPath = input;
+  request.startSec = spec.value("startSec", 0.0);
+  request.endSec = spec.value("endSec", 0.0);
+  request.fps = spec.value("fps", 0.0);
+  request.analysisWidth = spec.value("analysisWidth", 720);
+
+  const auto quad = spec.find("quad");
+  if (quad == spec.end() || !quad->is_array() || quad->size() != 8) {
+    emitFail("track job needs a quad of 8 numbers");
+    return 2;
+  }
+  for (size_t i = 0; i < 8; ++i) {
+    if (!(*quad)[i].is_number()) {
+      emitFail("track job quad must be numeric");
+      return 2;
+    }
+    request.searchQuad[i] = (*quad)[i].get<double>();
+  }
+
+  emit(json{{"type", "started"},
+            {"input", input},
+            {"startSec", request.startSec},
+            {"endSec", request.endSec},
+            {"fps", request.fps}});
+
+  const auto begin = std::chrono::steady_clock::now();
+  int lastPercent = -1;
+  cc::TrackResult result;
+  const cc::Error error =
+      cc::solveRegion(request, &result, [&](double fraction) {
+        const int percent = static_cast<int>(fraction * 100.0);
+        if (percent != lastPercent) {
+          lastPercent = percent;
+          emit(json{{"type", "progress"}, {"percent", percent}});
+        }
+        return true;
+      });
+
+  if (error == cc::Error::Cancelled) {
+    emitFail("tracking cancelled");
+    return 1;
+  }
+  if (error != cc::Error::None) {
+    emitFail(cc::lastError());
+    return 1;
+  }
+
+  json path = json::array();
+  json confidence = json::array();
+  for (const auto& sample : result.samples) {
+    for (const double v : sample.quad) path.push_back(v);
+    confidence.push_back(sample.confidence);
+  }
+  const json payload = {{"algorithm", "lk-homography"},
+                        {"algorithmVersion", 1},
+                        {"analysisWidth", request.analysisWidth},
+                        {"fps", result.fps},
+                        {"stride", result.stride},
+                        {"path", std::move(path)},
+                        {"confidence", std::move(confidence)}};
+
+  // .part then rename, like every other artefact the worker writes (EXP-13):
+  // a killed run must never leave a half-solved path for the next session to
+  // trust (TRK-10).
+  const std::string partial = output + ".part";
+  {
+    std::ofstream file(partial, std::ios::binary | std::ios::trunc);
+    if (!file) {
+      emitFail("cannot write track to " + partial);
+      return 1;
+    }
+    file << payload.dump();
+    if (!file) {
+      emitFail("failed while writing " + partial);
+      return 1;
+    }
+  }
+  std::remove(output.c_str());
+  if (std::rename(partial.c_str(), output.c_str()) != 0) {
+    std::remove(partial.c_str());
+    emitFail("cannot move track into place at " + output);
+    return 1;
+  }
+
+  const double elapsed =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - begin)
+          .count();
+  emit(json{{"type", "done"},
+            {"seconds", elapsed},
+            {"samples", static_cast<long long>(result.samples.size())},
+            {"fps", result.fps}});
+  return 0;
+}
+
 /// Speech-to-text job (AI-20).
 ///
 /// Lives in the worker rather than on the UI isolate for the same reason
@@ -564,6 +680,9 @@ int main(int argc, char** argv) {
     }
     if (spec.value("type", "") == "transcribe") {
       return runTranscribeJob(spec);
+    }
+    if (spec.value("type", "") == "track") {
+      return runTrackJob(spec);
     }
     const Job job = loadJob(spec);
     return run(job);

@@ -16,7 +16,10 @@ import 'package:crazycut_app/data/repository.dart';
 import 'package:crazycut_app/data/template.dart';
 import 'package:crazycut_app/engine/engine.dart';
 import 'package:crazycut_app/models/rational.dart';
+import 'package:crazycut_app/data/area_track.dart';
+import 'package:crazycut_app/state/area_track_edits.dart';
 import 'package:crazycut_app/state/audio_edits.dart';
+import 'package:crazycut_app/state/tracking_service.dart';
 import 'package:crazycut_app/state/auto_captions.dart';
 import 'package:crazycut_app/state/caption_edits.dart';
 import 'package:crazycut_app/state/caption_rasterizer.dart';
@@ -158,7 +161,7 @@ const kSupportedExtensions = {
 /// document edits (via [TimelineEdits]), the media pool, playback, the preview
 /// frame, autosave and proxies.
 class EditorController extends ChangeNotifier
-    with TimelineEdits, CaptionEdits, AudioEdits, TemplateEdits {
+    with TimelineEdits, CaptionEdits, AudioEdits, TemplateEdits, AreaTrackEdits {
   EditorController(
     this.doc, {
     required String path,
@@ -1636,8 +1639,38 @@ class EditorController extends ChangeNotifier
     return null;
   }
 
+  /// Routes an area-tracking solve through [TrackingService] (**TRK-5**): the
+  /// worker sidecar, the export queue's progress/ETA/cancel vocabulary, and no
+  /// document mutation until it lands. [AreaTrackEdits] installs the result as
+  /// one undoable command.
+  @override
+  Future<Tracker?> solveTrackedRegion({
+    required String trackerId,
+    required Clip clip,
+    required MediaAsset asset,
+    required Quad searchQuad,
+    required Rt start,
+    required Rt end,
+  }) {
+    return TrackingService.instance.solve(
+      TrackingRequest(
+        trackerId: trackerId,
+        asset: asset,
+        sourceClipId: clip.id,
+        searchQuad: searchQuad,
+        startTime: start,
+        endTime: end,
+        // Solve at the sequence rate: the path is consumed per rendered frame,
+        // and solving finer than the timeline can show is work nobody sees.
+        fps: Rt(frameDuration.den, frameDuration.num),
+        label: clip.label,
+      ),
+    );
+  }
+
   /// Clip the on-canvas transform gizmo should target: the selection when it
   /// is a rasterised visual clip under the playhead, otherwise the topmost one.
+  @override
   Clip? gizmoClipUnderPlayhead() {
     for (final id in selection) {
       final clip = doc.clipById(id);
@@ -1674,6 +1707,7 @@ class EditorController extends ChangeNotifier
 
   /// Natural pixel size of a clip's source, or null when the asset/text raster
   /// has not been measured yet and the gizmo has nothing truthful to outline.
+  @override
   (int, int)? gizmoSourceSize(Clip clip) {
     if (clip.text case final text?) {
       return _textGizmoSizes[clip.id] ??
@@ -1696,6 +1730,7 @@ class EditorController extends ChangeNotifier
 
   /// Clip-local time canvas edits read and write at — the same value the
   /// inspector's transform rows pass to [setTransformParam].
+  @override
   Rt clipLocalTime(Clip clip) =>
       playhead.minus(clip.start).clampTo(Rt.zero(), clip.duration);
 
@@ -1707,6 +1742,7 @@ class EditorController extends ChangeNotifier
 
   /// The clip's unrotated rect in sequence pixels at the current playhead, or
   /// null when the source was never probed.
+  @override
   Rect? clipRectInSequence(Clip clip) {
     final size = gizmoSourceSize(clip);
     if (size == null) return null;
@@ -1747,6 +1783,7 @@ class EditorController extends ChangeNotifier
     );
   }
 
+  @override
   double clipRotation(Clip clip) =>
       evalTransformNum(clip.transformOrDefault.rotation, clip, 0);
 

@@ -9,7 +9,9 @@
 #define CC_EXPORT __attribute__((visibility("default")))
 #endif
 
-#define CC_ABI_VERSION 3
+// 4: the project snapshot gained `trackers[]` and the transform's `corners`
+// param (docs/03-features/tracking.md, TRK-13/TRK-20).
+#define CC_ABI_VERSION 4
 
 #ifdef __cplusplus
 extern "C" {

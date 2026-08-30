@@ -28,6 +28,16 @@ nlohmann::json interpolate(const nlohmann::json& a, const nlohmann::json& b, dou
     }
     return result;
   }
+  // Same rule one dimension over, for fixed-arity vector params — the corner-pin
+  // quad (TRK-20). Mismatched lengths are not a shape we can blend, so they fall
+  // through to the hold below rather than producing a ragged result.
+  if (a.is_array() && b.is_array() && a.size() == b.size()) {
+    nlohmann::json result = a;
+    for (size_t i = 0; i < result.size(); ++i) {
+      result[i] = interpolate(a[i], b[i], x);
+    }
+    return result;
+  }
   return x < 1.0 ? a : b;
 }
 

@@ -1,6 +1,7 @@
 #include "model/project.h"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <set>
 #include <unordered_map>
@@ -41,40 +42,71 @@ bool canonicalizeTime(json* owner, const char* key, bool allowZero,
   return true;
 }
 
-bool keyframesValid(json* clip, std::vector<ValidationIssue>* issues,
-                    const RationalTime& duration) {
-  if (!clip->contains("effects") || !(*clip)["effects"].is_array()) return true;
+// One param bag — an effect's `params`, or the clip transform itself, which
+// uses the same encoding (02-data-model.md §5). Keys that are not animatable
+// params (transform's flipH/framing) simply have no "keyframes" and are skipped.
+bool paramsKeyframesValid(json* params, const char* what,
+                          std::vector<ValidationIssue>* issues,
+                          const std::string& clipId,
+                          const RationalTime& duration) {
+  if (!params->is_object()) return true;
   bool valid = true;
-  for (auto& effect : (*clip)["effects"]) {
-    if (!effect.is_object() || !effect.contains("params") ||
-        !effect["params"].is_object()) continue;
-    for (auto& [name, param] : effect["params"].items()) {
-      if (!param.is_object() || !param.contains("keyframes")) continue;
-      if (!param["keyframes"].is_array()) {
-        addIssue(issues, "invalid_keyframes", "clip", idOf(*clip),
-                 "effect parameter " + name + " keyframes must be an array", false);
+  for (auto& [name, param] : params->items()) {
+    if (!param.is_object() || !param.contains("keyframes")) continue;
+    if (!param["keyframes"].is_array()) {
+      addIssue(issues, "invalid_keyframes", "clip", clipId,
+               std::string(what) + " " + name + " keyframes must be an array", false);
+      valid = false;
+      continue;
+    }
+    RationalTime previous{-1, 1};
+    for (auto& key : param["keyframes"]) {
+      if (!key.is_object() || !key.contains("t")) {
         valid = false;
         continue;
       }
-      RationalTime previous{-1, 1};
-      for (auto& key : param["keyframes"]) {
-        if (!key.is_object() || !key.contains("t")) {
-          valid = false;
-          continue;
-        }
-        const auto t = parseJsonTime(key["t"]);
-        if (!t || *t < RationalTime{} || *t > duration || *t <= previous) {
-          addIssue(issues, "invalid_keyframe_time", "clip", idOf(*clip),
-                   "keyframes must be strictly increasing and inside the clip", false);
-          valid = false;
-          break;
-        }
-        key["t"] = t->toString();
-        previous = *t;
+      const auto t = parseJsonTime(key["t"]);
+      if (!t || *t < RationalTime{} || *t > duration || *t <= previous) {
+        addIssue(issues, "invalid_keyframe_time", "clip", clipId,
+                 "keyframes must be strictly increasing and inside the clip", false);
+        valid = false;
+        break;
       }
+      key["t"] = t->toString();
+      previous = *t;
     }
   }
   return valid;
+}
+
+bool keyframesValid(json* clip, std::vector<ValidationIssue>* issues,
+                    const RationalTime& duration) {
+  const std::string clipId = idOf(*clip);
+  bool valid = true;
+  if (clip->contains("effects") && (*clip)["effects"].is_array()) {
+    for (auto& effect : (*clip)["effects"]) {
+      if (!effect.is_object() || !effect.contains("params")) continue;
+      valid = paramsKeyframesValid(&effect["params"], "effect parameter", issues,
+                                   clipId, duration) && valid;
+    }
+  }
+  // FX-9's built-in transform is keyframed through the same encoding but was
+  // never walked here. A tracked `corners` quad (TRK-20) rides on it, so the
+  // gap stops being cosmetic: a bad key time would reach the compositor.
+  if (clip->contains("transform")) {
+    valid = paramsKeyframesValid(&(*clip)["transform"], "transform parameter",
+                                 issues, clipId, duration) && valid;
+  }
+  return valid;
+}
+
+// A flat array of exactly [count] finite numbers.
+bool isNumberArray(const json& value, size_t count) {
+  if (!value.is_array() || value.size() != count) return false;
+  for (const auto& n : value) {
+    if (!n.is_number() || !std::isfinite(n.get<double>())) return false;
+  }
+  return true;
 }
 
 }  // namespace
@@ -110,7 +142,8 @@ Error ProjectSnapshot::load(const std::string& jsonText, bool repairInvalid) {
                                 : "unsupported project schema: " + schema);
     return Error::InvalidArgument;
   }
-  for (const char* field : {"media", "tracks", "clips", "transitions", "markers"}) {
+  for (const char* field :
+       {"media", "tracks", "clips", "transitions", "markers", "trackers"}) {
     if (!document_.contains(field)) document_[field] = json::array();
     if (!document_[field].is_array()) {
       setLastError(std::string("project field must be an array: ") + field);
@@ -239,6 +272,73 @@ Error ProjectSnapshot::load(const std::string& jsonText, bool repairInvalid) {
                   "transition references invalid or cross-track clips", true);
   }
   if (repairInvalid) document_["transitions"] = std::move(validTransitions);
+
+  // Trackers (TRK-13/16). A tracker is dense derived data that lives in the
+  // document, so a corrupt one must be quarantined rather than reaching the
+  // compositor as a garbage quad.
+  std::unordered_set<std::string> trackerIds;
+  json validTrackers = json::array();
+  for (auto tracker : document_["trackers"]) {
+    const std::string id = idOf(tracker);
+    std::string why;
+    if (id.empty() || !trackerIds.insert(id).second) {
+      why = "tracker ids must be non-empty and unique";
+    } else if (!mediaIds.count(tracker.value("mediaId", ""))) {
+      why = "tracker mediaId does not resolve";
+    } else if (!clipsById.count(tracker.value("sourceClipId", ""))) {
+      why = "tracker sourceClipId does not resolve";
+    } else if (!isNumberArray(tracker.value("searchQuad", json()), 8)) {
+      why = "searchQuad must be 8 numbers";
+    } else if (!tracker.contains("path") || !tracker["path"].is_array() ||
+               tracker["path"].empty() || tracker["path"].size() % 8 != 0 ||
+               !isNumberArray(tracker["path"], tracker["path"].size())) {
+      why = "path must be a non-empty multiple of 8 numbers";
+    } else if (!isNumberArray(tracker.value("confidence", json()),
+                              tracker["path"].size() / 8)) {
+      why = "confidence must hold one number per path sample";
+    } else if (!tracker.contains("fps") || !parseJsonTime(tracker["fps"]) ||
+               parseJsonTime(tracker["fps"])->num <= 0) {
+      why = "tracker fps must be a positive rational";
+    }
+    if (why.empty()) {
+      const RationalTime clipDuration =
+          parseJsonTime(clipsById[tracker.value("sourceClipId", "")]["duration"])
+              .value_or(RationalTime{});
+      const bool timesOk =
+          canonicalizeTime(&tracker, "startTime", true, &issues_, "tracker", id) &&
+          canonicalizeTime(&tracker, "endTime", false, &issues_, "tracker", id);
+      const auto startTime = timesOk ? parseJsonTime(tracker["startTime"]) : std::nullopt;
+      const auto endTime = timesOk ? parseJsonTime(tracker["endTime"]) : std::nullopt;
+      if (!startTime || !endTime || !(*endTime > *startTime) ||
+          *endTime > clipDuration) {
+        why = "tracker range must be inside its clip and non-empty";
+      } else {
+        tracker["fps"] = parseJsonTime(tracker["fps"])->toString();
+      }
+    }
+    if (!why.empty()) {
+      trackerIds.erase(id);
+      addIssue(&issues_, "invalid_tracker", "tracker", id, why, repairInvalid);
+      if (!repairInvalid) validTrackers.push_back(std::move(tracker));
+      continue;
+    }
+    validTrackers.push_back(std::move(tracker));
+  }
+  document_["trackers"] = std::move(validTrackers);
+
+  // A pin to a tracker that did not survive would leave the clip asking the
+  // compositor for a pose nothing can supply, so it is dropped here (TRK-22).
+  for (auto& clip : document_["clips"]) {
+    if (!clip.is_object() || !clip.contains("extra") || !clip["extra"].is_object()) continue;
+    auto& extra = clip["extra"];
+    const auto pin = extra.find("trackPin");
+    if (pin == extra.end()) continue;
+    if (!pin->is_object() || !trackerIds.count(pin->value("trackerId", ""))) {
+      addIssue(&issues_, "dangling_track_pin", "clip", idOf(clip),
+               "clip was unpinned: its tracker is missing or invalid", true);
+      extra.erase("trackPin");
+    }
+  }
 
   for (auto& [trackId, trackRanges] : ranges) {
     std::sort(trackRanges.begin(), trackRanges.end(),

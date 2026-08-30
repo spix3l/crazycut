@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:crazycut_app/data/project.dart';
+import 'package:crazycut_app/data/area_track.dart';
 import 'package:crazycut_app/data/caption.dart';
 import 'package:crazycut_app/data/transition.dart';
 
@@ -47,6 +48,7 @@ class DocumentEdit implements Command {
     this.markers = const {},
     this.transitions = const {},
     this.captionTracks = const {},
+    this.trackers = const {},
     this.nameBefore,
     this.nameAfter,
     this.settingsBefore,
@@ -64,6 +66,11 @@ class DocumentEdit implements Command {
   final Map<String, EntityDelta> transitions;
   final Map<String, EntityDelta> captionTracks;
 
+  /// Tracker deltas, so installing or re-solving a path is ONE undo step
+  /// (**TRK-15**). Snapshotting the entity rather than the whole document is
+  /// what keeps that inside the 50 ms commit budget even for a dense path.
+  final Map<String, EntityDelta> trackers;
+
   final String? nameBefore;
   final String? nameAfter;
   final Map<String, dynamic>? settingsBefore;
@@ -75,6 +82,7 @@ class DocumentEdit implements Command {
       markers.values.every((d) => d.isNoop) &&
       transitions.values.every((d) => d.isNoop) &&
       captionTracks.values.every((d) => d.isNoop) &&
+      trackers.values.every((d) => d.isNoop) &&
       nameBefore == nameAfter &&
       (settingsBefore == null ||
           jsonEncode(settingsBefore) == jsonEncode(settingsAfter));
@@ -95,6 +103,9 @@ class DocumentEdit implements Command {
       total += d.sizeBytes;
     }
     for (final d in captionTracks.values) {
+      total += d.sizeBytes;
+    }
+    for (final d in trackers.values) {
       total += d.sizeBytes;
     }
     return total;
@@ -126,6 +137,9 @@ class DocumentEdit implements Command {
       if (side(delta) == null) {
         doc.captionTracks.removeWhere((t) => t.id == id);
       }
+    });
+    trackers.forEach((id, delta) {
+      if (side(delta) == null) doc.trackers.removeWhere((t) => t.id == id);
     });
 
     tracks.forEach((id, delta) {
@@ -173,6 +187,19 @@ class DocumentEdit implements Command {
       }
     });
 
+    trackers.forEach((id, delta) {
+      final json = side(delta);
+      if (json == null) return;
+      final tracker = Tracker.fromJson(json);
+      if (tracker == null) return;
+      final at = doc.trackers.indexWhere((t) => t.id == id);
+      if (at >= 0) {
+        doc.trackers[at] = tracker;
+      } else {
+        doc.trackers.add(tracker);
+      }
+    });
+
     final name = forward ? nameAfter : nameBefore;
     if (name != null) doc.name = name;
     final settings = forward ? settingsAfter : settingsBefore;
@@ -206,6 +233,7 @@ class EditTransaction {
   final Map<String, Map<String, dynamic>?> _markers = {};
   final Map<String, Map<String, dynamic>?> _transitions = {};
   final Map<String, Map<String, dynamic>?> _captionTracks = {};
+  final Map<String, Map<String, dynamic>?> _trackers = {};
   String? _nameBefore;
   Map<String, dynamic>? _settingsBefore;
 
@@ -257,6 +285,12 @@ class EditTransaction {
   void captionTrack(String id) => _captionTracks.putIfAbsent(
     id,
     () => _deepCopyJson(doc.captionTrackById(id)?.toJson()),
+  );
+
+  /// Snapshots a whole tracker, path included (**TRK-15**).
+  void tracker(String id) => _trackers.putIfAbsent(
+    id,
+    () => _deepCopyJson(doc.trackerById(id)?.toJson()),
   );
 
   /// The "before" JSON snapshotted for [id], or null when untouched/absent.
@@ -312,6 +346,13 @@ class EditTransaction {
           entry.key: EntityDelta(
             entry.value,
             _deepCopyJson(doc.captionTrackById(entry.key)?.toJson()),
+          ),
+      },
+      trackers: {
+        for (final entry in _trackers.entries)
+          entry.key: EntityDelta(
+            entry.value,
+            _deepCopyJson(doc.trackerById(entry.key)?.toJson()),
           ),
       },
       nameBefore: _nameBefore,

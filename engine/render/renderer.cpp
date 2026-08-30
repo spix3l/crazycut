@@ -206,6 +206,10 @@ bool hasNonIdentityTransform(const json& clip, int width, int height) {
   ctx.sequenceHeight = height;
   CompositedLayer layer;
   applyTransformJson(transform, RationalTime{}, ctx, &layer);
+  // A corner pin (TRK-20/24) is a projective warp, so the clip is never a
+  // frame the encoder can copy through untouched — even when its quad happens
+  // to sit on the canvas edges.
+  if (layer.corners) return true;
   return !(layer.x == 0.0 && layer.y == 0.0 && layer.scale == 1.0 &&
            layer.rotationDeg == 0.0 && layer.anchorX == 0.0 &&
            layer.anchorY == 0.0 && !layer.flipH && !layer.flipV &&
@@ -525,7 +529,7 @@ Error renderFrame(const RenderIndex& index, const RationalTime& time, int width,
       // The normal playback path is already decoded at canvas width. Avoid a
       // second full-frame raster pass when no geometric transform is present.
       const bool passthrough =
-          surf->width == ctx.sequenceWidth &&
+          !layer.corners && surf->width == ctx.sequenceWidth &&
           surf->height == ctx.sequenceHeight && layer.x == 0.0 &&
           layer.y == 0.0 && layer.scale == 1.0 &&
           layer.rotationDeg == 0.0 && layer.anchorX == 0.0 &&

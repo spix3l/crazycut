@@ -27,6 +27,10 @@ brew install cmake ffmpeg
 flutter --version   # 3.24+ stable required
 
 # Build engine + run tests.
+# The first configure fetches and builds OpenCV for area tracking, which
+# dominates a cold build. It is trimmed to four modules and built static, so
+# nothing extra ships; pass -DCC_WITH_TRACKING=OFF to skip it entirely (the
+# engine still builds and reports "not built with area tracking support").
 # Use RelWithDebInfo, not Debug: the compositor is a per-pixel CPU pipeline and
 # an unoptimized build renders preview frames roughly ten times slower, which
 # is the difference between realtime playback and a slideshow.
@@ -37,7 +41,8 @@ ctest --test-dir engine/build --output-on-failure
 # Regenerate Dart FFI bindings after editing engine/bindings/crazycut.h
 bash tools/generate-bindings.sh
 
-# Generate a local test clip (git-ignored)
+# Generate local test clips (git-ignored), including the known-motion clip the
+# area-tracking tests measure against. Those tests skip without it.
 bash tools/make-fixture.sh
 
 # Package a distributable macOS app + DMG. The bundle embeds the engine, the

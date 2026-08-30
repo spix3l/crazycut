@@ -19,4 +19,23 @@ ffmpeg -y -hide_banner -loglevel error \
   -loop 0 \
   "$OUT/animated.gif"
 
-echo "wrote $OUT/sample.mp4 and $OUT/animated.gif"
+# A clip for the area tracker with known ground truth: a richly textured still,
+# panned by exactly 2 px per frame. Anything tracked in it must translate by
+# -2 px in x per frame and hold its y and its size (docs/03-features/tracking.md).
+#
+# testsrc2 is useless here — flat colour bars with a flickering checkerboard is
+# close to the worst case for feature tracking, and nothing in it has a knowable
+# position. The input framerate is pinned because `n` in the crop expression
+# counts *input* frames: leaving it to default to 25 while the output is 30 makes
+# the real motion 1.667 px per output frame, not 2, and every assertion built on
+# it is quietly wrong.
+ffmpeg -y -hide_banner -loglevel error \
+  -f lavfi -i "mandelbrot=size=1280x720:rate=1" -frames:v 1 "$OUT/track-texture.png"
+ffmpeg -y -hide_banner -loglevel error \
+  -loop 1 -framerate 30 -i "$OUT/track-texture.png" -t 3 \
+  -vf "crop=640:360:x='2*n':y=180,format=yuv420p" \
+  -c:v libx264 -preset veryfast -crf 12 -r 30 \
+  "$OUT/track-pan.mp4"
+rm -f "$OUT/track-texture.png"
+
+echo "wrote $OUT/sample.mp4, $OUT/animated.gif and $OUT/track-pan.mp4"

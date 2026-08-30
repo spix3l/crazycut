@@ -59,6 +59,7 @@ void main() {
     required double y,
     required double scale,
     int renderWidth = seqW,
+    List<double>? corners,
   }) {
     final doc = ProjectDoc.empty('P', width: seqW, height: seqH, fps: 30);
     doc.media.add(
@@ -86,6 +87,7 @@ void main() {
           x: ParamValue.staticNum(x),
           y: ParamValue.staticNum(y),
           scale: ParamValue.staticNum(scale),
+          corners: corners == null ? null : ParamValue.quad(corners),
           framing: framing,
         ),
       ),
@@ -260,5 +262,112 @@ void main() {
     expect(drawn!.left, closeTo(start.left, 1));
     expect(drawn.top, closeTo(start.top, 1));
     expect(drawn.width, greaterThan(start.width));
+  });
+
+  // --- Corner pin (TRK-20) ---------------------------------------------------
+  //
+  // The pinned overlay's four drag handles are drawn from the same quad the
+  // engine warps to. `Homography` and `quadBounds` in canvas_geometry.dart are
+  // a second implementation of `rasterizeCornerPin`, so they get the same
+  // treatment the transform rect does: render for real, look at the pixels.
+
+  Future<void> expectQuadParity(
+    List<double> corners, {
+    int srcW = 400,
+    int srcH = 400,
+    int renderWidth = seqW,
+  }) async {
+    final path = await source(srcW, srcH);
+    final drawn = drawnRect(
+      path: path,
+      srcW: srcW,
+      srcH: srcH,
+      framing: 'fit',
+      x: 0,
+      y: 0,
+      scale: 100,
+      renderWidth: renderWidth,
+      corners: corners,
+    );
+    final predicted = quadBounds(corners);
+    expect(drawn, isNotNull, reason: 'the engine drew nothing for $corners');
+    final slack = seqW / renderWidth;
+    final reason = 'quad=$corners render=$renderWidth';
+    expect(drawn!.left, closeTo(predicted.left.clamp(0, seqW), slack),
+        reason: reason);
+    expect(drawn.top, closeTo(predicted.top.clamp(0, seqH), slack),
+        reason: reason);
+    expect(drawn.right, closeTo(predicted.right.clamp(0, seqW), slack),
+        reason: reason);
+    expect(drawn.bottom, closeTo(predicted.bottom.clamp(0, seqH), slack),
+        reason: reason);
+  }
+
+  test('a corner-pinned overlay fills the quad the handles draw', () async {
+    // Axis-aligned, then rolled, then a genuine perspective trapezoid.
+    await expectQuadParity([100, 60, 500, 60, 500, 300, 100, 300]);
+    await expectQuadParity([120, 40, 520, 90, 500, 320, 100, 270]);
+    await expectQuadParity([80, 40, 560, 40, 460, 320, 180, 320]);
+  });
+
+  test('a corner pin lands in the same place on a smaller preview', () async {
+    // Corners are document px like x/y, so a half-size preview must pin the
+    // overlay to the same relative place the delivered frame does.
+    for (final renderWidth in [seqW, seqW ~/ 2, 200]) {
+      await expectQuadParity(
+        [80, 40, 560, 40, 460, 320, 180, 320],
+        renderWidth: renderWidth,
+      );
+    }
+  });
+
+  test('an identity quad draws exactly what no quad draws', () async {
+    // Pinning a layer to the rectangle it already occupies must not move a
+    // pixel, or corner pin has silently degraded the ordinary path.
+    const srcW = 640;
+    const srcH = 360;
+    final path = await source(srcW, srcH);
+    final plain = drawnRect(
+      path: path, srcW: srcW, srcH: srcH, framing: 'fit',
+      x: 0, y: 0, scale: 100,
+    );
+    final pinned = drawnRect(
+      path: path, srcW: srcW, srcH: srcH, framing: 'fit',
+      x: 0, y: 0, scale: 100,
+      corners: [0, 0, seqW.toDouble(), 0, seqW.toDouble(), seqH.toDouble(), 0,
+                seqH.toDouble()],
+    );
+    expect(pinned, plain);
+  });
+
+  test('the Dart homography agrees with the quad it was built from', () async {
+    final quad = [80.0, 40.0, 560.0, 40.0, 460.0, 320.0, 180.0, 320.0];
+    final h = Homography.unitSquareToQuad(quad);
+    expect(h, isNotNull);
+    // Corner round-trip: the unit square's corners must map onto the quad's.
+    const unit = [
+      ui.Offset(0, 0), ui.Offset(1, 0), ui.Offset(1, 1), ui.Offset(0, 1),
+    ];
+    for (var i = 0; i < 4; i += 1) {
+      final mapped = h!.apply(unit[i])!;
+      expect(mapped.dx, closeTo(quad[2 * i], 1e-9), reason: 'corner $i x');
+      expect(mapped.dy, closeTo(quad[2 * i + 1], 1e-9), reason: 'corner $i y');
+    }
+    // And the inverse takes them back.
+    final inv = h!.inverse;
+    expect(inv, isNotNull);
+    for (var i = 0; i < 4; i += 1) {
+      final back = inv!.apply(ui.Offset(quad[2 * i], quad[2 * i + 1]))!;
+      expect(back.dx, closeTo(unit[i].dx, 1e-9), reason: 'inverse $i x');
+      expect(back.dy, closeTo(unit[i].dy, 1e-9), reason: 'inverse $i y');
+    }
+  });
+
+  test('quadContains agrees with where the engine painted', () async {
+    final quad = [80.0, 40.0, 560.0, 40.0, 460.0, 320.0, 180.0, 320.0];
+    // The centroid is inside; a point just outside a corner is not.
+    expect(quadContains(quad, const ui.Offset(320, 180)), isTrue);
+    expect(quadContains(quad, const ui.Offset(5, 5)), isFalse);
+    expect(quadContains(quad, const ui.Offset(600, 350)), isFalse);
   });
 }

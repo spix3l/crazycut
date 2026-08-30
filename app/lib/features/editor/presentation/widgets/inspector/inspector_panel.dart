@@ -3,12 +3,14 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../../../core/design/tokens.dart';
 import '../../../../../core/widgets/primitives.dart';
+import '../../../../../data/area_track.dart';
 import '../../../../../data/project.dart';
 import '../../../../../models/rational.dart';
 import '../../../../../state/editor_controller.dart';
 import 'inspector_effects_tab.dart';
 import 'inspector_rows.dart';
 import 'inspector_text_tab.dart';
+import 'inspector_track_tab.dart';
 import 'inspector_transform_tab.dart';
 import 'inspector_audio_tab.dart';
 import 'caption_editor_panel.dart';
@@ -36,14 +38,26 @@ class _InspectorPanelState extends State<InspectorPanel> {
   /// Tabs follow what the clip actually has: an image has no audio to mix and
   /// a sound file has nothing to place on the canvas, and offering either is a
   /// dead end the user has to discover by clicking it.
-  static List<String> _tabsFor(Clip? clip, MediaAsset? asset) {
+  static List<String> _tabsFor(Clip? clip, MediaAsset? asset, bool trackable) {
+    // A 'Track' tab only where there is something to track or something already
+    // following one: audio has no region, and text has no source pixels to
+    // solve against (TRK non-goals).
+    final track = trackable ? const ['Track'] : const <String>[];
     if (clip == null) return const ['Timing', 'Audio', 'Transform', 'Effects'];
     if (clip.text != null) return const ['Text', 'Transform', 'Effects'];
     if (asset?.type == 'audio') return const ['Timing', 'Audio', 'Effects'];
     if (asset != null && !asset.hasAudio) {
-      return const ['Timing', 'Transform', 'Effects'];
+      return ['Timing', 'Transform', ...track, 'Effects'];
     }
-    return const ['Timing', 'Audio', 'Transform', 'Effects'];
+    return ['Timing', 'Audio', 'Transform', ...track, 'Effects'];
+  }
+
+  /// A clip can host the Track tab when it has rasterised source pixels of its
+  /// own, or is already pinned to someone else's tracker.
+  bool _trackable(Clip? clip, MediaAsset? asset) {
+    if (clip == null || clip.text != null) return false;
+    if (clip.extra.containsKey(kTrackPinKey)) return true;
+    return asset != null && asset.type != 'audio';
   }
 
   @override
@@ -52,7 +66,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
     final selectedCaptionTrack = c.selectedCaptionTrack;
     final multiple = c.selection.length > 1;
     final asset = selected == null ? null : c.doc.assetById(selected.mediaId);
-    final tabs = _tabsFor(selected, asset);
+    final tabs = _tabsFor(selected, asset, _trackable(selected, asset));
     final selectionKey =
         selected == null ? null : '${selected.id}:${tabs.join(',')}';
     if (_selectionKey != selectionKey) {
@@ -135,6 +149,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
       'Timing' => ClipTimingTab(controller: c, clip: clip),
       'Audio' => ClipAudioTab(controller: c, clip: clip),
       'Transform' => TransformTab(controller: c, clip: clip),
+      'Track' => TrackTab(controller: c, clip: clip),
       'Effects' => EffectsTab(controller: c, clip: clip),
       'Text' => TextTab(controller: c, clip: clip),
       _ => const PlaceholderTab(

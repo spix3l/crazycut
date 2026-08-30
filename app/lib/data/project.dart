@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:collection/collection.dart';
 
+import 'package:crazycut_app/data/area_track.dart';
 import 'package:crazycut_app/data/caption.dart';
 import 'package:crazycut_app/data/clip_transform.dart';
 import 'package:crazycut_app/data/param_value.dart';
@@ -715,6 +716,7 @@ class ProjectDoc {
        transitions = [],
        captionTracks = [],
        references = [],
+       trackers = [],
        extra = extra ?? {};
 
   factory ProjectDoc.empty(
@@ -767,6 +769,7 @@ class ProjectDoc {
         'markers',
         'captionTracks',
         'references',
+        'trackers',
       }),
     );
     void quarantine(String what, Object error) =>
@@ -828,6 +831,18 @@ class ProjectDoc {
         quarantine('media reference', e);
       }
     }
+    for (final value in (j['trackers'] as List<dynamic>? ?? const [])) {
+      // Tracker.fromJson returns null rather than throwing for anything the
+      // engine loader would quarantine, so the two sides agree (TRK-16).
+      final tracker = value is Map<String, dynamic>
+          ? Tracker.fromJson(value)
+          : null;
+      if (tracker == null) {
+        quarantine('tracker', 'malformed tracker dropped');
+        continue;
+      }
+      doc.trackers.add(tracker);
+    }
     if (doc.tracks.isEmpty) doc._initDefaultTracks();
     doc._repair(report);
     return doc;
@@ -856,6 +871,42 @@ class ProjectDoc {
     _repairTransitions(report);
     _repairParamValues(report);
     _repairCaptions(report);
+    _repairTrackers(report);
+  }
+
+  /// Trackers must resolve to live media and a live clip, and lie inside that
+  /// clip. A pin whose tracker did not survive is dropped, so no clip is left
+  /// asking the compositor for a pose nothing can supply (**TRK-22**).
+  void _repairTrackers(RepairReport? report) {
+    final mediaIds = media.map((m) => m.id).toSet();
+    final clipsById = {for (final c in clips) c.id: c};
+    final seen = <String>{};
+    trackers.removeWhere((tracker) {
+      String? why;
+      final clip = clipsById[tracker.sourceClipId];
+      if (!seen.add(tracker.id)) {
+        why = 'duplicate id';
+      } else if (!mediaIds.contains(tracker.mediaId)) {
+        why = 'unknown media';
+      } else if (clip == null) {
+        why = 'unknown clip';
+      } else if (tracker.endTime > clip.duration) {
+        why = 'range outside its clip';
+      }
+      if (why == null) return false;
+      seen.remove(tracker.id);
+      report?.issues.add('tracker ${tracker.id}: $why');
+      return true;
+    });
+
+    final trackerIds = trackers.map((t) => t.id).toSet();
+    for (final clip in clips) {
+      final pin = TrackPin.fromExtra(clip.extra);
+      if (!clip.extra.containsKey(kTrackPinKey)) continue;
+      if (pin != null && trackerIds.contains(pin.trackerId)) continue;
+      clip.extra.remove(kTrackPinKey);
+      report?.issues.add('clip ${clip.label}: unpinned, tracker missing');
+    }
   }
 
   /// Caption cues are ordered and non-overlapping. Every cue occupies at
@@ -1059,6 +1110,10 @@ class ProjectDoc {
   final List<Transition> transitions;
   final List<CaptionTrack> captionTracks;
   final List<MediaReference> references;
+
+  /// Solved area-tracking paths (`data/area_track.dart`, **TRK-13**).
+  final List<Tracker> trackers;
+
   final Map<String, dynamic> extra;
 
   Rt get frameDuration => settings.frameDuration;
@@ -1075,6 +1130,13 @@ class ProjectDoc {
   Track? audioTrack() => audioTracks.firstOrNull;
   Track? trackById(String id) => tracks.firstWhereOrNull((t) => t.id == id);
   Clip? clipById(String id) => clips.firstWhereOrNull((c) => c.id == id);
+
+  Tracker? trackerById(String id) =>
+      trackers.firstWhereOrNull((t) => t.id == id);
+
+  /// Trackers solved against [clipId]'s region.
+  List<Tracker> trackersForClip(String clipId) =>
+      trackers.where((t) => t.sourceClipId == clipId).toList();
   MediaAsset? assetById(String id) => media.firstWhereOrNull((m) => m.id == id);
   CaptionTrack? captionTrackById(String id) =>
       captionTracks.firstWhereOrNull((t) => t.id == id);
@@ -1125,6 +1187,8 @@ class ProjectDoc {
       'captionTracks': [for (final track in captionTracks) track.toJson()],
     if (references.isNotEmpty)
       'references': [for (final reference in references) reference.toJson()],
+    if (trackers.isNotEmpty)
+      'trackers': [for (final tracker in trackers) tracker.toJson()],
   };
 
   String encode({bool touchModified = true}) {
@@ -1203,6 +1267,10 @@ class ProjectDoc {
         MediaReference.fromJson(reference.toJson()..['id'] = generateId()),
       );
     }
+    // Trackers are not carried into a duplicate: they reference the original's
+    // clip ids, which the clone regenerates. Rather than rewrite the ids and
+    // the pins that point at them, a duplicated project starts untracked
+    // (called out in tracking.md's non-goals as templates are).
     return clone;
   }
 }

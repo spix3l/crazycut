@@ -15,6 +15,10 @@ class ParamValue {
   factory ParamValue.point(double x, double y) =>
       ParamValue(static: {'x': x, 'y': y});
 
+  /// A corner-pin quad (TRK-20): 8 numbers, TL/TR/BR/BL.
+  factory ParamValue.quad(List<double> corners) =>
+      ParamValue(static: List<double>.from(corners));
+
   /// Quarantine-not-throw: malformed payloads fall back to a zero static.
   factory ParamValue.from(dynamic json) => ParamValue(
     static:
@@ -100,12 +104,18 @@ class ParamValue {
     _ => p,
   };
 
-  /// Numbers lerp; maps lerp per numeric key recursively; anything else holds
-  /// left (right wins at p >= 1).
+  /// Numbers lerp; maps and equal-length lists lerp per component recursively;
+  /// anything else holds left (right wins at p >= 1).
   static dynamic _lerp(dynamic a, dynamic b, double p) {
     if (p >= 1.0) return b;
     if (a is num && b is num) {
       return a + (b - a) * p;
+    }
+    // Fixed-arity vector params — the corner-pin quad. Mirrors the array branch
+    // in engine `graph/keyframes.cpp`; a length mismatch is not a shape we can
+    // blend, so it holds left like any other unblendable pair.
+    if (a is List && b is List && a.length == b.length) {
+      return [for (var i = 0; i < a.length; i += 1) _lerp(a[i], b[i], p)];
     }
     if (a is Map && b is Map) {
       final out = <String, dynamic>{

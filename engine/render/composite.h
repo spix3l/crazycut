@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <functional>
 #include <optional>
 #include <string>
@@ -23,6 +24,13 @@ struct CompositedLayer {
   double opacity = 1.0;   // 0..1
   bool flipH = false;
   bool flipV = false;
+
+  // Corner pin (TRK-20): the destination quad in render-canvas px, TL/TR/BR/BL.
+  // A perspective quad cannot be expressed by one uniform `scale` plus a roll,
+  // so when this is set it *supersedes* x/y/scale/rotationDeg/anchor entirely
+  // and the layer is warped through the homography that maps its framed rect
+  // onto this quad. flipH/flipV, opacity and blend still apply.
+  std::optional<std::array<double, 8>> corners;
 
   // Blend mode against what is below (FX-12).
   std::string blend = "normal";

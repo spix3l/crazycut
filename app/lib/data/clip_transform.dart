@@ -14,6 +14,7 @@ class ClipTransform {
     ParamValue? rotation,
     ParamValue? anchor,
     ParamValue? opacity,
+    this.corners,
     this.flipH = false,
     this.flipV = false,
     this.framing = 'fit',
@@ -31,6 +32,7 @@ class ClipTransform {
         rotation: _pv(j?['rotation'], static: 0.0),
         anchor: _pv(j?['anchor'], point: true),
         opacity: _pv(j?['opacity'], static: 100.0),
+        corners: _quad(j?['corners']),
         flipH: (j?['flipH'] as bool?) ?? false,
         flipV: (j?['flipV'] as bool?) ?? false,
         framing: (j?['framing'] as String?) ?? 'fit',
@@ -42,12 +44,39 @@ class ClipTransform {
           ? ParamValue.from(raw)
           : (point ? ParamValue.point(0, 0) : ParamValue.staticNum(static));
 
+  /// `corners` is absent on every clip that is not corner-pinned, so unlike the
+  /// other params it stays null rather than defaulting — the compositor keys off
+  /// its presence. A bare 8-number array is accepted as well as the param form,
+  /// and anything else is dropped rather than half-applied.
+  static ParamValue? _quad(dynamic raw) {
+    if (raw is List) {
+      return raw.length == 8 && raw.every((v) => v is num)
+          ? ParamValue.quad([for (final v in raw) (v as num).toDouble()])
+          : null;
+    }
+    if (raw is Map<String, dynamic>) {
+      final param = ParamValue.from(raw);
+      final probe = param.animated ? param.keyframes.first['v'] : param.static;
+      if (probe is List && probe.length == 8 && probe.every((v) => v is num)) {
+        return param;
+      }
+    }
+    return null;
+  }
+
   final ParamValue x;
   final ParamValue y;
   final ParamValue scale;
   final ParamValue rotation;
   final ParamValue anchor;
   final ParamValue opacity;
+
+  /// Corner pin (TRK-20): the destination quad in sequence px, TL/TR/BR/BL.
+  /// When set it supersedes x/y/scale/rotation/anchor, because a perspective
+  /// quad cannot be expressed by one uniform scale plus a roll. Null on every
+  /// clip that is not pinned.
+  ParamValue? corners;
+
   bool flipH;
   bool flipV;
   String framing;
@@ -61,6 +90,7 @@ class ClipTransform {
         'rotation': rotation.toJson(),
         'anchor': anchor.toJson(),
         'opacity': opacity.toJson(),
+        if (corners != null) 'corners': corners!.toJson(),
         'flipH': flipH,
         'flipV': flipV,
         'framing': framing,
