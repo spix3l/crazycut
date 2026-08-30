@@ -474,7 +474,8 @@ int runTrackJob(const json& spec) {
   request.startSec = spec.value("startSec", 0.0);
   request.endSec = spec.value("endSec", 0.0);
   request.fps = spec.value("fps", 0.0);
-  request.analysisWidth = spec.value("analysisWidth", 720);
+  request.analysisWidth = spec.value("analysisWidth", 0);
+  request.sourceWidth = spec.value("sourceWidth", 0);
 
   const auto quad = spec.find("quad");
   if (quad == spec.end() || !quad->is_array() || quad->size() != 8) {
@@ -525,7 +526,7 @@ int runTrackJob(const json& spec) {
   }
   const json payload = {{"algorithm", "lk-homography"},
                         {"algorithmVersion", 1},
-                        {"analysisWidth", request.analysisWidth},
+                        {"analysisWidth", result.analysisWidth},
                         {"fps", result.fps},
                         {"stride", result.stride},
                         {"path", std::move(path)},

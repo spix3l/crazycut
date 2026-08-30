@@ -71,10 +71,17 @@ export read the same baked path out of the document, so they cannot disagree.
   forward-backward consistency, and fits a homography by RANSAC over the survivors. The quad is
   carried forward through that homography. Features are re-seeded when the inlier count falls
   below threshold.
-- **TRK-7** Analysis runs on frames decoded at a reduced width (default 720 px) through the
-  engine's own decoder, not a second decoding stack. Solved quads are scaled back to full
-  source pixels before storage, so changing the analysis width changes cost and accuracy but
-  not the coordinate space of the result.
+- **TRK-7** Analysis runs through the engine's own decoder, not a second decoding stack, at the
+  source's own width capped at 1280 px. Solved quads are scaled back to full source pixels
+  before storage, so the analysis width changes cost and accuracy but never the coordinate space
+  of the result.
+  - The solver must be told the media's **native** width, because that is what the drawn region
+    is expressed in. Assuming it equals the analysis width is a silent, total failure: the
+    region lands elsewhere in the analysis frame and the solved path moves at
+    `analysisWidth / sourceWidth` of the true rate, so the overlay trails the subject.
+  - Analysing *below* the source width costs real accuracy — halving it lost a third of the
+    tracked travel on the test fixture — which is why the default follows the source rather than
+    a fixed number.
 - **TRK-8** Each sample carries a **confidence** in 0…1 derived from the inlier ratio. When a
   frame solves below threshold the quad **holds its last good pose** and records low
   confidence. The quad never collapses, inverts or leaves the frame as a result of a failed

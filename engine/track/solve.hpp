@@ -27,9 +27,23 @@ struct TrackRequest {
   double endSec = 0.0;
   /// Sample rate to solve at. Usually the media's own frame rate.
   double fps = 0.0;
-  /// Frames are decoded down to this width for analysis; solved quads are
-  /// scaled back to full source pixels before they are returned (TRK-7).
-  int analysisWidth = 720;
+  /// Frames are decoded to this width for analysis; solved quads are scaled
+  /// back to full source pixels before they are returned (TRK-7).
+  ///
+  /// 0 means "choose": the source's own width, capped at [kMaxAnalysisWidth].
+  /// That is the right default in both directions — analysing a small clip at
+  /// some larger fixed width is pure upscaling, and analysing it *smaller*
+  /// costs real accuracy: halving the width of a 640-wide clip lost a third of
+  /// the tracked travel on the test fixture.
+  int analysisWidth = 0;
+
+  /// Native width of the media, which is what `searchQuad` is expressed in.
+  /// The caller normally knows it; 0 asks the solver to probe for it.
+  ///
+  /// Getting this wrong is silent and total: the quad lands somewhere else in
+  /// the analysis frame, finds no features there, and the solve holds its
+  /// opening pose for the whole clip.
+  int sourceWidth = 0;
 };
 
 struct TrackResult {
@@ -41,10 +55,20 @@ struct TrackResult {
   /// rational can divide it exactly rather than re-deriving a rate from
   /// [fps]'s float.
   int stride = 1;
+
+  /// The width frames were actually analysed at, which the request may have
+  /// left for the solver to choose. Recorded so a stored tracker says what
+  /// produced it rather than "0".
+  int analysisWidth = 0;
 };
 
 /// Reports progress in [0,1] and returns false to ask for cancellation.
 using TrackProgress = std::function<bool(double)>;
+
+/// Analysis is capped here rather than run at native size: past this width the
+/// extra pixels buy nothing a tracked region needs, and the pass is decode- and
+/// flow-bound.
+constexpr int kMaxAnalysisWidth = 1280;
 
 /// True when the engine was built with area-tracking support. The worker
 /// reports a clear message rather than a crash when it was not (TRK-12).

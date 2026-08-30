@@ -36,7 +36,10 @@ class TrackingRequest {
     required this.startTime,
     required this.endTime,
     required this.fps,
-    this.analysisWidth = 720,
+    required this.sourceIn,
+    required this.sourceWidth,
+    this.speed = 1.0,
+    this.analysisWidth = 0,
     this.label = 'Region',
   });
 
@@ -51,9 +54,19 @@ class TrackingRequest {
   final Rt startTime;
   final Rt endTime;
 
-  /// Rate to solve at, normally the media's own.
+  /// Rate to solve at, in clip-local time.
   final Rt fps;
 
+  /// Where the clip starts in the media, and how fast it runs through it. The
+  /// solver decodes in *media* time, so a trimmed or retimed clip would
+  /// otherwise be tracked against completely different footage.
+  final Rt sourceIn;
+  final double speed;
+
+  /// Native width of the media, which is what [searchQuad] is expressed in.
+  final int sourceWidth;
+
+  /// 0 lets the solver choose from the source's own width.
   final int analysisWidth;
   final String label;
 }
@@ -292,19 +305,27 @@ class TrackingService extends ChangeNotifier {
           'input': mediaDecodePath(request.asset),
           'output': output.path,
           'quad': request.searchQuad,
-          'startSec': request.startTime.seconds,
-          'endSec': request.endTime.seconds,
-          'fps': request.fps.seconds,
+          // Media time, not clip time: the solver seeks the file directly.
+          'startSec': _mediaSeconds(request, request.startTime),
+          'endSec': _mediaSeconds(request, request.endTime),
+          // One solver sample per clip-local frame. At double speed the media
+          // advances twice as fast, so the solver samples half as often in its
+          // own domain to keep the two in step.
+          'fps': request.speed <= 0
+              ? request.fps.seconds
+              : request.fps.seconds / request.speed,
           'analysisWidth': request.analysisWidth,
+          'sourceWidth': request.sourceWidth,
         }),
       );
 
       final process = await Process.start(worker, ['--job', jobFile.path]);
       _process = process;
       final stderrDrain = process.stderr.drain<void>();
-      await for (final line in process.stdout
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())) {
+      await for (final line
+          in process.stdout
+              .transform(utf8.decoder)
+              .transform(const LineSplitter())) {
         _handleLine(job, line);
       }
       final code = await process.exitCode;
@@ -331,6 +352,9 @@ class TrackingService extends ChangeNotifier {
       }
     }
   }
+
+  static double _mediaSeconds(TrackingRequest request, Rt local) =>
+      request.sourceIn.seconds + local.seconds * request.speed;
 
   void _handleLine(TrackingJob job, String line) {
     if (line.isEmpty) return;

@@ -228,7 +228,10 @@ Error solveRegion(const TrackRequest& request, TrackResult* out,
     setLastError("tracking needs a positive fps and a non-empty range");
     return Error::InvalidArgument;
   }
-  const int analysisWidth = std::max(64, request.analysisWidth);
+  // Resolved below, once the source width is known.
+  int analysisWidth = request.analysisWidth > 0
+                          ? std::max(64, request.analysisWidth)
+                          : 0;
 
   // Determinism (TRK-9). RANSAC draws from OpenCV's thread-local RNG, and its
   // parallel_for_ splits work by thread count — both would make the solved path
@@ -250,6 +253,35 @@ Error solveRegion(const TrackRequest& request, TrackResult* out,
     return request.startSec + (index + 0.5) * sampleStep;
   };
 
+  // The source width decides the analysis width when the caller did not, so it
+  // is resolved before the first decode.
+  double sourceWidth = request.sourceWidth;
+  if (sourceWidth <= 0.0) {
+    std::string probeJson;
+    if (probeFile(request.mediaPath, &probeJson) == Error::None) {
+      try {
+        const auto probed = nlohmann::json::parse(probeJson);
+        // The dimensions live under "video", not at the root. Reading the wrong
+        // key here left the mapping at 1:1 for every clip whose source was not
+        // already the analysis width, which put the region somewhere else
+        // entirely in the analysis frame — silently.
+        if (probed.contains("video") && probed["video"].is_object()) {
+          sourceWidth = probed["video"].value("width", 0);
+        }
+      } catch (const std::exception&) {
+        // Fall through to the guard below.
+      }
+    }
+  }
+  if (sourceWidth <= 0.0) {
+    setLastError("tracking could not determine the media's native width");
+    return Error::MediaDecodeFailed;
+  }
+  if (analysisWidth <= 0) {
+    analysisWidth = std::max(
+        64, std::min(static_cast<int>(sourceWidth), kMaxAnalysisWidth));
+  }
+
   DecodedFrame frame;
   Error err = extractFrameRgba(request.mediaPath, sampleTime(0), analysisWidth,
                                &frame);
@@ -266,18 +298,7 @@ Error solveRegion(const TrackRequest& request, TrackResult* out,
   // preserving aspect, so the ratio of decoded to source width converts between
   // them. The source width comes from the probe rather than a second decode at
   // native size, which would evict this thread's decoder session.
-  double toAnalysis = 1.0;
-  std::string probeJson;
-  if (probeFile(request.mediaPath, &probeJson) == Error::None) {
-    try {
-      const auto probed = nlohmann::json::parse(probeJson);
-      const double sourceWidth = probed.value("width", 0.0);
-      if (sourceWidth > 0.0) toAnalysis = frame.width / sourceWidth;
-    } catch (const std::exception&) {
-      // A probe we cannot read leaves the 1:1 mapping, which is right whenever
-      // the analysis width already matches the source.
-    }
-  }
+  const double toAnalysis = frame.width / sourceWidth;
 
   std::vector<cv::Point2f> quad = quadPoints(request.searchQuad, toAnalysis);
   if (!quadIsSane(quad, previous.size())) {
@@ -387,6 +408,7 @@ Error solveRegion(const TrackRequest& request, TrackResult* out,
   out->samples = std::move(samples);
   out->fps = request.fps / stride;
   out->stride = stride;
+  out->analysisWidth = analysisWidth;
   return Error::None;
 }
 

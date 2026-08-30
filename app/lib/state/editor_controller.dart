@@ -161,7 +161,12 @@ const kSupportedExtensions = {
 /// document edits (via [TimelineEdits]), the media pool, playback, the preview
 /// frame, autosave and proxies.
 class EditorController extends ChangeNotifier
-    with TimelineEdits, CaptionEdits, AudioEdits, TemplateEdits, AreaTrackEdits {
+    with
+        TimelineEdits,
+        CaptionEdits,
+        AudioEdits,
+        TemplateEdits,
+        AreaTrackEdits {
   EditorController(
     this.doc, {
     required String path,
@@ -231,10 +236,9 @@ class EditorController extends ChangeNotifier
   bool get autoCaptionBusy => _autoCaptionBusy;
   AutoCaptionSource? get autoCaptionSource =>
       chooseAutoCaptionSource(doc, selectedClip);
-  TranscriptionJob? get autoCaptionJob =>
-      _autoCaptionAssetId == null
-          ? null
-          : transcription.jobFor(_autoCaptionAssetId!);
+  TranscriptionJob? get autoCaptionJob => _autoCaptionAssetId == null
+      ? null
+      : transcription.jobFor(_autoCaptionAssetId!);
 
   Future<AutoCaptionResult> generateAutoCaptions() async {
     if (_autoCaptionBusy) {
@@ -266,10 +270,9 @@ class EditorController extends ChangeNotifier
         transcript,
         source.clip,
         trackId: generateId(),
-        trackName:
-            doc.captionTracks.isEmpty
-                ? 'Auto captions'
-                : 'Auto captions ${doc.captionTracks.length + 1}',
+        trackName: doc.captionTracks.isEmpty
+            ? 'Auto captions'
+            : 'Auto captions ${doc.captionTracks.length + 1}',
       );
       if (generated.track.items.isEmpty) {
         return const AutoCaptionResult(
@@ -793,14 +796,13 @@ class EditorController extends ChangeNotifier
     }
 
     if (media.paths.isNotEmpty) {
-      final present =
-          media.paths
-              .where(
-                (path) =>
-                    FileSystemEntity.typeSync(path) !=
-                    FileSystemEntityType.notFound,
-              )
-              .toList();
+      final present = media.paths
+          .where(
+            (path) =>
+                FileSystemEntity.typeSync(path) !=
+                FileSystemEntityType.notFound,
+          )
+          .toList();
       if (present.isNotEmpty) {
         final imported = await importPaths(present, addToTimeline: true);
         return ClipboardImportResult(
@@ -853,13 +855,12 @@ class EditorController extends ChangeNotifier
   /// which keeps the project folder self-contained and the paste re-openable.
   Future<ClipboardImportResult> _importPastedImage(ClipboardMedia media) async {
     try {
-      final directory =
-          path.isEmpty
-              ? Directory(
-                '${(await mediaCacheDirectory()).path}'
-                '${Platform.pathSeparator}Pasted',
-              )
-              : ProjectTools.mediaFolder(path);
+      final directory = path.isEmpty
+          ? Directory(
+              '${(await mediaCacheDirectory()).path}'
+              '${Platform.pathSeparator}Pasted',
+            )
+          : ProjectTools.mediaFolder(path);
       final file = await writePastedImage(
         media.image!,
         directory: directory,
@@ -1157,8 +1158,9 @@ class EditorController extends ChangeNotifier
       ..remoteLastModified = null
       ..remoteContentLength = null;
     asset.offline = !File(newPath).existsSync();
-    pool[assetId]?.status =
-        asset.offline ? ImportStatus.offline : ImportStatus.ready;
+    pool[assetId]?.status = asset.offline
+        ? ImportStatus.offline
+        : ImportStatus.ready;
     if (!asset.offline) {
       if (isSvgPath(newPath)) {
         asset.extra.remove('svgRasterPath');
@@ -1660,6 +1662,11 @@ class EditorController extends ChangeNotifier
         searchQuad: searchQuad,
         startTime: start,
         endTime: end,
+        sourceIn: clip.sourceIn,
+        speed: clip.speedValue,
+        // The region is authored in the media's own pixels, so the solver has
+        // to know what those are; it cannot infer them from a scaled frame.
+        sourceWidth: asset.width ?? 0,
         // Solve at the sequence rate: the path is consumed per rendered frame,
         // and solving finer than the timeline can show is work nobody sees.
         fps: Rt(frameDuration.den, frameDuration.num),
@@ -1748,10 +1755,9 @@ class EditorController extends ChangeNotifier
     if (size == null) return null;
     final t = clip.transformOrDefault;
     final anchor = t.anchor.evaluate(clipLocalTime(clip));
-    double axis(String key) =>
-        anchor is Map && anchor[key] is num
-            ? (anchor[key] as num).toDouble()
-            : 0;
+    double axis(String key) => anchor is Map && anchor[key] is num
+        ? (anchor[key] as num).toDouble()
+        : 0;
     return layerRectInSequence(
       seqW: doc.settings.width,
       seqH: doc.settings.height,
@@ -2114,12 +2120,11 @@ class EditorController extends ChangeNotifier
           _previewWidth,
         );
       case PreviewQuality.auto:
-        final cap =
-            playing
-                ? maxPlaybackPreviewWidth
-                : _liveEditing
-                ? maxLiveEditPreviewWidth
-                : _previewWidth;
+        final cap = playing
+            ? maxPlaybackPreviewWidth
+            : _liveEditing
+            ? maxLiveEditPreviewWidth
+            : _previewWidth;
         return cap < _previewWidth ? cap : _previewWidth;
     }
   }

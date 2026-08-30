@@ -444,6 +444,7 @@ cc::TrackRequest panRequest() {
   request.endSec = 2.9;
   request.fps = 30.0;
   request.analysisWidth = 640;
+  request.sourceWidth = 640;
   return request;
 }
 
@@ -533,6 +534,63 @@ TEST(AreaTracking, SolverRecoversAKnownPan) {
   EXPECT_LT(worstX, 8.0) << "tracked x drifted";
   EXPECT_LT(worstY, 3.0) << "tracked y should not move at all";
   EXPECT_LT(worstWidth, 3.0) << "tracked width should not change";
+}
+
+TEST(AreaTracking, SolverHonoursASourceWidthUnlikeTheAnalysisWidth) {
+  // The region is authored in *source* pixels and the solver works in analysis
+  // pixels, so it needs the ratio between them. Every earlier test solved the
+  // 640-wide fixture at analysisWidth 640, where that ratio is 1 whether it is
+  // computed correctly or not — which is exactly how a bug that always left it
+  // at 1 survived. Solve the same region downscaled and the answer must not
+  // move.
+  if (!cc::trackingAvailable()) GTEST_SKIP() << "built without CC_WITH_TRACKING";
+  if (!panFixtureExists()) GTEST_SKIP() << "run tools/make-fixture.sh";
+
+  const auto noop = [](double) { return true; };
+  cc::TrackResult full, half;
+
+  cc::TrackRequest atSource = panRequest();
+  atSource.analysisWidth = 640;
+  atSource.sourceWidth = 640;
+  ASSERT_EQ(cc::solveRegion(atSource, &full, noop), cc::Error::None);
+
+  cc::TrackRequest atHalf = panRequest();
+  atHalf.analysisWidth = 320;
+  atHalf.sourceWidth = 640;
+  ASSERT_EQ(cc::solveRegion(atHalf, &half, noop), cc::Error::None);
+
+  // Both report in source pixels, so they start on the drawn region and travel
+  // together. Half resolution is less precise, not differently scaled.
+  ASSERT_FALSE(full.samples.empty());
+  ASSERT_FALSE(half.samples.empty());
+  EXPECT_NEAR(half.samples.front().quad[0], 240.0, 1.0);
+  EXPECT_NEAR(half.samples.front().quad[2], 400.0, 1.0);
+
+  // Both travel the same way and a long way. They do *not* agree closely: at
+  // half resolution this fixture's features are half the size and the solve
+  // under-travels by about a third. That is a real accuracy cost, and it is why
+  // the default analysis width is the source's own rather than a fixed number
+  // that might be smaller.
+  const double fullTravel =
+      full.samples.front().quad[0] - full.samples.back().quad[0];
+  const double halfTravel =
+      half.samples.front().quad[0] - half.samples.back().quad[0];
+  EXPECT_GT(fullTravel, 150.0);
+  EXPECT_GT(halfTravel, 50.0);
+  EXPECT_LT(halfTravel, fullTravel + 5.0);
+}
+
+TEST(AreaTracking, SolverRefusesWhenItCannotKnowTheSourceWidth) {
+  // Guessing 1:1 here is what put the region somewhere else in the analysis
+  // frame, where it found nothing and held its opening pose for the whole clip
+  // — a silent wrong answer. Refusing is the only honest option.
+  if (!cc::trackingAvailable()) GTEST_SKIP() << "built without CC_WITH_TRACKING";
+  cc::TrackRequest request = panRequest();
+  request.mediaPath = std::string(CC_SOURCE_DIR) + "/../fixtures/media/none.mp4";
+  request.sourceWidth = 0;
+  cc::TrackResult result;
+  EXPECT_NE(cc::solveRegion(request, &result, [](double) { return true; }),
+            cc::Error::None);
 }
 
 TEST(AreaTracking, SolvingTwiceGivesTheSamePathBitForBit) {
