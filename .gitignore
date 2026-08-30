@@ -37,3 +37,5 @@ engine/build-release/
 private_keys/
 
 .secrets
+
+.zcode/
