@@ -50,10 +50,7 @@ class _BrowserHeaderState extends State<BrowserHeader> {
     return Container(
       height: 72,
       padding: const EdgeInsets.symmetric(horizontal: 32),
-      decoration: const BoxDecoration(
-        color: CcColors.panel,
-        border: CcBorders.bottom,
-      ),
+      decoration: const BoxDecoration(color: CcColors.panel, border: CcBorders.bottom),
       child: Row(
         children: [
           Container(
@@ -65,11 +62,7 @@ class _BrowserHeaderState extends State<BrowserHeader> {
               borderRadius: BorderRadius.circular(8),
               border: CcBorders.allStrong,
             ),
-            child: const CcIcon(
-              LucideIcons.scissors,
-              size: 16,
-              color: CcColors.textSecondary,
-            ),
+            child: const CcIcon(LucideIcons.scissors, size: 16, color: CcColors.textSecondary),
           ),
           const SizedBox(width: 10),
           Text('CrazyCut', style: CcType.appName),
@@ -79,27 +72,21 @@ class _BrowserHeaderState extends State<BrowserHeader> {
               width: 260,
               child: CcTextField(
                 placeholder: 'Find a project',
-                label: 'Search',
                 icon: LucideIcons.search,
                 height: 32,
                 bordered: false,
                 controller: _search,
+                onTapOutside: (event) => FocusManager.instance.primaryFocus?.unfocus(),
               ),
             ),
             const SizedBox(width: 12),
             Builder(
-              builder:
-                  (sortContext) => GestureDetector(
-                    onTapDown:
-                        widget.onSortTapped == null
-                            ? null
-                            : (_) => widget.onSortTapped!(sortContext),
-                    child: CcDropdown(
-                      value: widget.sortLabel,
-                      width: 120,
-                      radius: CcRadius.md,
-                    ),
-                  ),
+              builder: (sortContext) => GestureDetector(
+                onTapDown: widget.onSortTapped == null
+                    ? null
+                    : (_) => widget.onSortTapped!(sortContext),
+                child: CcDropdown(value: widget.sortLabel, width: 120, radius: CcRadius.md),
+              ),
             ),
             const SizedBox(width: 12),
           ],
