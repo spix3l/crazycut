@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Keyboard shortcuts · CrazyCut Documentation</title>
+  <meta name="description" content="Complete reference for CrazyCut timeline editing and transport keyboard shortcuts." />
+  <meta name="theme-color" content="#0d0e12" />
+  <link rel="icon" type="image/png" href="../assets/img/favicon-32.png" />
+  <link rel="stylesheet" href="../assets/css/style.css" />
+  <link rel="stylesheet" href="../assets/css/docs.css" />
+</head>
+
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <!-- Header Navigation -->
+  <header class="appbar" id="top">
+    <div class="appbar-inner">
+      <a class="brand" href="../index.html">
+        <img src="../assets/img/icon-64.png" alt="CrazyCut logo" class="brand-icon" />
+        <span class="brand-name">CrazyCut</span>
+        <span class="brand-ver">Docs</span>
+      </a>
+
+      <nav class="nav-links" aria-label="Primary">
+        <a href="../index.html#features" class="nav-link">Features</a>
+        <a href="index.html" class="nav-link" style="color: var(--text-main); font-weight: 600;">Docs</a>
+        <a href="../index.html#faq" class="nav-link">FAQ</a>
+        <a href="https://github.com/spix3l/crazycut" target="_blank" rel="noopener noreferrer" class="btn-github-star" aria-label="Star spix3l/crazycut on GitHub">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+            <path d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z"/>
+          </svg>
+          <span>Star</span>
+          <span class="gh-star-count" data-stars>1.4k</span>
+        </a>
+      </nav>
+
+      <div class="appbar-actions">
+        <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch theme">
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+          </svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+          </svg>
+        </button>
+        <a class="btn btn-primary btn-sm" href="https://github.com/spix3l/crazycut/releases/latest" data-download>
+          <span class="rec-dot" aria-hidden="true"></span>
+          <span>Download</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <div class="docs-nav-group">
+        <div class="docs-nav-title">// User guide</div>
+        <ul class="docs-nav-list">
+          <li><a href="index.html" class="docs-nav-link">Getting started</a></li>
+          <li><a href="shortcuts.html" class="docs-nav-link active">Keyboard shortcuts</a></li>
+          <li><a href="auto-shorts.html" class="docs-nav-link">Auto shorts (Whisper)</a></li>
+          <li><a href="tracking.html" class="docs-nav-link">Area motion tracking</a></li>
+          <li><a href="architecture.html" class="docs-nav-link">Engine architecture</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-nav-group">
+        <div class="docs-nav-title">// Project links</div>
+        <ul class="docs-nav-list">
+          <li><a href="https://github.com/spix3l/crazycut" target="_blank" rel="noopener noreferrer" class="docs-nav-link">GitHub repository</a></li>
+          <li><a href="https://github.com/spix3l/crazycut/releases" target="_blank" rel="noopener noreferrer" class="docs-nav-link">Release downloads</a></li>
+          <li><a href="https://github.com/spix3l/crazycut/issues" target="_blank" rel="noopener noreferrer" class="docs-nav-link">Issue tracker</a></li>
+        </ul>
+      </div>
+    </aside>
+
+      <article class="docs-content">
+        <div class="docs-breadcrumb">
+          <a href="../index.html">Home</a> / <a href="index.html">Docs</a> / <span>Keyboard shortcuts</span>
+        </div>
+
+        <h1 class="docs-title">Keyboard shortcuts reference</h1>
+        <p class="docs-lead">
+          CrazyCut is built for high-speed, keyboard-first editing. Master standard JKL transport,
+          ripple cuts, and keyframe navigation to cut hours off your editing time.
+        </p>
+
+        <section class="docs-section">
+          <h2>1. Transport and playhead</h2>
+          <div class="docs-table-wrap">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Shortcut</th>
+                  <th>Action</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><kbd>Space</kbd></td>
+                  <td>Play / Pause</td>
+                  <td>Toggle playback at 1x speed</td>
+                </tr>
+                <tr>
+                  <td><kbd>J</kbd></td>
+                  <td>Shuttle Reverse</td>
+                  <td>Rewind playback at 1x, 2x, 4x, 8x acceleration</td>
+                </tr>
+                <tr>
+                  <td><kbd>K</kbd></td>
+                  <td>Pause Shuttle</td>
+                  <td>Instantly halt shuttle playback</td>
+                </tr>
+                <tr>
+                  <td><kbd>L</kbd></td>
+                  <td>Shuttle Forward</td>
+                  <td>Fast-forward playback at 1x, 2x, 4x, 8x acceleration</td>
+                </tr>
+                <tr>
+                  <td><kbd>&larr;</kbd> / <kbd>&rarr;</kbd></td>
+                  <td>Step Frame</td>
+                  <td>Step backward or forward exactly 1 frame</td>
+                </tr>
+                <tr>
+                  <td><kbd>Shift</kbd> + <kbd>&larr;</kbd> / <kbd>&rarr;</kbd></td>
+                  <td>Step 1 Second</td>
+                  <td>Jump backward or forward 1 full second</td>
+                </tr>
+                <tr>
+                  <td><kbd>Home</kbd> / <kbd>End</kbd></td>
+                  <td>Timeline Bounds</td>
+                  <td>Jump playhead to sequence start or end</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="docs-section">
+          <h2>2. Editing and trimming</h2>
+          <div class="docs-table-wrap">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Shortcut</th>
+                  <th>Action</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><kbd>⌘B</kbd> or <kbd>S</kbd></td>
+                  <td>Split Clip</td>
+                  <td>Blade cut at the current playhead location</td>
+                </tr>
+                <tr>
+                  <td><kbd>Shift</kbd> + <kbd>Delete</kbd></td>
+                  <td>Ripple Delete</td>
+                  <td>Delete selected clip and close the timeline gap</td>
+                </tr>
+                <tr>
+                  <td><kbd>Delete</kbd></td>
+                  <td>Standard Delete</td>
+                  <td>Delete selected clip leaving an empty gap</td>
+                </tr>
+                <tr>
+                  <td><kbd>I</kbd></td>
+                  <td>Mark In</td>
+                  <td>Set in-point for selection or playback loop</td>
+                </tr>
+                <tr>
+                  <td><kbd>O</kbd></td>
+                  <td>Mark Out</td>
+                  <td>Set out-point for selection or playback loop</td>
+                </tr>
+                <tr>
+                  <td><kbd>Alt</kbd> + <kbd>X</kbd></td>
+                  <td>Clear In/Out</td>
+                  <td>Remove in and out boundary markers</td>
+                </tr>
+                <tr>
+                  <td><kbd>M</kbd></td>
+                  <td>Add Marker</td>
+                  <td>Place a named timestamp marker on the timeline ruler</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="docs-section">
+          <h2>3. Keyframing and inspector</h2>
+          <div class="docs-table-wrap">
+            <table class="docs-table">
+              <thead>
+                <tr>
+                  <th>Shortcut</th>
+                  <th>Action</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><kbd>K</kbd></td>
+                  <td>Add Keyframe</td>
+                  <td>Insert keyframe on selected property (scale, pos, opacity)</td>
+                </tr>
+                <tr>
+                  <td><kbd>[</kbd> / <kbd>]</kbd></td>
+                  <td>Jump Keyframe</td>
+                  <td>Navigate between previous and next keyframes</td>
+                </tr>
+                <tr>
+                  <td><kbd>⌘Z</kbd></td>
+                  <td>Undo</td>
+                  <td>Revert last state modification (100% loss-free)</td>
+                </tr>
+                <tr>
+                  <td><kbd>⌘ShiftZ</kbd></td>
+                  <td>Redo</td>
+                  <td>Re-apply undone modification</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <div class="docs-pager">
+          <a href="index.html" class="docs-pager-card">
+            <span class="docs-pager-label">&larr; Previous</span>
+            <span class="docs-pager-title">Getting started</span>
+          </a>
+          <a href="auto-shorts.html" class="docs-pager-card next">
+            <span class="docs-pager-label">Next guide &rarr;</span>
+            <span class="docs-pager-title">Auto shorts (Whisper)</span>
+          </a>
+        </div>
+      </article>
+    </div>
+  </main>
+
+  <!-- FOOTER -->
+  <footer class="site-footer">
+    <div class="site-container">
+      <div class="footer-top">
+
+        <div class="footer-col footer-brand-col">
+          <a class="brand footer-brand" href="../index.html">
+            <img src="../assets/img/icon-64.png" alt="CrazyCut icon" class="brand-icon" />
+            <span class="brand-name">CrazyCut</span>
+          </a>
+          <p class="footer-tagline">
+            A free, open-source native desktop video editor for solo creators. 100% local, no watermarks, no subscriptions.
+          </p>
+        </div>
+
+        <div class="footer-col">
+          <h4 class="footer-col-title">Documentation</h4>
+          <ul class="footer-links-list">
+            <li><a href="index.html">Getting started</a></li>
+            <li><a href="shortcuts.html">Keyboard shortcuts</a></li>
+            <li><a href="auto-shorts.html">Auto shorts (Whisper)</a></li>
+            <li><a href="tracking.html">Area motion tracking</a></li>
+            <li><a href="architecture.html">Engine architecture</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4 class="footer-col-title">Resources</h4>
+          <ul class="footer-links-list">
+            <li><a href="https://github.com/spix3l/crazycut" target="_blank" rel="noopener noreferrer">GitHub repository</a></li>
+            <li><a href="https://github.com/spix3l/crazycut/releases" target="_blank" rel="noopener noreferrer">All releases</a></li>
+            <li><a href="../index.html#faq">FAQ</a></li>
+            <li><a href="https://github.com/spix3l/crazycut/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT license</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4 class="footer-col-title">Community</h4>
+          <ul class="footer-links-list">
+            <li><a href="https://github.com/spix3l/crazycut/issues" target="_blank" rel="noopener noreferrer">Report an issue</a></li>
+            <li><a href="https://github.com/spix3l/crazycut/discussions" target="_blank" rel="noopener noreferrer">Discussions</a></li>
+            <li><a href="https://github.com/spix3l/crazycut/releases/latest" target="_blank" rel="noopener noreferrer">Download latest</a></li>
+          </ul>
+        </div>
+
+      </div>
+
+      <div class="footer-bottom">
+        <div class="footer-copy">
+          CrazyCut (c) 2026. MIT Licensed. Bundled ffmpeg is GPL-built. Telemetry is 100% off.
+        </div>
+        <div class="footer-links-inline">
+          <a href="https://github.com/spix3l/crazycut" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <a href="https://github.com/spix3l/crazycut/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+          <a href="https://github.com/spix3l/crazycut/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+          <a href="https://github.com/spix3l/crazycut/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="../assets/js/main.js"></script>
+</body>
+</html>

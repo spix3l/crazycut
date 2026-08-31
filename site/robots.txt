@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://spix3l.github.io/crazycut/sitemap.xml

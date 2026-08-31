@@ -1,0 +1,831 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CrazyCut · Edit fast. Export clean. Own your tool.</title>
+  <meta name="description"
+    content="CrazyCut is a free, open-source, native desktop video editor for solo creators. Multi-track timeline, keyframes, hand-drawn region tracking, and AI-proposed Shorts. 100% local, no watermark, no account." />
+  <link rel="canonical" href="https://spix3l.github.io/crazycut/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="CrazyCut" />
+  <meta property="og:url" content="https://spix3l.github.io/crazycut/" />
+  <meta property="og:title" content="CrazyCut · Edit fast. Export clean. Own your tool." />
+  <meta property="og:description"
+    content="A free, open-source, native desktop video editor for solo creators. Multi-track timeline, keyframes, hand-drawn region tracking, AI-proposed Shorts. 100% local, no watermark, no account." />
+  <meta property="og:image" content="https://spix3l.github.io/crazycut/assets/img/icon-512.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="CrazyCut · Edit fast. Export clean. Own your tool." />
+  <meta name="twitter:description"
+    content="A free, open-source, native desktop video editor for solo creators. 100% local, no watermark, no account." />
+  <meta name="twitter:image" content="https://spix3l.github.io/crazycut/assets/img/icon-512.png" />
+  <meta name="theme-color" content="#0d0e12" />
+  <link rel="icon" type="image/png" href="assets/img/favicon-32.png" />
+  <link rel="apple-touch-icon" href="assets/img/icon-256.png" />
+  <script>(function () { try { var t = localStorage.getItem("cc-theme"); if (t === "light") { document.documentElement.setAttribute("data-theme", "light"); } } catch (e) { } if ("IntersectionObserver" in window && !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) { document.documentElement.classList.add("js"); } })();</script>
+  <link rel="preload" href="assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+
+<body>
+
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <!-- Header Navigation -->
+  <header class="appbar" id="top">
+    <div class="appbar-inner">
+      <a class="brand" href="#top">
+        <img src="assets/img/icon-64.png" alt="CrazyCut logo" class="brand-icon" />
+        <span class="brand-name">CrazyCut</span>
+        <span class="brand-ver">v0.4.0</span>
+      </a>
+
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#features" class="nav-link">Features</a>
+        <a href="docs/index.html" class="nav-link">Docs</a>
+        <a href="#faq" class="nav-link">FAQ</a>
+        <a href="https://github.com/spix3l/crazycut" target="_blank" rel="noopener noreferrer" class="btn-github-star" aria-label="Star spix3l/crazycut on GitHub">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+            <path d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z"/>
+          </svg>
+          <span>Star</span>
+          <span class="gh-star-count" data-stars>1.4k</span>
+        </a>
+      </nav>
+
+      <div class="appbar-actions">
+        <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch theme">
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+          </svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+          </svg>
+        </button>
+        <a class="btn btn-primary btn-sm" href="https://github.com/spix3l/crazycut/releases/latest" data-download>
+          <span class="rec-dot" aria-hidden="true"></span>
+          <span>Download</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+
+    <!-- HERO SECTION -->
+    <section class="hero">
+      <div class="hero-container">
+
+        <!-- Heading -->
+        <h1 class="hero-title reveal">
+          Edit fast. Export clean.<br />
+          <span class="playhead-text">Own your tool.</span>
+        </h1>
+
+        <!-- Subtitle -->
+        <p class="hero-subtitle reveal">
+          CrazyCut is a native desktop video editor for solo creators. Real multi-track timeline,
+          keyframes that behave, hand-drawn region tracking, and AI-proposed Shorts.
+          Everything runs locally on your hardware: no account, no watermark, no subscription.
+        </p>
+
+        <!-- Feature Mode Tabs -->
+        <div class="hero-tabs reveal" role="tablist" aria-label="Editor modes">
+          <button class="hero-tab active" type="button" role="tab" aria-selected="true" data-mode="shorts">
+            <span class="tab-label">Auto shorts</span>
+            <span class="tab-spec">whisper.cpp</span>
+          </button>
+          <button class="hero-tab" type="button" role="tab" aria-selected="false" data-mode="tracking">
+            <span class="tab-label">Area tracking</span>
+            <span class="tab-spec">opencv</span>
+          </button>
+          <button class="hero-tab" type="button" role="tab" aria-selected="false" data-mode="timeline">
+            <span class="tab-label">Multi-track NLE</span>
+            <span class="tab-spec">c++17</span>
+          </button>
+          <button class="hero-tab" type="button" role="tab" aria-selected="false" data-mode="captions">
+            <span class="tab-label">Local captions</span>
+            <span class="tab-spec">offline</span>
+          </button>
+        </div>
+
+        <!-- Interactive Visual Showcase Stage -->
+        <div class="showcase-stage reveal" id="showcase-stage">
+
+          <!-- Central Interactive Split Box -->
+          <div class="showcase-box" id="split-box">
+            <div class="showcase-topbar">
+              <div class="window-dots">
+                <span class="dot dot-red"></span>
+                <span class="dot dot-yellow"></span>
+                <span class="dot dot-green"></span>
+              </div>
+              <div class="showcase-mode-title" id="stage-title">Auto shorts: AI reframe and local Whisper transcription</div>
+              <div class="showcase-badge-pill" id="stage-badge">whisper.cpp active</div>
+            </div>
+
+            <!-- Split Canvas -->
+            <div class="split-canvas" id="split-canvas">
+
+              <!-- Before Side (Full Background) -->
+              <div class="split-pane pane-before">
+                <div class="canvas-visual visual-before">
+                  <div class="frame-grid-bg">
+                    <div class="source-shot">
+                      <div class="mock-subject">
+                        <div class="subject-head"></div>
+                        <div class="subject-body"></div>
+                      </div>
+                      <div class="shot-watermark-label">16:9 master take (full frame)</div>
+                    </div>
+                  </div>
+                  <div class="pane-badge badge-before">Before: 16:9 long take</div>
+                </div>
+              </div>
+
+              <!-- After Side (Clipped Foreground) -->
+              <div class="split-pane pane-after" id="pane-after">
+                <div class="canvas-visual visual-after">
+                  <div class="frame-grid-bg after-bg">
+                    <div class="source-shot">
+                      <div class="mock-subject framed-subject">
+                        <div class="subject-head"></div>
+                        <div class="subject-body"></div>
+                        <div class="tracker-box">
+                          <span class="t-corner tl"></span>
+                          <span class="t-corner tr"></span>
+                          <span class="t-corner bl"></span>
+                          <span class="t-corner br"></span>
+                          <span class="t-label">Face.01 (99.4% confidence)</span>
+                        </div>
+                      </div>
+                      <div class="short-frame-guide">
+                        <div class="guide-label">9:16 auto-reframe</div>
+                      </div>
+                      <div class="caption-overlay">
+                        <span class="c-word">CrazyCut</span>
+                        <span class="c-word c-highlight">transcribes</span>
+                        <span class="c-word">100%</span>
+                        <span class="c-word c-highlight">locally.</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="pane-badge badge-after">After: 9:16 short and captions</div>
+                </div>
+              </div>
+
+              <!-- Draggable Divider Handle -->
+              <div class="split-handle" id="split-handle">
+                <div class="handle-line"></div>
+                <div class="handle-button" role="slider" aria-label="Before after split slider" aria-valuenow="50" aria-valuemin="0" aria-valuemax="100" tabindex="0">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                  </svg>
+                </div>
+                <div class="handle-line"></div>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Primary Action CTA -->
+        <div class="hero-actions reveal">
+          <a class="btn btn-primary btn-lg" href="https://github.com/spix3l/crazycut/releases/latest" data-download>
+            <span class="rec-dot" aria-hidden="true"></span>
+            <span data-download-text>Download CrazyCut v0.4.0</span>
+          </a>
+          <a class="btn btn-outline btn-lg" href="docs/index.html">Read the docs</a>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- STATUS STRIP -->
+    <div class="statusbar-strip" aria-label="Product guarantees">
+      <div class="strip-container">
+        <div class="stat-pill"><span class="led ok"></span><span class="lbl">Local execution</span><span class="val">100%</span></div>
+        <div class="stat-pill"><span class="led ok"></span><span class="lbl">Watermarks</span><span class="val">Zero</span></div>
+        <div class="stat-pill"><span class="led ok"></span><span class="lbl">Account</span><span class="val">Not required</span></div>
+        <div class="stat-pill"><span class="led ok"></span><span class="lbl">Timeline tracks</span><span class="val">Unlimited</span></div>
+        <div class="stat-pill"><span class="led rec"></span><span class="lbl">Telemetry</span><span class="val">Off</span></div>
+      </div>
+    </div>
+
+    <!-- WORKFLOW & PIPELINE SECTION -->
+    <section class="section-workflow" id="workflow">
+      <div class="site-container">
+
+        <!-- Real App Timeline Interface Container -->
+        <div class="timeline-card reveal">
+          <div class="tl-bar">
+            <div class="tl-title">
+              <span class="tc-status-dot"></span>
+              <span class="fname">your-projects.ccut</span>
+              <span class="badge">Editor canvas</span>
+            </div>
+            <div class="tl-time-readout">
+              <span class="tc-curr">00:01:24:06</span>
+              <span class="tc-total">/ 00:18:42:14</span>
+              <span class="tc-format">4K ProRes · 30fps</span>
+            </div>
+          </div>
+
+          <div class="tl-preview-canvas">
+            <img src="assets/img/app-screenshot.png" alt="CrazyCut project browser showing video projects with thumbnails and durations" />
+          </div>
+
+          <div class="tl-tracks-strip">
+            <div class="track-row">
+              <span class="t-name">V2 [Overlay]</span>
+              <div class="t-bar clip-amber" style="width: 30%; left: 15%;">Tracked box (Face.01)</div>
+              <div class="t-bar clip-red" style="width: 25%; left: 50%;">Whisper captions</div>
+            </div>
+            <div class="track-row">
+              <span class="t-name">V1 [Master]</span>
+              <div class="t-bar clip-blue" style="width: 90%; left: 5%;">4K master rush (ProRes 422)</div>
+            </div>
+            <div class="track-row">
+              <span class="t-name">A1 [Audio]</span>
+              <div class="t-bar clip-green" style="width: 90%; left: 5%;">Dialogue track (-14 LUFS normalized)</div>
+            </div>
+            <div class="tl-red-playhead" style="left: 45%;"></div>
+          </div>
+        </div>
+
+        <!-- 3-Step Process Cards -->
+        <div class="steps-grid">
+          <div class="step-card reveal">
+            <div class="step-num">STEP 01</div>
+            <h3>Import and auto-proxy</h3>
+            <p>Drop in MP4, MOV, MKV, or ProRes. CrazyCut probes, thumbnails, and generates lightweight editing proxies in the background so 4K scrubs under 100ms.</p>
+            <div class="step-meta"><span class="k">shortcut</span><span class="v"><kbd>⌘I</kbd></span></div>
+          </div>
+
+          <div class="step-card reveal">
+            <div class="step-num">STEP 02</div>
+            <h3>Cut, track and AI shorts</h3>
+            <p>Multi-track timeline with real ripple edits and JKL keys. Draw a box over any subject to track motion offline, or transcribe with Whisper to propose Shorts.</p>
+            <div class="step-meta"><span class="k">shortcut</span><span class="v"><kbd>⌘B</kbd> · <kbd>JKL</kbd></span></div>
+          </div>
+
+          <div class="step-card reveal">
+            <div class="step-num">STEP 03</div>
+            <h3>Export clean and fast</h3>
+            <p>Background render queue with presets for YouTube 4K, TikTok, Shorts, and master ProRes. The frame you approve in preview is what renders byte for byte.</p>
+            <div class="step-meta"><span class="k">shortcut</span><span class="v"><kbd>⌘E</kbd></span></div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- AREA TRACKING SECTION -->
+    <section class="section-tracking" id="tracking">
+      <div class="site-container">
+        <div class="tracking-grid">
+          <div class="tracking-copy">
+            <div class="sec-tag">// object tracking</div>
+            <h2 class="sec-title">Track anything. Just draw the box.</h2>
+            <p class="sec-desc">
+              No cloud uploads, no heavy model downloads. You draw a bounding region once,
+              and CrazyCut solves motion frame by frame, perspective included, entirely on your machine.
+            </p>
+
+            <div class="track-points-list">
+              <div class="t-point reveal">
+                <span class="point-num">01</span>
+                <div>
+                  <h4>Multiple regions per clip</h4>
+                  <p>Track a face and a logo in the same shot. Each region solves independently with sub-pixel precision.</p>
+                </div>
+              </div>
+
+              <div class="t-point reveal">
+                <span class="point-num">02</span>
+                <div>
+                  <h4>Pin anything to motion</h4>
+                  <p>Swap a region for an image or text and it rides the motion: censor bars, dynamic labels, or corner pins.</p>
+                </div>
+              </div>
+
+              <div class="t-point reveal">
+                <span class="point-num">03</span>
+                <div>
+                  <h4>Bake into keyframes</h4>
+                  <p>Turn tracked motion paths into standard bezier keyframes anytime and hand-edit from there.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tracking-hud-card reveal">
+            <div class="hud-viewport">
+              <div class="hud-grid"></div>
+              <div class="hud-target target-face">
+                <div class="hud-bounding-box">
+                  <span class="box-tag">Face #1 · Solved</span>
+                </div>
+              </div>
+              <div class="hud-target target-logo">
+                <div class="hud-bounding-box">
+                  <span class="box-tag">Logo #2 · Solved</span>
+                </div>
+              </div>
+            </div>
+            <div class="hud-footer">
+              <span><strong>Regions:</strong> 2 / 2 solved</span>
+              <span><strong>Confidence:</strong> <span class="text-ok">Strong (99.2%)</span></span>
+              <span><strong>Engine:</strong> Local OpenCV</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TECHNICAL SPECS & BENTO GRID -->
+    <section class="section-features" id="features">
+      <div class="site-container">
+        <div class="sec-head text-center">
+          <div class="sec-tag">// technical specifications</div>
+          <h2 class="sec-title">Everything a solo creator actually needs.</h2>
+          <p class="sec-desc">
+            No bloated plugin marketplaces, no node graphs. The parts of an NLE you open every day,
+            crafted for speed and documented with stable keyboard shortcuts.
+          </p>
+        </div>
+
+        <div class="bento-grid">
+          <!-- Bento 1 -->
+          <div class="bento-card reveal">
+            <div class="b-top">
+              <span class="b-num">SPEC 01</span>
+              <span class="b-tag">Whisper AI</span>
+            </div>
+            <h3>Long video in, shorts out</h3>
+            <p>Feed CrazyCut a long take. Local Whisper transcribes it in seconds, proposes standalone moments, and reframes them to 9:16 for TikTok and Reels.</p>
+            <div class="b-specs">
+              <div class="b-row"><span class="k">engine</span><span class="v">whisper.cpp</span></div>
+              <div class="b-row"><span class="k">network</span><span class="v">offline</span></div>
+              <div class="b-row"><span class="k">aspects</span><span class="v">9:16 · 1:1 · 4:5</span></div>
+            </div>
+          </div>
+
+          <!-- Bento 2 -->
+          <div class="bento-card reveal">
+            <div class="b-top">
+              <span class="b-num">SPEC 02</span>
+              <span class="b-tag">C++ Engine</span>
+            </div>
+            <h3>Native C++17 core</h3>
+            <p>Multi-threaded decoding and compositing via FFI. 4K rushes scrub smoothly with sub-100ms response time on Apple Silicon and Windows x64.</p>
+            <div class="b-specs">
+              <div class="b-row"><span class="k">core</span><span class="v">C++17 + FFI</span></div>
+              <div class="b-row"><span class="k">scrub</span><span class="v">&lt; 100ms</span></div>
+              <div class="b-row"><span class="k">codecs</span><span class="v">ProRes · H.264 · H.265</span></div>
+            </div>
+          </div>
+
+          <!-- Bento 3 -->
+          <div class="bento-card reveal">
+            <div class="b-top">
+              <span class="b-num">SPEC 03</span>
+              <span class="b-tag">NLE</span>
+            </div>
+            <h3>Multi-track timeline</h3>
+            <p>Unlimited video and audio tracks, real ripple edits, snapping, and responsive JKL transport. The playhead never waits on your hand.</p>
+            <div class="b-specs">
+              <div class="b-row"><span class="k">tracks</span><span class="v">Unlimited</span></div>
+              <div class="b-row"><span class="k">ripple</span><span class="v"><kbd>⌘B</kbd> · <kbd>Shift+J</kbd></span></div>
+              <div class="b-row"><span class="k">transport</span><span class="v"><kbd>JKL</kbd> · <kbd>Space</kbd></span></div>
+            </div>
+          </div>
+
+          <!-- Bento 4 -->
+          <div class="bento-card reveal">
+            <div class="b-top">
+              <span class="b-num">SPEC 04</span>
+              <span class="b-tag">Motion</span>
+            </div>
+            <h3>Keyframes with bezier curves</h3>
+            <p>Animate position, scale, rotation, and opacity with clear handles on visual easing curves. Stack color, blur, and 9 blend modes in one inspector.</p>
+            <div class="b-specs">
+              <div class="b-row"><span class="k">curves</span><span class="v">Cubic Bezier</span></div>
+              <div class="b-row"><span class="k">blend</span><span class="v">9 Modes</span></div>
+              <div class="b-row"><span class="k">shortcut</span><span class="v"><kbd>K</kbd></span></div>
+            </div>
+          </div>
+
+          <!-- Bento 5 -->
+          <div class="bento-card reveal">
+            <div class="b-top">
+              <span class="b-num">SPEC 05</span>
+              <span class="b-tag">Audio</span>
+            </div>
+            <h3>LUFS normalization and mixer</h3>
+            <p>Per-track audio mixer with clip waveforms, parametric EQ, compressor, and automatic -14 LUFS loudness mastering for YouTube and podcasts.</p>
+            <div class="b-specs">
+              <div class="b-row"><span class="k">target</span><span class="v">-14 LUFS</span></div>
+              <div class="b-row"><span class="k">meters</span><span class="v">Peak + True RMS</span></div>
+              <div class="b-row"><span class="k">fx</span><span class="v">Gate · Comp · 3-Band EQ</span></div>
+            </div>
+          </div>
+
+          <!-- Bento 6 -->
+          <div class="bento-card reveal">
+            <div class="b-top">
+              <span class="b-num">SPEC 06</span>
+              <span class="b-tag">Export</span>
+            </div>
+            <h3>Background render queue</h3>
+            <p>The render queue runs in the background while you keep editing. Pick a preset and export clean files with zero watermarks.</p>
+            <div class="b-specs">
+              <div class="b-row"><span class="k">encoders</span><span class="v">x264 · x265 · ProRes</span></div>
+              <div class="b-row"><span class="k">queue</span><span class="v">Background Worker</span></div>
+              <div class="b-row"><span class="k">recovery</span><span class="v">30s Autosave</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PRICING & VALUE TIERS -->
+    <section class="section-pricing" id="pricing">
+      <div class="site-container">
+        <div class="sec-head text-center">
+          <div class="sec-tag">// open source model</div>
+          <h2 class="sec-title">Automate your video processing with CrazyCut</h2>
+          <p class="sec-desc">
+            No subscriptions. No watermarks. 100% Free and open source desktop software.
+          </p>
+        </div>
+
+        <div class="pricing-grid">
+          <!-- Card 1 -->
+          <div class="p-card card-dim reveal">
+            <div class="p-head">
+              <h3>Cloud SaaS editors</h3>
+              <p>Browser-based tools</p>
+              <div class="p-cost">
+                <span class="p-cur">$</span><span class="p-num">25</span><span class="p-sub">/ month</span>
+              </div>
+            </div>
+            <ul class="p-list">
+              <li class="p-dim">Cloud upload required for every clip</li>
+              <li class="p-dim">1080p limit on entry tiers, 4K locked</li>
+              <li class="p-dim">Export watermarks unless paid</li>
+              <li class="p-dim">Monthly AI transcription minute caps</li>
+              <li class="p-dim">Mandatory account and telemetry</li>
+            </ul>
+            <a href="#compare" class="btn btn-outline w-full">View comparison</a>
+          </div>
+
+          <!-- Card 2 (CrazyCut Featured) -->
+          <div class="p-card card-featured reveal">
+            <div class="p-ribbon">RECOMMENDED</div>
+            <div class="p-head">
+              <span class="p-brand-badge">CrazyCut Desktop</span>
+              <h3>Free and open source</h3>
+              <p>100% Local Native Video Editor</p>
+              <div class="p-cost">
+                <span class="p-cur">$</span><span class="p-num">0</span><span class="p-sub">/ MIT License</span>
+              </div>
+            </div>
+            <ul class="p-list">
+              <li class="p-check"><strong>100% Local:</strong> Files never leave your disk</li>
+              <li class="p-check"><strong>Zero Watermarks:</strong> Clean exports always</li>
+              <li class="p-check"><strong>Unlimited 4K & ProRes:</strong> No bitrate caps</li>
+              <li class="p-check"><strong>Local Whisper AI:</strong> Unlimited transcription</li>
+              <li class="p-check"><strong>Area Tracking:</strong> Offline computer vision</li>
+              <li class="p-check"><strong>No Account:</strong> Install, open, and cut</li>
+              <li class="p-check"><strong>Telemetry:</strong> 100% Off by default</li>
+            </ul>
+            <a href="https://github.com/spix3l/crazycut/releases/latest" class="btn btn-primary w-full" data-download>Download Free v0.4.0</a>
+          </div>
+
+          <!-- Card 3 -->
+          <div class="p-card card-dim reveal">
+            <div class="p-head">
+              <h3>Heavy studio suites</h3>
+              <p>Complex Hollywood suites</p>
+              <div class="p-cost">
+                <span class="p-cur">$</span><span class="p-num">300+</span><span class="p-sub">/ perpetual</span>
+              </div>
+            </div>
+            <ul class="p-list">
+              <li class="p-check">Full color grading node graphs</li>
+              <li class="p-dim">50GB install size and heavy GPU footprint</li>
+              <li class="p-dim">Steep multi-month learning curve</li>
+              <li class="p-dim">Overkill for solo YouTube and Shorts workflow</li>
+              <li class="p-dim">Proprietary closed-source code</li>
+            </ul>
+            <a href="#compare" class="btn btn-outline w-full">View full matrix</a>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- DETAILED COMPARISON TABLE -->
+    <section class="section-compare" id="compare">
+      <div class="site-container">
+        <div class="sec-head text-center">
+          <div class="sec-tag">// comparison</div>
+          <h2 class="sec-title">Same claims. Different fine print.</h2>
+          <p class="sec-desc">
+            Everyone says "free" and "fast". Here is what that actually includes.
+          </p>
+        </div>
+
+        <div class="compare-card reveal">
+          <div class="compare-header-bar">
+            <span>compare.crazycut (read only)</span>
+            <span class="status-tag"><span class="dot-ok"></span>snapshot · 7 rows</span>
+          </div>
+          <div class="table-scroll">
+            <table class="compare-table">
+              <thead>
+                <tr>
+                  <th scope="col">Capability</th>
+                  <th scope="col" class="th-us">CrazyCut</th>
+                  <th scope="col">DaVinci (Free)</th>
+                  <th scope="col">CapCut</th>
+                  <th scope="col">Canva</th>
+                  <th scope="col">Kdenlive</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>License</strong></td>
+                  <td class="td-us"><span class="pill-tag ok">MIT Open Source</span></td>
+                  <td>Proprietary</td>
+                  <td>Proprietary</td>
+                  <td>Proprietary</td>
+                  <td>GPL</td>
+                </tr>
+                <tr>
+                  <td><strong>Watermarks & Export Caps</strong></td>
+                  <td class="td-us"><strong class="text-ok">None</strong></td>
+                  <td>None</td>
+                  <td>Feature Gated</td>
+                  <td>Tier Limited</td>
+                  <td>None</td>
+                </tr>
+                <tr>
+                  <td><strong>AI Transcription & Shorts</strong></td>
+                  <td class="td-us"><strong class="text-ok">Local (Whisper)</strong></td>
+                  <td>Studio only ($295)</td>
+                  <td>Cloud (Limits)</td>
+                  <td>Cloud (Paid)</td>
+                  <td>Plugin</td>
+                </tr>
+                <tr>
+                  <td><strong>Area Object Tracking</strong></td>
+                  <td class="td-us"><strong class="text-ok">Built-in (Offline CV)</strong></td>
+                  <td>Complex Nodes</td>
+                  <td>Cloud / Basic</td>
+                  <td>No</td>
+                  <td>Manual Setup</td>
+                </tr>
+                <tr>
+                  <td><strong>Offline Capability</strong></td>
+                  <td class="td-us"><strong class="text-ok">100% Offline</strong></td>
+                  <td>100% Offline</td>
+                  <td>Partial</td>
+                  <td>No (Cloud)</td>
+                  <td>100% Offline</td>
+                </tr>
+                <tr>
+                  <td><strong>Engine Performance</strong></td>
+                  <td class="td-us"><strong class="text-red">C++17 + FFI</strong></td>
+                  <td>Native C++</td>
+                  <td>Web / Electron</td>
+                  <td>Cloud / Web</td>
+                  <td>C++ MLT</td>
+                </tr>
+                <tr>
+                  <td><strong>Account & Telemetry</strong></td>
+                  <td class="td-us"><strong class="text-ok">No Account · Telemetry Off</strong></td>
+                  <td>Account required</td>
+                  <td>Mandatory login</td>
+                  <td>Mandatory login</td>
+                  <td>No account</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- FAQ SECTION (ACCORDION) -->
+    <section class="section-faq" id="faq">
+      <div class="site-container">
+        <div class="sec-head text-center">
+          <div class="sec-tag">// faq</div>
+          <h2 class="sec-title">Questions people ask before installing.</h2>
+          <p class="sec-desc">
+            Details on licensing, privacy, Gatekeeper, and system requirements.
+          </p>
+        </div>
+
+        <div class="faq-list reveal">
+
+          <div class="faq-item">
+            <button class="faq-question" type="button" aria-expanded="false">
+              <span class="q-id">Q.01</span>
+              <span class="q-text">Is CrazyCut actually free? What is the catch?</span>
+              <span class="q-toggle">+</span>
+            </button>
+            <div class="faq-answer">
+              <p>There is no catch and no paid tier. CrazyCut is MIT licensed open source: use it for commercial projects, modify the code, and export your edits with zero watermarks. If you want to support development, star the repository on GitHub or file detailed issues.</p>
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" type="button" aria-expanded="false">
+              <span class="q-id">Q.02</span>
+              <span class="q-text">Where does my video footage go? Does AI upload anything?</span>
+              <span class="q-toggle">+</span>
+            </button>
+            <div class="faq-answer">
+              <p>Nowhere. Media files open from your local drive and all processing happens locally. AI transcription runs on your machine using whisper.cpp. If you optionally configure a cloud LLM for script analysis, only plain transcript text is sent: your video and audio never leave your computer.</p>
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" type="button" aria-expanded="false">
+              <span class="q-id">Q.03</span>
+              <span class="q-text">Is the macOS DMG safe to open?</span>
+              <span class="q-toggle">+</span>
+            </button>
+            <div class="faq-answer">
+              <p>Official macOS release DMGs are signed with an Apple Developer ID certificate and notarized by Apple, so macOS Gatekeeper allows you to install and open CrazyCut without warning prompts.</p>
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" type="button" aria-expanded="false">
+              <span class="q-id">Q.04</span>
+              <span class="q-text">Windows displays a SmartScreen warning. Should I worry?</span>
+              <span class="q-toggle">+</span>
+            </button>
+            <div class="faq-answer">
+              <p>Windows builds from open-source GitHub releases are currently not signed with an EV certificate, which triggers the generic SmartScreen warning. Click "More info" and "Run anyway" when installing official releases from our GitHub repository.</p>
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" type="button" aria-expanded="false">
+              <span class="q-id">Q.05</span>
+              <span class="q-text">What are the system requirements?</span>
+              <span class="q-toggle">+</span>
+            </button>
+            <div class="faq-answer">
+              <p>macOS 13 or later (Apple Silicon or Intel) and Windows 10 or 11 on 64-bit x86 systems. 8GB of RAM recommended (16GB for 4K workflows). Linux packaging is planned for future releases.</p>
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" type="button" aria-expanded="false">
+              <span class="q-id">Q.06</span>
+              <span class="q-text">Why does the footer mention GPL alongside MIT?</span>
+              <span class="q-toggle">+</span>
+            </button>
+            <div class="faq-answer">
+              <p>The app's own code is MIT. It ships with an ffmpeg build that includes x264 and x265, which are GPL, so the bundled binary carries that license. Your project files and exports are yours regardless.</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- CREATOR CALLOUT BANNER -->
+    <section class="section-creator-banner">
+      <div class="site-container">
+        <div class="creator-box reveal">
+          <div class="creator-content">
+            <div class="sec-tag">// solo creator studio</div>
+            <h2 class="creator-title">Built for solo creators and power users</h2>
+            <p class="creator-desc">
+              Get back the hours lost to heavy exports, subscription gates, and cluttered cloud web apps.
+              Download CrazyCut and cut your next video in minutes.
+            </p>
+            <ul class="creator-bullets">
+              <li><span class="b-icon">[ok]</span> Keyboard-first workflow with JKL and ripple cuts</li>
+              <li><span class="b-icon">[ok]</span> Hardware-accelerated background render queue with ProRes support</li>
+              <li><span class="b-icon">[ok]</span> 100% private: no data tracking, no telemetry, no mandatory login</li>
+            </ul>
+            <div class="creator-actions">
+              <a href="https://github.com/spix3l/crazycut/releases/latest" class="btn btn-primary" data-download>
+                <span>Download CrazyCut v0.4.0</span>
+              </a>
+              <a href="docs/index.html" class="btn btn-outline">
+                <span>Explore documentation</span>
+              </a>
+            </div>
+          </div>
+
+          <div class="creator-widget" aria-hidden="true">
+            <div class="widget-terminal">
+              <div class="widget-head">
+                <span class="w-dot red"></span>
+                <span class="w-dot yellow"></span>
+                <span class="w-dot green"></span>
+                <span class="w-title">crazycut-engine --status</span>
+              </div>
+              <div class="widget-code">
+                <p><span class="c-dim">$</span> <span class="c-cmd">crazycut --version</span></p>
+                <p class="c-out"><span class="text-ok">ok</span> Engine: C++17 Core (FFI Linked)</p>
+                <p class="c-out"><span class="text-ok">ok</span> Whisper: Local ggml / whisper.cpp</p>
+                <p class="c-out"><span class="text-ok">ok</span> Tracking: OpenCV Region Tracker</p>
+                <p class="c-out"><span class="text-ok">ok</span> Decoders: Hardware VAAPI / VideoToolbox</p>
+                <p class="c-out"><span class="text-red">&gt;</span> Status: Ready for 4K / 60fps Realtime Ingest</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- FOOTER -->
+  <footer class="site-footer">
+    <div class="site-container">
+      <div class="footer-top">
+
+        <div class="footer-col footer-brand-col">
+          <a class="brand footer-brand" href="#top">
+            <img src="assets/img/icon-64.png" alt="CrazyCut icon" class="brand-icon" />
+            <span class="brand-name">CrazyCut</span>
+          </a>
+          <p class="footer-tagline">
+            A free, open-source native desktop video editor for solo creators. 100% local, no watermarks, no subscriptions.
+          </p>
+          <div class="footer-release-box">
+            <span class="f-box-label">Latest version:</span>
+            <div class="f-box-val">
+              <span class="dot-ok"></span>
+              <a href="https://github.com/spix3l/crazycut/releases/latest" target="_blank" rel="noopener noreferrer">v0.4.0 (macOS & Windows)</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer-col">
+          <h4 class="footer-col-title">Documentation</h4>
+          <ul class="footer-links-list">
+            <li><a href="docs/index.html">Getting started</a></li>
+            <li><a href="docs/shortcuts.html">Keyboard shortcuts</a></li>
+            <li><a href="docs/auto-shorts.html">Auto shorts (Whisper)</a></li>
+            <li><a href="docs/tracking.html">Area motion tracking</a></li>
+            <li><a href="docs/architecture.html">Engine architecture</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4 class="footer-col-title">Resources</h4>
+          <ul class="footer-links-list">
+            <li><a href="https://github.com/spix3l/crazycut" target="_blank" rel="noopener noreferrer">GitHub repository</a></li>
+            <li><a href="https://github.com/spix3l/crazycut/releases" target="_blank" rel="noopener noreferrer">All releases</a></li>
+            <li><a href="#faq">FAQ</a></li>
+            <li><a href="https://github.com/spix3l/crazycut/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT license</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4 class="footer-col-title">Community</h4>
+          <ul class="footer-links-list">
+            <li><a href="https://github.com/spix3l/crazycut/issues" target="_blank" rel="noopener noreferrer">Report an issue</a></li>
+            <li><a href="https://github.com/spix3l/crazycut/discussions" target="_blank" rel="noopener noreferrer">Discussions</a></li>
+            <li><a href="https://github.com/spix3l/crazycut/tree/main/docs" target="_blank" rel="noopener noreferrer">Developer specs</a></li>
+            <li><a href="https://github.com/spix3l/crazycut/releases/latest" target="_blank" rel="noopener noreferrer">Download latest</a></li>
+          </ul>
+        </div>
+
+      </div>
+
+      <div class="footer-bottom">
+        <div class="footer-copy">
+          CrazyCut (c) 2026. MIT Licensed. Bundled ffmpeg is GPL-built. Telemetry is 100% off.
+        </div>
+        <div class="footer-links-inline">
+          <a href="https://github.com/spix3l/crazycut" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <a href="https://github.com/spix3l/crazycut/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+          <a href="https://github.com/spix3l/crazycut/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+          <a href="https://github.com/spix3l/crazycut/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/js/main.js"></script>
+</body>
+
+</html>
