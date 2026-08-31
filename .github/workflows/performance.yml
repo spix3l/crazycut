@@ -3,13 +3,13 @@ name: performance-harness
 on:
   pull_request:
     paths:
-      - "app/test/representative_perf_test.dart"
+      - "app/performance_test/editor/representative_performance_test.dart"
       - "tools/perf/**"
       - ".github/workflows/performance.yml"
   push:
     branches: [main]
     paths:
-      - "app/test/representative_perf_test.dart"
+      - "app/performance_test/editor/representative_performance_test.dart"
       - "tools/perf/**"
       - ".github/workflows/performance.yml"
   workflow_dispatch:

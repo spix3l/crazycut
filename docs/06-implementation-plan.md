@@ -31,9 +31,9 @@ Assign one integration owner at a time to each hotspot:
 
 | Hotspot | Coordination rule |
 |---|---|
-| `app/lib/data/project.dart` | One schema owner per milestone |
-| `app/lib/state/editor_controller.dart` | Feature agents build services first; integration owner wires them |
-| `app/lib/state/timeline_edits.dart` | Serialize caption, retiming, and multi-sequence changes |
+| `app/lib/modules/project/domain/project.dart` | One schema owner per milestone |
+| `app/lib/modules/editor/application/editor_controller.dart` | Feature agents build services first; integration owner wires them |
+| `app/lib/modules/editor/application/timeline_edits.dart` | Serialize caption, retiming, and multi-sequence changes |
 | `engine/render/renderer.cpp` | One render owner; new effects use narrow interfaces |
 | `engine/apps/worker/timeline_job.cpp` | One export owner during caption/color/GPU work |
 | `editor_screen.dart` | UI integration owner composes completed panels |

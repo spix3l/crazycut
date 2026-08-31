@@ -374,7 +374,8 @@ Error rasterizeLayer(const RgbaSurface& src, const CompositedLayer& layer,
   // layer.scale into a `totalScale` *and* into the per-axis stretch factors,
   // which squared it: a stretched clip at 50% drew at 25%, and sized its
   // destination rect from a third, different factor so it was mis-centred too.
-  // app/lib/state/canvas_geometry.dart mirrors this for the on-canvas gizmo.
+  // app/lib/modules/editor/domain/canvas_geometry.dart mirrors this for the
+  // on-canvas gizmo.
   const double sx = static_cast<double>(W) / src.width;
   const double sy = static_cast<double>(H) / src.height;
   double kx, ky;

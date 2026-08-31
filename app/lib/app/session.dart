@@ -3,12 +3,13 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-import 'package:crazycut_app/data/project.dart';
-import 'package:crazycut_app/data/repository.dart';
-import 'package:crazycut_app/state/editor_controller.dart';
-import 'package:crazycut_app/state/proxy_service.dart';
-import 'package:crazycut_app/state/sandbox_access.dart';
-import 'package:crazycut_app/state/ui_preferences.dart';
+import 'package:crazycut_app/modules/project/domain/project.dart';
+import 'package:crazycut_app/modules/project/infrastructure/repository.dart';
+import 'package:crazycut_app/modules/editor/application/editor_controller.dart';
+import 'package:crazycut_app/modules/editor/application/editor_dependencies.dart';
+import 'package:crazycut_app/modules/media/application/proxy_service.dart';
+import 'package:crazycut_app/core/platform/sandbox_access.dart';
+import 'package:crazycut_app/modules/settings/application/ui_preferences.dart';
 
 /// App-scoped editing session: which project is open, its controller, and the
 /// recent-projects list (PRJ-4). Routes read this instead of threading models
@@ -18,12 +19,18 @@ import 'package:crazycut_app/state/ui_preferences.dart';
 /// reliable signal for screens underneath the editor, because a route that is
 /// replaced rather than popped never completes its push future.
 class AppSession extends ChangeNotifier {
-  AppSession._();
-
-  static final AppSession instance = AppSession._();
+  AppSession({
+    required this.editorDependencies,
+    required this.preferences,
+    required this.sandbox,
+    required this.proxies,
+  });
 
   /// Shared across projects so a queued proxy survives closing the editor.
-  final ProxyService proxies = ProxyService();
+  final ProxyService proxies;
+  final EditorDependencies editorDependencies;
+  final UiPreferences preferences;
+  final SandboxAccess sandbox;
 
   ProjectDoc? project;
   String? path;
@@ -42,11 +49,17 @@ class AppSession extends ChangeNotifier {
 
   Future<void> open(ProjectDoc doc, String projectPath) async {
     await close();
-    await UiPreferences.instance.load();
-    proxies.enabled = UiPreferences.instance.generateProxies;
+    await preferences.load();
+    proxies.enabled = preferences.generateProxies;
     project = doc;
     path = projectPath;
-    _controller = EditorController(doc, path: projectPath, proxies: proxies);
+    _controller = EditorController(
+      doc,
+      path: projectPath,
+      proxies: proxies,
+      dependencies: editorDependencies,
+      uiPreferences: preferences,
+    );
     await _rememberRecent(projectPath);
     notifyListeners();
   }
@@ -62,7 +75,7 @@ class AppSession extends ChangeNotifier {
   /// grant: saving additionally needs the enclosing folder, which the user
   /// has to hand over separately (see [SandboxAccess]).
   Future<void> rememberProjectLocation(String projectPath) async {
-    await SandboxAccess.instance.remember(projectPath);
+    await sandbox.remember(projectPath);
   }
 
   Future<ProjectDoc> createNew({
@@ -108,7 +121,8 @@ class AppSession extends ChangeNotifier {
       final file = await _recentsFile();
       if (!file.existsSync()) return;
       final stored =
-          (jsonDecode(await file.readAsString()) as List<dynamic>).cast<String>();
+          (jsonDecode(await file.readAsString()) as List<dynamic>)
+              .cast<String>();
       // Grants were reopened at startup, so an unreachable entry here really
       // is gone rather than merely un-granted.
       final live = stored.where((p) => File(p).existsSync()).toList();
@@ -128,7 +142,7 @@ class AppSession extends ChangeNotifier {
   /// recent entry pointing at nothing.
   Future<void> forgetRecent(String projectPath) async {
     if (!recents.remove(projectPath)) return;
-    await SandboxAccess.instance.forget(projectPath);
+    await sandbox.forget(projectPath);
     await _writeRecents();
   }
 
@@ -137,7 +151,7 @@ class AppSession extends ChangeNotifier {
   Future<void> noteRenamed(String from, String to) async {
     if (from == to) return;
     if (path == from) path = to;
-    await SandboxAccess.instance.forget(from);
+    await sandbox.forget(from);
     if (!recents.contains(from)) return;
     recents.removeWhere((p) => p == to);
     recents[recents.indexOf(from)] = to;

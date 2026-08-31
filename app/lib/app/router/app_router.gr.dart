@@ -10,17 +10,17 @@
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 import 'package:auto_route/auto_route.dart' as _i7;
-import 'package:crazycut_app/features/editor/presentation/screens/editor_screen.dart'
+import 'package:crazycut_app/modules/editor/presentation/screens/editor_screen.dart'
     as _i1;
-import 'package:crazycut_app/features/export/presentation/screens/export_dialog_screen.dart'
+import 'package:crazycut_app/modules/export/presentation/screens/export_dialog_screen.dart'
     as _i2;
-import 'package:crazycut_app/features/projects/presentation/screens/new_project_dialog_screen.dart'
+import 'package:crazycut_app/modules/projects/presentation/screens/new_project_dialog_screen.dart'
     as _i3;
-import 'package:crazycut_app/features/projects/presentation/screens/project_browser_screen.dart'
+import 'package:crazycut_app/modules/projects/presentation/screens/project_browser_screen.dart'
     as _i4;
-import 'package:crazycut_app/features/settings/presentation/screens/ai_settings_screen.dart'
+import 'package:crazycut_app/modules/settings/presentation/screens/ai_settings_screen.dart'
     as _i5;
-import 'package:crazycut_app/features/shorts/presentation/screens/shorts_review_screen.dart'
+import 'package:crazycut_app/modules/shorts/presentation/screens/shorts_review_screen.dart'
     as _i6;
 import 'package:flutter/widgets.dart' as _i8;
 
@@ -61,8 +61,8 @@ class ExportRoute extends _i7.PageRouteInfo<ExportRouteArgs> {
     builder: (data) {
       final queryParams = data.queryParams;
       final args = data.argsAs<ExportRouteArgs>(
-        orElse: () =>
-            ExportRouteArgs(empty: queryParams.getBool('empty', false)),
+        orElse:
+            () => ExportRouteArgs(empty: queryParams.getBool('empty', false)),
       );
       return _i2.ExportDialogScreen(key: args.key, empty: args.empty);
     },

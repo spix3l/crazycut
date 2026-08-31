@@ -24,7 +24,7 @@ CC_PERF_FIXTURE_DIR="$fixture_dir" \
 CC_PERF_REPORT="$report" \
 python3 "$root/tools/perf/perf_report.py" time \
   --timing "$timing" --cwd "$root/app" -- \
-  flutter test test/representative_perf_test.dart --reporter expanded
+  flutter test performance_test/editor/representative_performance_test.dart --reporter expanded
 python3 "$root/tools/perf/perf_report.py" enrich \
   --report "$report" --timing "$timing"
 

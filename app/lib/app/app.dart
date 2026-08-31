@@ -1,16 +1,16 @@
-import 'package:crazycut_app/ai/ai_settings.dart';
 import 'package:flutter/widgets.dart';
 
-import '../core/design/tokens.dart';
+import 'package:crazycut_app/core/design/tokens.dart';
+import 'dependencies.dart';
 import 'platform_menu.dart';
 import 'router/app_router.dart';
-import '../state/ui_preferences.dart';
-import 'session.dart';
 
 /// Application root. Deliberately not a `MaterialApp`: CrazyCut ships its own
 /// design system, so it only needs the plumbing `WidgetsApp` provides.
 class CrazyCutApp extends StatefulWidget {
-  const CrazyCutApp({super.key});
+  const CrazyCutApp({super.key, required this.dependencies});
+
+  final AppDependencies dependencies;
 
   @override
   State<CrazyCutApp> createState() => _CrazyCutAppState();
@@ -25,12 +25,12 @@ class _CrazyCutAppState extends State<CrazyCutApp> {
     // Read the AI configuration once at startup so the editor knows whether to
     // show any AI affordance at all (AI-1). A failure here leaves AI off,
     // which is exactly the behaviour we want.
-    AiSettings.instance.load().whenComplete(() {
+    widget.dependencies.aiSettings.load().whenComplete(() {
       if (mounted) setState(() {});
     });
-    UiPreferences.instance.load().then((_) {
-      AppSession.instance.proxies.enabled =
-          UiPreferences.instance.generateProxies;
+    widget.dependencies.preferences.load().then((_) {
+      widget.dependencies.session.proxies.enabled =
+          widget.dependencies.preferences.generateProxies;
     });
   }
 
@@ -49,6 +49,13 @@ class _CrazyCutAppState extends State<CrazyCutApp> {
           ),
     );
 
-    return CrazyCutMenuBar(router: _router, child: app);
+    return AppDependenciesScope(
+      dependencies: widget.dependencies,
+      child: CrazyCutMenuBar(
+        router: _router,
+        session: widget.dependencies.session,
+        child: app,
+      ),
+    );
   }
 }

@@ -36,7 +36,7 @@ Legend: **Verified** has automated end-to-end coverage on the named platform;
 - macOS correctness: `.github/workflows/ci.yml`, Flutter suite, native CTest.
 - Windows headless contracts: `tools/smoke-windows.ps1` and
   `docs/quality/windows-validation.md`.
-- Representative performance: `app/test/representative_perf_test.dart` and
+- Representative performance: `app/performance_test/editor/representative_performance_test.dart` and
   `tools/perf/`; accepted numbers require the labeled fixed runner.
 - Creator-ready delivery order: `06-implementation-plan.md`.
 

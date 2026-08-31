@@ -3,9 +3,9 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
-import '../core/design/tokens.dart';
-import '../core/widgets/cc_dialog.dart';
-import '../core/widgets/primitives.dart';
+import 'package:crazycut_app/core/design/tokens.dart';
+import 'package:crazycut_app/core/widgets/cc_dialog.dart';
+import 'package:crazycut_app/core/widgets/primitives.dart';
 
 /// What Help ▸ CrazyCut Help opens: getting-started basics plus the full
 /// keyboard map, mirroring `editor_screen.dart`'s key handler and the

@@ -76,11 +76,35 @@ engine/
   ipc/         export-worker protocol (length-prefixed JSON over stdio)
 app/
   lib/
-    ui/        screens, panels, widgets (Flutter)
-    state/     Riverpod stores, document controller, undo/redo commands
-    engine/    ffigen-generated bindings + hand-written async wrappers, event bridge
-    data/      project repository, autosave, backups, caches paths
+    app/       bootstrap, dependency composition, routing, session, platform menu
+    core/      dependency-free utilities, platform contracts, shared widgets
+    engine/    ffigen-generated bindings and native engine adapters
+    modules/   bounded product modules, each split by responsibility
 ```
+
+Each module uses only the layers it needs:
+
+- `domain/` owns models and pure rules. It cannot import application,
+  infrastructure, or presentation code.
+- `application/` owns use cases, controllers, transactions, and ports. It can
+  depend on domain code but cannot import presentation code.
+- `infrastructure/` owns filesystem, network, cache, worker, and native
+  implementations.
+- `presentation/` owns Flutter screens and widgets. Business services arrive
+  through controllers or the app dependency scope, never through global
+  service access.
+
+The major modules are `project`, `media`, `editor`, `projects`, `export`,
+`shorts`, `settings`, and `ai`. The project document remains the shared domain
+contract consumed by editing, export, preview, and derived-project workflows.
+Every handwritten Dart file owns at most one public type. Library part files
+are used where project-schema types need private serialization helpers from a
+shared library.
+
+Tests mirror the `lib/` directory for counterpart coverage. Hermetic workflows
+live in `test/flows/`, native and fixture-backed checks live in
+`native_test/`, shared harnesses live in `test/support/`, and timing gates
+live in `performance_test/` so ordinary functional CI is not machine-sensitive.
 
 Third-party (C++): ffmpeg libs (GPL build), miniaudio (MIT), fmt, spdlog, nlohmann/json, GoogleTest. Image decoding (PNG/JPEG/WebP) goes through libavformat/libavcodec to keep one path; SVG is out of scope v1.
 

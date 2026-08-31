@@ -69,7 +69,7 @@ The timeline becomes real.
 | Golden audio | GoogleTest | fade curves RMS, crossfade midpoint ±0.5 dB, loudnorm targets |
 | Serialization fuzz | libFuzzer | project JSON loader never crashes/quarantines cleanly |
 | Dart unit/widget | flutter_test | stores, commands/undo, inspector bindings, theme lint (contrast) |
-| Integration | flutter integration_test + tiny generated media fixtures | import→edit→export smoke per milestone exit criteria |
+| Native integration | `flutter test native_test` plus tiny generated media fixtures | import→edit→export smoke per milestone exit criteria |
 | Perf | nightly CI on fixed runners | budget table from `01-architecture.md` §12; >10% regression fails build |
 | Manual QA | scripted checklists per release | platform matrices: macOS 13/14/15 × AS/Intel; Win10/21H2+ × NVIDIA/AMD/Intel iGPU |
 

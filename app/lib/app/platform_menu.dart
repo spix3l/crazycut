@@ -6,8 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
-import '../core/widgets/cc_dialog.dart';
-import '../state/editor_controller.dart';
+import 'package:crazycut_app/core/widgets/cc_dialog.dart';
+import 'package:crazycut_app/modules/editor/application/editor_controller.dart';
 import 'help_dialog.dart';
 import 'router/app_router.dart';
 import 'router/app_router.gr.dart';
@@ -17,11 +17,17 @@ import 'session.dart';
 /// root so root stays plumbing. Flutter draws no native menu bar on the other
 /// platforms CrazyCut ships, so there the child passes through untouched.
 class CrazyCutMenuBar extends StatelessWidget {
-  const CrazyCutMenuBar({super.key, required this.router, required this.child});
+  const CrazyCutMenuBar({
+    super.key,
+    required this.router,
+    required this.session,
+    required this.child,
+  });
 
   /// Must be the same instance the `WidgetsApp.router` was built with: menu
   /// actions navigate through it.
   final AppRouter router;
+  final AppSession session;
   final Widget child;
 
   @override
@@ -30,10 +36,9 @@ class CrazyCutMenuBar extends StatelessWidget {
     return PlatformMenuBar(menus: _menus, child: child);
   }
 
-  bool get _hasProject => AppSession.instance.hasProject;
+  bool get _hasProject => session.hasProject;
 
-  EditorController? get _editor =>
-      _hasProject ? AppSession.instance.editor : null;
+  EditorController? get _editor => _hasProject ? session.editor : null;
 
   /// The root navigator's own Overlay, for menu actions that show a dialog.
   /// Menu callbacks only have the navigator's context, and `Overlay.of` can't
@@ -51,16 +56,14 @@ class CrazyCutMenuBar extends StatelessWidget {
     ];
     final file = await openFile(acceptedTypeGroups: types);
     if (file == null) return;
-    await AppSession.instance.rememberProjectLocation(file.path);
-    await AppSession.instance.openPath(file.path);
+    await session.rememberProjectLocation(file.path);
+    await session.openPath(file.path);
     router.replace(const EditorRoute());
   }
 
   void _closeProject() {
     if (!_hasProject) return;
-    AppSession.instance.close().then(
-      (_) => router.replace(const ProjectBrowserRoute()),
-    );
+    session.close().then((_) => router.replace(const ProjectBrowserRoute()));
   }
 
   void _save() {

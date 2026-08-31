@@ -3,15 +3,9 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:crazycut_app/engine/engine.dart';
-import 'package:crazycut_app/models/rational.dart';
+import 'package:crazycut_app/core/math/rational.dart';
 
-/// One composited frame, rendered off the UI isolate for a project poster.
-class PosterFrame {
-  const PosterFrame({required this.width, required this.height, required this.rgba});
-  final int width;
-  final int height;
-  final Uint8List rgba;
-}
+part 'poster_frame.dart';
 
 /// Off-thread poster-frame rendering (project browser cards).
 ///

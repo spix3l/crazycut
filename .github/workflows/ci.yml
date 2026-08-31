@@ -57,6 +57,12 @@ jobs:
         run: |
           $worker = (Resolve-Path "..\engine\build-release\Release\crazycut_worker.exe").Path.Replace('\', '/')
           flutter test --dart-define="CRAZYCUT_WORKER_BIN=$worker"
+      - name: Test native app integrations
+        working-directory: app
+        shell: pwsh
+        run: |
+          $worker = (Resolve-Path "..\engine\build-release\Release\crazycut_worker.exe").Path.Replace('\', '/')
+          flutter test native_test --dart-define="CRAZYCUT_WORKER_BIN=$worker"
       - name: Build and assemble Windows app
         shell: pwsh
         run: ./tools/package-windows.ps1 -SkipEngineBuild
@@ -89,6 +95,9 @@ jobs:
       - name: Test
         working-directory: app
         run: flutter test
+      - name: Test native integrations
+        working-directory: app
+        run: flutter test native_test
       - name: Build macOS (debug)
         working-directory: app
         run: flutter build macos --debug

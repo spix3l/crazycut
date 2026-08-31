@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 
-import '../design/tokens.dart';
+import 'package:crazycut_app/core/design/tokens.dart';
 import 'primitives.dart';
 
 /// Empty state: a compact icon chip inline with the title, then teaching copy
