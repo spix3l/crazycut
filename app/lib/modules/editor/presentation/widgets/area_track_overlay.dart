@@ -57,6 +57,11 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
   /// whose corner was grabbed rather than whichever one happens to be active.
   String? _editingId;
 
+  /// The region under the press that started a *draw*. A drag becomes a new
+  /// region; a click without one selects this instead, which is how a region
+  /// is picked on the canvas now that its interior no longer swallows drags.
+  String? _tapRegionId;
+
   /// The box the user drew, kept on screen until the solve it started resolves.
   ///
   /// Clearing it on pointer-up made a solve look like nothing had happened: the
@@ -131,31 +136,48 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
     return -1;
   }
 
+  /// Whether [local] is on the small square drawn at a region's centre — the
+  /// only place a whole region can be picked up (**TRK-27**).
+  bool _onMoveHandle(Offset local, Size box, Quad quad) {
+    final centre = quadCentre(quad);
+    return (_toPx(Offset(centre.x, centre.y), box) - local).distance <=
+        _hitSlop;
+  }
+
   bool _onPointerDown(Offset local, Size box) {
     for (final region in _ordered(_clip)) {
       final quad = region.tracker.id == _editingId
           ? (_editing ?? region.quad)
           : region.quad;
       final corner = _cornerAt(local, box, quad);
-      // Dragging inside an existing quad moves the whole region.
-      final inside = corner < 0 && quadContains(quad, _toSeq(local, box));
-      if (corner < 0 && !inside) continue;
+      // Moving a whole region is the centre grip, not the interior. Treating
+      // the interior as a grab made the frame unusable as soon as a few
+      // regions covered it: every attempt to box something new landed inside
+      // one of them and moved it instead of tracking anything (**TRK-27**).
+      final move = corner < 0 && _onMoveHandle(local, box, quad);
+      if (corner < 0 && !move) continue;
       // Grabbing a region is also how it is selected: the Track tab, the
       // handles and *Replace with image* all follow the active one.
       c.activeTrackerId = region.tracker.id;
       setState(() {
-        _corner = inside ? 4 : corner; // 4 is "all corners"
+        _corner = move ? 4 : corner; // 4 is "all corners"
         _editing = [...quad];
         _editingId = region.tracker.id;
+        _tapRegionId = null;
         _dragStart = local;
       });
       return true;
     }
-    // Empty canvas draws a fresh rectangle, which becomes a new region.
+    // Anywhere else draws a fresh rectangle, which becomes a new region —
+    // including over an existing one, so overlapping subjects can each be
+    // tracked. A press that never becomes a drag selects what it landed on.
+    final seq = _toSeq(local, box);
+    final under = _ordered(_clip).where((r) => quadContains(r.quad, seq));
     setState(() {
       _corner = -1;
       _editing = null;
       _editingId = null;
+      _tapRegionId = under.isEmpty ? null : under.first.tracker.id;
       _dragStart = local;
       _dragNow = local;
     });
@@ -209,6 +231,9 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
     final from = _dragStart;
     final to = _dragNow;
     if (from == null || to == null || (to - from).distance < _minDragPx) {
+      // A click, not a region: select whatever it landed on.
+      final tapped = _tapRegionId;
+      if (tapped != null) c.activeTrackerId = tapped;
       _reset();
       return;
     }
@@ -235,6 +260,7 @@ class _AreaTrackOverlayState extends State<AreaTrackOverlay> {
     _corner = -1;
     _editing = null;
     _editingId = null;
+    _tapRegionId = null;
   });
 
   @override
@@ -478,6 +504,23 @@ class _AreaTrackPainter extends CustomPainter {
           ..color = solving ? colour.withValues(alpha: 0.55) : colour,
       );
       if (!interactive) return; // a readout has nothing to grab
+      // The centre grip moves the whole region. It is a handle rather than the
+      // whole interior so that drawing a new region over an existing one still
+      // draws (**TRK-27**).
+      final centre = quadCentre(active);
+      canvas.drawCircle(
+        _px(centre.x, centre.y),
+        _AreaTrackOverlayStateMetrics.handle / 2,
+        Paint()..color = CcColors.panel,
+      );
+      canvas.drawCircle(
+        _px(centre.x, centre.y),
+        _AreaTrackOverlayStateMetrics.handle / 2,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = colour,
+      );
       for (var i = 0; i < 4; i += 1) {
         final p = _px(active[2 * i], active[2 * i + 1]);
         final handle = Rect.fromCenter(

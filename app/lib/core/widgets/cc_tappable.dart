@@ -10,6 +10,7 @@ class CcTappable extends StatefulWidget {
     super.key,
     required this.child,
     this.onTap,
+    this.onDoubleTap,
     this.cursor = SystemMouseCursors.click,
     this.hoverOpacity = 0.82,
     this.pressedOpacity = 0.65,
@@ -19,6 +20,12 @@ class CcTappable extends StatefulWidget {
 
   final Widget child;
   final VoidCallback? onTap;
+
+  /// Optional second gesture on the same surface — rename-in-place, mostly.
+  /// Supplying it makes taps wait for the double-tap window, so it is left off
+  /// wherever the tap must feel immediate.
+  final VoidCallback? onDoubleTap;
+
   final MouseCursor cursor;
   final double hoverOpacity;
   final double pressedOpacity;
@@ -121,6 +128,7 @@ class _CcTappableState extends State<CcTappable> {
         onTapUp: (_) => setState(() => _pressed = false),
         onTapCancel: () => setState(() => _pressed = false),
         onTap: widget.onTap,
+        onDoubleTap: widget.onDoubleTap,
         child: press,
       ),
     );

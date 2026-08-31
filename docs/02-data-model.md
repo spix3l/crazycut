@@ -1,6 +1,6 @@
 # CrazyCut — Data Model & Project Format
 
-> Status: Draft v0.4 · Owner: @steve · Last updated: 2026-08-31
+> Status: Draft v0.5 · Owner: @steve · Last updated: 2026-08-31
 > Companion docs: `01-architecture.md`, `03-features/*`
 
 ## 1. Principles
@@ -195,6 +195,7 @@ A solved motion path for a user-drawn region (`03-features/tracking.md`, **TRK-1
   "id": "…",
   "mediaId": "…",                 // asset the region was solved against
   "sourceClipId": "…",            // clip the region was drawn on
+  "name": "Left eye",             // optional; absent means "Region N" by order
   "startTime": "0/1",             // clip-local, rational
   "endTime": "300/30",
   "searchQuad": [x0,y0, x1,y1, x2,y2, x3,y3],   // source px, TL/TR/BR/BL
@@ -219,8 +220,10 @@ A solved motion path for a user-drawn region (`03-features/tracking.md`, **TRK-1
   is unaffected by the tracked clip's own transform.
 - Several trackers may share a `sourceClipId` — a clip can carry any number of tracked regions
   (**TRK-27**). They are distinguished by document order, which is what the UI's "Region 1/2/3"
-  reads; nothing is stored for the name, and which region is *active* is session state, not
-  document state.
+  reads; which region is *active* is session state, not document state.
+- `name` is written **only once the user renames a region**, so an untouched project carries
+  none and there is nothing to migrate. A blank name is no name: it is dropped on load and the
+  region goes back to its number.
 - Unlike thumbnails, peaks, transcripts and proxies (§7), a tracker is **not** a deletable
   cache artifact: it combines user-authored input (the drawn region, any corrections) with an
   expensive solve, so it lives in the document and travels with the project.
@@ -349,6 +352,7 @@ template under `<CrazyCut>/Templates` (`03-features/templates.md`):
 
 ## Changelog
 
+- v0.5 — optional `Tracker.name` (**TRK-27**); absent means the derived "Region N".
 - v0.4 — several trackers may share a `sourceClipId` (**TRK-27**); no format change.
 - v0.3 — `trackers[]` and `extra.trackPin` for area tracking (`03-features/tracking.md`); `transform`/`extra` made explicit on Clip.
 - v0.2 — §12 template files.

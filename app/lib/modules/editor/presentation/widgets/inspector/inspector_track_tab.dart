@@ -45,6 +45,11 @@ class TrackTab extends StatelessWidget {
             job?.state == TrackingState.running ||
             job?.state == TrackingState.queued;
         final rejection = c.trackRejection;
+        // The overlay sitting on the active region, if any.
+        final pinned = tracker == null
+            ? const <Clip>[]
+            : c.clipsPinnedTo(tracker.id);
+        final placed = pinned.isEmpty ? null : pinned.first;
 
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
@@ -88,8 +93,10 @@ class TrackTab extends StatelessWidget {
                           ? 'Drag a box on the monitor over what the overlay '
                               'should follow, then it is tracked from there.'
                           : 'Drag a corner on the monitor to correct a region '
-                              'and it re-tracks forward from that frame. Drag '
-                              'on empty picture to track something else too.',
+                              'and it re-tracks forward from that frame, or its '
+                              'centre dot to move it. Drag anywhere else to '
+                              'track something else too. Double-click a region '
+                              'to rename it.',
                     ),
                     if (rejection != null) ...[
                       const SizedBox(height: 8),
@@ -138,15 +145,29 @@ class TrackTab extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      // What is on the region, when something is: the file, its
+                      // size and where it landed. Without it the only evidence
+                      // an image had been dropped was the picture itself, which
+                      // says nothing about which file it came from.
+                      if (placed != null) ...[
+                        _PlacedImage(controller: c, overlay: placed),
+                        const SizedBox(height: 8),
+                      ],
                       CcButton(
-                        label: 'Replace with image…',
+                        label: placed == null
+                            ? 'Replace with image…'
+                            : 'Use a different image…',
                         onPressed: () => _replaceWithFile(tracker.id),
                       ),
                       const SizedBox(height: 6),
                       _Note(
-                        'Puts a picture on ${c.trackerLabel(tracker)} and pins '
-                        'it, on a track above this one, for exactly the '
-                        'tracked range.',
+                        placed == null
+                            ? 'Puts a picture on ${c.trackerLabel(tracker)} and '
+                                  'pins it, on a track above this one, for '
+                                  'exactly the tracked range.'
+                            : 'Puts another picture on '
+                                  '${c.trackerLabel(tracker)}. The one there '
+                                  'now stays on the timeline.',
                       ),
                     ],
                   ),
@@ -203,11 +224,11 @@ class TrackTab extends StatelessWidget {
   /// it, and pinning it to a tracker named after a different clip — enough
   /// steps that nobody would guess the feature was there.
   Future<void> _replaceWithFile(String trackerId) async {
-    const types = [
-      XTypeGroup(
-        label: 'Images',
-        extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tiff'],
-      ),
+    // The importer's own list, SVG included: a dialog that offers formats the
+    // importer refuses (bmp, tiff) and hides ones it accepts (svg) is a bug in
+    // two directions at once.
+    final types = [
+      XTypeGroup(label: 'Images', extensions: kImageExtensions.toList()),
     ];
     final file = await openFile(acceptedTypeGroups: types);
     if (file == null) return;
@@ -237,10 +258,13 @@ class TrackTab extends StatelessWidget {
   static String _percent(double v) => '${(v * 100).round()}%';
 }
 
-/// One of the clip's tracked regions (**TRK-27**). Tapping it makes it the
-/// active region, which is what the canvas handles, the readout below and
-/// *Replace with image* all act on.
-class _RegionRow extends StatelessWidget {
+/// One of the clip's tracked regions (**TRK-27**).
+///
+/// Tapping it makes it the active region, which is what the canvas handles,
+/// the readout below and *Replace with image* all act on. Double-clicking
+/// renames it — the same gesture the timeline's track headers use — because
+/// "Region 3" stops meaning anything once three of them are faces.
+class _RegionRow extends StatefulWidget {
   const _RegionRow({
     required this.controller,
     required this.tracker,
@@ -252,36 +276,190 @@ class _RegionRow extends StatelessWidget {
   final bool selected;
 
   @override
-  Widget build(BuildContext context) => CcTappable(
-    onTap: () => controller.activeTrackerId = tracker.id,
-    child: Container(
-      margin: const EdgeInsets.only(bottom: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: selected ? CcColors.elevated : null,
-        borderRadius: BorderRadius.circular(CcRadius.sm),
-        border: Border.all(
-          color: selected ? CcColors.accent : CcColors.border,
+  State<_RegionRow> createState() => _RegionRowState();
+}
+
+class _RegionRowState extends State<_RegionRow> {
+  TextEditingController? _rename;
+  final _focus = FocusNode();
+
+  EditorController get c => widget.controller;
+
+  @override
+  void dispose() {
+    _rename?.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _startRename() {
+    setState(
+      () => _rename = TextEditingController(text: widget.tracker.name ?? ''),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
+  }
+
+  void _commitRename() {
+    final value = _rename?.text ?? '';
+    if (_rename == null) return;
+    c.renameTracker(widget.tracker.id, value);
+    setState(() {
+      _rename?.dispose();
+      _rename = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = widget.selected;
+    final editing = _rename;
+    // What sits on this region, so the list reads as "Region 2 · face.png"
+    // rather than as three interchangeable rows.
+    final overlays = c.clipsPinnedTo(widget.tracker.id);
+    final asset = overlays.isEmpty
+        ? null
+        : c.doc.assetById(overlays.first.mediaId);
+
+    return CcTappable(
+      onTap: () => c.activeTrackerId = widget.tracker.id,
+      onDoubleTap: _startRename,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected ? CcColors.elevated : null,
+          borderRadius: BorderRadius.circular(CcRadius.sm),
+          border: Border.all(
+            color: selected ? CcColors.accent : CcColors.border,
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: editing != null
+                  ? CcTextField(
+                      controller: editing,
+                      focusNode: _focus,
+                      height: 22,
+                      bordered: false,
+                      radius: CcRadius.sm,
+                      placeholder: c.derivedTrackerLabel(widget.tracker),
+                      onSubmitted: (_) => _commitRename(),
+                      onTapOutside: (_) => _commitRename(),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          c.trackerLabel(widget.tracker),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: CcType.style(
+                            size: 12,
+                            color: selected
+                                ? CcColors.textPrimary
+                                : CcColors.textSecondary,
+                          ),
+                        ),
+                        if (asset != null)
+                          Text(
+                            asset.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: CcType.style(
+                              size: 10,
+                              color: CcColors.textTertiary,
+                            ),
+                          ),
+                      ],
+                    ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '${widget.tracker.sampleCount} samples',
+              style: CcType.style(size: 11, color: CcColors.textTertiary),
+            ),
+          ],
         ),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    );
+  }
+}
+
+/// The picture sitting on the active region: which file it is, how big, and
+/// where it landed on the timeline.
+class _PlacedImage extends StatelessWidget {
+  const _PlacedImage({required this.controller, required this.overlay});
+
+  final EditorController controller;
+  final Clip overlay;
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = controller.doc.assetById(overlay.mediaId);
+    final track = controller.doc.trackById(overlay.trackId);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: CcColors.elevated,
+        borderRadius: BorderRadius.circular(CcRadius.sm),
+        border: Border.all(color: CcColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            controller.trackerLabel(tracker),
-            style: CcType.style(
-              size: 12,
-              color: selected ? CcColors.textPrimary : CcColors.textSecondary,
-            ),
+          Row(
+            children: [
+              const CcIcon(
+                LucideIcons.image,
+                size: 13,
+                color: CcColors.textSecondary,
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  asset?.name ?? overlay.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: CcType.style(size: 12),
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 4),
           Text(
-            '${tracker.sampleCount} samples',
+            [
+              if ((asset?.width ?? 0) > 0 && (asset?.height ?? 0) > 0)
+                '${asset!.width}×${asset.height}',
+              if (asset != null && asset.codec == 'svg') 'SVG',
+              if (track != null) 'on ${track.name}',
+            ].join(' · '),
             style: CcType.style(size: 11, color: CcColors.textTertiary),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: CcButton(
+                  label: 'Select',
+                  kind: CcButtonKind.secondary,
+                  onPressed: () => controller.selectClip(overlay.id),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: CcButton(
+                  label: 'Remove',
+                  kind: CcButtonKind.secondary,
+                  onPressed: () => controller.deleteClips([overlay.id]),
+                ),
+              ),
+            ],
           ),
         ],
       ),
-    ),
-  );
+    );
+  }
 }
 
 /// Offers the trackers this clip could follow. A clip cannot follow its own

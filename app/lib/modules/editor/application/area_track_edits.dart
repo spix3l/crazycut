@@ -119,14 +119,40 @@ mixin AreaTrackEdits on TimelineEdits {
     return all.last;
   }
 
-  /// What a region is called in the UI: its position among the regions solved
-  /// against the same clip. Derived rather than stored, so nothing has to be
-  /// named to be told apart, and nothing has to be migrated (**TRK-27**).
-  String trackerLabel(Tracker tracker) {
+  /// What a region is called in the UI: the name the user gave it, or its
+  /// position among the regions solved against the same clip. Derived until
+  /// renamed, so nothing has to be named to be told apart and an untouched
+  /// project has nothing to migrate (**TRK-27**).
+  String trackerLabel(Tracker tracker) =>
+      tracker.name ?? derivedTrackerLabel(tracker);
+
+  /// The positional name, ignoring any the user gave. Shown as the placeholder
+  /// while renaming, so clearing the field visibly returns to it.
+  String derivedTrackerLabel(Tracker tracker) {
     final siblings = doc.trackersForClip(tracker.sourceClipId);
     final index = siblings.indexWhere((t) => t.id == tracker.id);
     return 'Region ${index < 0 ? siblings.length + 1 : index + 1}';
   }
+
+  /// Names a region (**TRK-27**). A blank name clears it, which returns the
+  /// region to "Region N" rather than leaving it nameless — the numbering is
+  /// always there underneath.
+  void renameTracker(String trackerId, String name) {
+    final tracker = doc.trackerById(trackerId);
+    if (tracker == null) return;
+    final trimmed = name.trim();
+    final next = trimmed.isEmpty ? null : trimmed;
+    if (tracker.name == next) return;
+    runEdit('Rename region', (tx) {
+      tx.tracker(trackerId);
+      final at = doc.trackers.indexWhere((t) => t.id == trackerId);
+      if (at >= 0) doc.trackers[at] = tracker.copyWith(name: [next]);
+    });
+  }
+
+  /// The clips following [trackerId] — the overlay the user dropped on the
+  /// region, when there is one.
+  List<Clip> clipsPinnedTo(String trackerId) => _clipsPinnedTo(trackerId);
 
   /// Solves [regionInSequence] on [clip] as a **new** region and installs it.
   ///
@@ -234,9 +260,14 @@ mixin AreaTrackEdits on TimelineEdits {
     if (solved == null) return null;
 
     // Splice: everything the old solve knew before this frame is still good.
-    final merged = existing == null || at <= existing.startTime
+    var merged = existing == null || at <= existing.startTime
         ? solved
         : _spliceAt(existing, solved, at);
+    // The solve is built from the worker's payload, which knows nothing about
+    // what the user called the region; re-tracking must not rename it back.
+    if (existing?.name != null && merged.name == null) {
+      merged = merged.copyWith(name: [existing!.name]);
+    }
     installTracker(merged);
     return merged;
   }

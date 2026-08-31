@@ -16,6 +16,12 @@ class PoolItem {
   bool caching = false;
 }
 
+/// The still-picture half of [kSupportedExtensions]. Anything offered as "an
+/// image" — the tracked-region replacement, for one — filters on this rather
+/// than on a list of its own, which is how that dialog came to offer formats
+/// the importer then refused.
+const kImageExtensions = {'png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'};
+
 /// Files we accept (IMP: supported formats).
 const kSupportedExtensions = {
   'mp4',

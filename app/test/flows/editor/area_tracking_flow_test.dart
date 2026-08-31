@@ -609,6 +609,71 @@ void main() {
       expect(c.trackerLabel(c.doc.trackerById('t2')!), 'Region 2');
     });
 
+    test('a renamed region keeps its name, and blank goes back to the number', () {
+      final (c, _, _) = harness();
+      c.installTracker(slidingTracker());
+      c.installTracker(secondTracker());
+
+      c.renameTracker('t1', '  Left eye  ');
+      expect(c.trackerLabel(c.doc.trackerById('t1')!), 'Left eye');
+      // The number underneath is untouched: it is what the placeholder shows
+      // and what the region falls back to.
+      expect(c.derivedTrackerLabel(c.doc.trackerById('t1')!), 'Region 1');
+      expect(c.trackerLabel(c.doc.trackerById('t2')!), 'Region 2');
+
+      // Through the file and back.
+      final reloaded = ProjectDoc.decode(c.doc.encode(touchModified: false));
+      expect(reloaded.trackerById('t1')!.name, 'Left eye');
+      expect(reloaded.trackerById('t2')!.name, isNull);
+      // An unnamed region writes no name at all, so an untouched project is
+      // byte-identical to what an older build wrote.
+      expect(reloaded.trackerById('t2')!.toJson().containsKey('name'), isFalse);
+
+      // Renaming is one undo step.
+      c.undo();
+      expect(c.doc.trackerById('t1')!.name, isNull);
+      c.redo();
+      expect(c.doc.trackerById('t1')!.name, 'Left eye');
+
+      // Blank clears it rather than showing an empty row.
+      c.renameTracker('t1', '   ');
+      expect(c.doc.trackerById('t1')!.name, isNull);
+      expect(c.trackerLabel(c.doc.trackerById('t1')!), 'Region 1');
+    });
+
+    test('re-tracking a named region does not rename it', () async {
+      // The solve comes back from the worker, which knows nothing about names;
+      // rebuilding the tracker from it must not drop what the user typed.
+      final (c, source, _) = harness();
+      c.installTracker(slidingTracker());
+      c.renameTracker('t1', 'Sign');
+      c.onSolve = (id) => slidingTracker(id: id, samples: 6);
+
+      await c.retrackFromPlayhead(
+        source,
+        quadFromRect(left: 100, top: 200, right: 500, bottom: 500),
+        trackerId: 't1',
+      );
+      expect(c.doc.trackerById('t1')!.name, 'Sign');
+      expect(c.doc.trackerById('t1')!.sampleCount, 6);
+    });
+
+    test('a region knows what was dropped on it', () {
+      final (c, _, overlay) = harness();
+      c.installTracker(slidingTracker());
+      expect(c.clipsPinnedTo('t1'), isEmpty);
+
+      c.pinClipToTracker(overlay.id, 't1');
+      expect(c.clipsPinnedTo('t1').single.id, overlay.id);
+      expect(
+        c.doc.assetById(c.clipsPinnedTo('t1').single.mediaId)!.name,
+        'face.png',
+      );
+
+      c.unpinClip(overlay.id);
+      expect(c.clipsPinnedTo('t1'), isEmpty);
+    });
+
     test('two overlays follow two regions of the same clip', () {
       final (c, _, overlay) = harness();
       c.installTracker(slidingTracker());
@@ -688,6 +753,9 @@ class _ProbeController extends EditorController {
   void Function(Rt start)? onSolveRequested;
   final List<String> solveIds = [];
 
+  /// Supplies a result, for the tests that care what installing one does.
+  Tracker? Function(String trackerId)? onSolve;
+
   @override
   Future<Tracker?> solveTrackedRegion({
     required String trackerId,
@@ -699,6 +767,6 @@ class _ProbeController extends EditorController {
   }) async {
     onSolveRequested?.call(start);
     solveIds.add(trackerId);
-    return null;
+    return onSolve?.call(trackerId);
   }
 }

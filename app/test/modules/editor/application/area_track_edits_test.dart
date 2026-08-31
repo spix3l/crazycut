@@ -34,7 +34,7 @@ void main() {
 
   /// Records what the tool asked for instead of running a real solve, so the
   /// test is about the gesture and not about OpenCV.
-  final requested = <({Quad region, Rt start})>[];
+  final requested = <({Quad region, Rt start, String trackerId})>[];
 
   (EditorController, Clip) harness() {
     requested.clear();
@@ -215,6 +215,95 @@ void main() {
     expect(region[4], closeTo(1200, 1.0));
     expect(region[5], closeTo(700, 1.0));
   });
+
+  /// A tracked region used to swallow every pointer that landed inside it, so
+  /// on a busy frame — three or four regions covering most of the picture —
+  /// there was nowhere left to draw and the next box silently moved a region
+  /// instead of tracking anything.
+  Tracker box(String id, Clip clip, {required double left, required double top}) =>
+      Tracker(
+        id: id,
+        mediaId: 'v',
+        sourceClipId: clip.id,
+        startTime: Rt.zero(),
+        endTime: Rt.fromSeconds(1),
+        searchQuad: [left, top, left + 800, top, left + 800, top + 400, left, top + 400],
+        fps: Rt(30, 1),
+        path: [left, top, left + 800, top, left + 800, top + 400, left, top + 400],
+        confidence: const [1.0],
+      );
+
+  testWidgets('a drag inside an existing region draws a new one', (
+    tester,
+  ) async {
+    final (c, clip) = harness();
+    c.installTracker(box('t1', clip, left: 400, top: 300));
+    c.autosave.dispose();
+    await pump(tester, c);
+
+    // Both ends of the drag are well inside t1 (400,300)-(1200,700) and away
+    // from its corners and centre.
+    final origin = tester.getTopLeft(find.byType(AreaTrackOverlay));
+    final gesture = await tester.startGesture(
+      origin + const Offset(450 / seqPerPx, 350 / seqPerPx),
+    );
+    await tester.pump();
+    await gesture.moveTo(origin + const Offset(700 / seqPerPx, 550 / seqPerPx));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+
+    expect(requested, hasLength(1));
+    expect(
+      requested.single.trackerId,
+      isNot('t1'),
+      reason: 'a drag over a region tracks something new, it does not move it',
+    );
+    expect(requested.single.region[0], closeTo(450, 2));
+    expect(requested.single.region[4], closeTo(700, 2));
+  });
+
+  testWidgets('the centre grip moves the whole region', (tester) async {
+    final (c, clip) = harness();
+    c.installTracker(box('t1', clip, left: 400, top: 300));
+    c.autosave.dispose();
+    await pump(tester, c);
+
+    final origin = tester.getTopLeft(find.byType(AreaTrackOverlay));
+    final centre = origin + const Offset(800 / seqPerPx, 500 / seqPerPx);
+    final gesture = await tester.startGesture(centre);
+    await tester.pump();
+    await gesture.moveTo(centre + const Offset(100 / seqPerPx, 0));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+
+    expect(requested, hasLength(1));
+    expect(requested.single.trackerId, 't1', reason: 'it re-tracks that region');
+    final moved = requested.single.region;
+    expect(moved[0], closeTo(500, 2), reason: 'every corner moved together');
+    expect(moved[4], closeTo(1300, 2));
+    expect(moved[1], closeTo(300, 2), reason: 'and only horizontally');
+  });
+
+  testWidgets('clicking a region selects it without re-solving', (
+    tester,
+  ) async {
+    final (c, clip) = harness();
+    c.installTracker(box('t1', clip, left: 100, top: 100));
+    c.installTracker(box('t2', clip, left: 1000, top: 500));
+    c.autosave.dispose();
+    expect(c.activeTrackerId, 't2', reason: 'the newest region is active');
+    await pump(tester, c);
+
+    final origin = tester.getTopLeft(find.byType(AreaTrackOverlay));
+    await tester.tapAt(origin + const Offset(300 / seqPerPx, 250 / seqPerPx));
+    await tester.pump();
+
+    expect(c.activeTrackerId, 't1');
+    expect(requested, isEmpty, reason: 'a click is not a drag');
+  });
+
   testWidgets('the outline steps aside once something is pinned to it', (
     tester,
   ) async {
@@ -347,7 +436,7 @@ class _RecordingController extends EditorController {
   _RecordingController(super.doc, String path, this._requested)
     : super(path: path);
 
-  final List<({Quad region, Rt start})> _requested;
+  final List<({Quad region, Rt start, String trackerId})> _requested;
 
   @override
   Future<Tracker?> solveTrackedRegion({
@@ -358,7 +447,11 @@ class _RecordingController extends EditorController {
     required Rt start,
     required Rt end,
   }) async {
-    _requested.add((region: searchQuad, start: start));
+    _requested.add((
+      region: searchQuad,
+      start: start,
+      trackerId: trackerId,
+    ));
     return null;
   }
 }

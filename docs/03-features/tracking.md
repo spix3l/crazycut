@@ -1,6 +1,6 @@
 # Feature Spec — Area Tracking
 
-> Status: Draft v0.4 · Owner: @steve · Last updated: 2026-08-31
+> Status: Draft v0.5 · Owner: @steve · Last updated: 2026-08-31
 > Requirements prefix: **TRK** · Rendering: `01-architecture.md` §7 · Model: `02-data-model.md` §5
 > Transform: `03-features/effects.md` (**FX-9**) · Keyframes: `03-features/text-keyframes.md` (**KEY**)
 > Analysis-pass precedent: `03-features/ai-assist.md` (**AI-18–22**)
@@ -162,20 +162,34 @@ export read the same baked path out of the document, so they cannot disagree.
   unpins its clips and reports it. It never leaves a clip referencing a tracker that is gone.
 - **TRK-26** **Replace with image** is one action: pick a picture and it is imported, placed on
   the first free video track above the tracked clip for exactly the solved range, and pinned
-  corner-pin — as a single undo step. Assembling that by hand takes six steps and requires
+  corner-pin. Its file dialog offers exactly the importer's own image formats, SVG included —
+  a dialog that offers formats the importer refuses, or hides ones it accepts, is wrong in both
+  directions — as a single undo step. Assembling that by hand takes six steps and requires
   knowing which tracker belongs to which clip, which is enough friction that the feature would
   go unused. A free track above is reused rather than adding one per region.
-- **TRK-27** **A clip carries any number of tracked regions.** Dragging a box on empty picture
-  always creates a *new* region and solves it; correcting an existing one is the corner drag of
-  **TRK-11**. Regions are independent: each solves as its own job, is pinned, re-tracked and
-  deleted on its own, and one clip can drive a face overlay and a logo overlay at once.
+- **TRK-27** **A clip carries any number of tracked regions.** Dragging a box on the picture
+  always creates a *new* region and solves it — including over an existing region, so two
+  overlapping subjects can each be tracked. Correcting an existing one is the corner drag of
+  **TRK-11**; moving one whole is its **centre grip**, not its interior. An interior that
+  swallowed drags made a busy frame undrawable: with three or four regions covering the picture
+  there was nowhere left to press, and the next box moved a region instead of tracking anything.
+  A press that never becomes a drag selects the region under it. Regions are independent: each
+  solves as its own job, is pinned, re-tracked and deleted on its own, and one clip can drive a
+  face overlay and a logo overlay at once.
   - Exactly one region is **active** at a time — the one the canvas handles, the Track tab's
     readout and **TRK-26** act on. It follows the most recent solve and is re-pointed by
     clicking a region on the monitor or picking one in the Track tab. Active-ness is session
     state, not document state: it is a selection, and nothing about the project depends on it.
-  - Regions are named by their **order on the clip** — "Region 1", "Region 2" — derived rather
-    than stored, so nothing has to be named to be told apart and the format is unchanged
-    (`02-data-model.md` §5 already allows several trackers to share a `sourceClipId`).
+  - Regions are named by their **order on the clip** — "Region 1", "Region 2" — until the user
+    renames one by double-clicking its row, which stores a `name` on the tracker. Blank clears
+    it back to the number, so the derived name is always underneath and there is nothing to
+    migrate: an unnamed region writes no `name` at all. A re-solve keeps the name, which the
+    worker's payload knows nothing about. "Region 3" stops meaning anything once three of them
+    are faces.
+  - A region reports **what was dropped on it** (**TRK-26**): the Track tab's row carries the
+    pinned picture's file name, and the active region's readout adds its pixel size, whether it
+    came from an SVG, and which track it landed on, with *Select* and *Remove*. Before this the
+    only evidence an image had been placed was the picture itself.
   - The timeline's confidence stripe (**TRK-8**) is the union of every region's weak spans, so
     one region drifting is never hidden by another solving cleanly over the same seconds.
 
@@ -206,6 +220,8 @@ export read the same baked path out of the document, so they cannot disagree.
 - After a solve the canvas draws a **motion trail** of the quad's centre across the tracked
   range, so the shape of the move is legible without scrubbing. Only the **active** region draws
   one: three trails at once is a plate of spaghetti, not a readout.
+- The active region's handles are its four corners plus a **centre grip**; everywhere else on
+  the picture, including inside a region, is drawing surface. A click selects, a drag draws.
 - A clip's other regions are drawn thin and faded, with no handles. That is enough to see they
   are there and where to click to switch to one, without competing with the region in hand. The
   Track tab lists them, marks the active one, and its draw button reads *Draw another region…*
@@ -219,6 +235,8 @@ export read the same baked path out of the document, so they cannot disagree.
   count and confidence readout, pin target, pin mode, an arrow pad for nudging the overlay off
   the region (Shift for ten pixels, with a reset), *Bake*, *Unpin* and *Delete region*.
   Re-tracking is a canvas gesture — drag a corner and it re-solves forward from that frame.
+  Regions are listed with their pinned picture underneath the name, and renamed in place by
+  double-clicking, the same gesture that renames a timeline track.
   The pin picker names its options *clip · region*, because one clip can offer several.
 - **A solve in flight is visible from the moment the box is released**: the drawn rectangle stays
   on screen, faded and without handles, and the Track tab shows progress, ETA and cancel. The
@@ -280,6 +298,9 @@ export read the same baked path out of the document, so they cannot disagree.
 9. Boxing two subjects in one clip leaves two independent regions: each solves, each takes its
    own pinned overlay, correcting one does not disturb the other, and deleting one leaves the
    other and its pin intact (**TRK-27**).
+10. On a clip already carrying three regions, dragging a box across them adds a fourth rather
+    than moving one of them, and a renamed region keeps its name through a re-solve, a save and
+    a reload (**TRK-27**).
 
 ## Out of scope
 
@@ -291,6 +312,10 @@ network- or model-backed tracker.
 
 ## Changelog
 
+- v0.5 — **TRK-27** regions are drawn anywhere, including over each other: moving one is its
+  centre grip rather than its interior, which is what made a fourth region undrawable. Regions
+  can be renamed (stored `name`, blank returns to the number), report the picture pinned to
+  them, and **TRK-26**'s file dialog follows the importer's own image formats (SVG included).
 - v0.4 — **TRK-27** any number of tracked regions per clip: drawing on empty picture adds one,
   regions are named by their order on the clip, one is active at a time, and the confidence
   stripe unions them.

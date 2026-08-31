@@ -12,6 +12,7 @@ class Tracker {
     required this.fps,
     required this.path,
     required this.confidence,
+    this.name,
     this.algorithm = 'lk-homography',
     this.algorithmVersion = 1,
     this.analysisWidth = 720,
@@ -63,6 +64,7 @@ class Tracker {
       fps: fps,
       path: path,
       confidence: [for (final v in rawConfidence) (v as num).toDouble()],
+      name: _nameOrNull(j['name']),
       algorithm: (j['algorithm'] as String?) ?? 'lk-homography',
       algorithmVersion: (j['algorithmVersion'] as num?)?.toInt() ?? 1,
       analysisWidth: (j['analysisWidth'] as num?)?.toInt() ?? 720,
@@ -77,6 +79,7 @@ class Tracker {
     'id',
     'mediaId',
     'sourceClipId',
+    'name',
     'startTime',
     'endTime',
     'searchQuad',
@@ -91,6 +94,12 @@ class Tracker {
   final String id;
   final String mediaId;
   final String sourceClipId;
+
+  /// What the user called this region, or null for the derived "Region N"
+  /// (**TRK-27**). Stored only once renamed, so an untouched project carries
+  /// no names to migrate and the numbering keeps working on its own.
+  final String? name;
+
   final Rt startTime;
   final Rt endTime;
 
@@ -178,6 +187,7 @@ class Tracker {
     'id': id,
     'mediaId': mediaId,
     'sourceClipId': sourceClipId,
+    if (name != null) 'name': name,
     'startTime': startTime.toString(),
     'endTime': endTime.toString(),
     'searchQuad': searchQuad,
@@ -189,16 +199,20 @@ class Tracker {
     'confidence': confidence,
   };
 
+  /// [name] is passed as a one-element list to tell "leave it alone" (null)
+  /// from "clear it" (`[null]`), which a bare `String?` cannot express.
   Tracker copyWith({
     Rt? startTime,
     Rt? endTime,
     Quad? searchQuad,
     List<double>? path,
     List<double>? confidence,
+    List<String?>? name,
   }) => Tracker(
     id: id,
     mediaId: mediaId,
     sourceClipId: sourceClipId,
+    name: name == null ? this.name : name.first,
     startTime: startTime ?? this.startTime,
     endTime: endTime ?? this.endTime,
     searchQuad: searchQuad ?? this.searchQuad,
@@ -210,6 +224,14 @@ class Tracker {
     analysisWidth: analysisWidth,
     extra: extra,
   );
+}
+
+/// A blank name is no name: it falls back to the derived label rather than
+/// showing an empty row.
+String? _nameOrNull(dynamic raw) {
+  if (raw is! String) return null;
+  final trimmed = raw.trim();
+  return trimmed.isEmpty ? null : trimmed;
 }
 
 Quad? _quadOrNull(dynamic raw) {
