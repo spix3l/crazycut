@@ -65,6 +65,14 @@ class TrackingService extends ChangeNotifier {
     return found;
   }
 
+  /// Every job solving a region on [clipId]. A clip can carry several regions
+  /// (**TRK-27**), so "is this clip solving" is a question about all of them —
+  /// the last one alone would report ready while another is still running.
+  List<TrackingJob> jobsForClip(String clipId) => [
+    for (final job in jobs.values)
+      if (job.request.sourceClipId == clipId) job,
+  ];
+
   /// Queues a solve and completes with the finished [Tracker], or null when the
   /// run failed or was cancelled. The document is not touched here — the caller
   /// installs the result as one undoable command (**TRK-15**).

@@ -1,6 +1,6 @@
 # Feature Spec — Area Tracking
 
-> Status: Draft v0.3 · Owner: @steve · Last updated: 2026-08-30
+> Status: Draft v0.4 · Owner: @steve · Last updated: 2026-08-31
 > Requirements prefix: **TRK** · Rendering: `01-architecture.md` §7 · Model: `02-data-model.md` §5
 > Transform: `03-features/effects.md` (**FX-9**) · Keyframes: `03-features/text-keyframes.md` (**KEY**)
 > Analysis-pass precedent: `03-features/ai-assist.md` (**AI-18–22**)
@@ -29,6 +29,8 @@ export read the same baked path out of the document, so they cannot disagree.
   plane rather than floating flat on top of it.
 - As Dev, I want to see at a glance where the track got unreliable, without scrubbing the
   whole clip to find it.
+- As Maya, one shot has two people in it, so I box both faces and drop a different image on
+  each without splitting the clip or tracking it twice over.
 
 ## Non-goals (v1)
 
@@ -36,8 +38,9 @@ export read the same baked path out of the document, so they cannot disagree.
   tracking works offline with no first-use download, unlike transcription (**AI-19**).
 - **No occlusion recovery.** When the subject is hidden the track holds its last good pose and
   reports low confidence; it does not re-acquire on its own.
-- **No multiple concurrent trackers per clip.** One tracker per region, any number of regions
-  per project, but no solving several at once in one pass.
+- **No solving several regions in one pass.** A clip may carry any number of tracked regions
+  (**TRK-27**), but each is its own solve and its own job; the solver is never asked for more
+  than one quad at a time.
 - **No tracked masks or tracked blur-island.** Driving **FX-8** from a tracker is the obvious
   next feature and is deliberately left out; see *Out of scope*.
 - **No tracker in `.cctemplate`.** Templates carry clips, and a tracker is scoped to media a
@@ -162,6 +165,19 @@ export read the same baked path out of the document, so they cannot disagree.
   corner-pin — as a single undo step. Assembling that by hand takes six steps and requires
   knowing which tracker belongs to which clip, which is enough friction that the feature would
   go unused. A free track above is reused rather than adding one per region.
+- **TRK-27** **A clip carries any number of tracked regions.** Dragging a box on empty picture
+  always creates a *new* region and solves it; correcting an existing one is the corner drag of
+  **TRK-11**. Regions are independent: each solves as its own job, is pinned, re-tracked and
+  deleted on its own, and one clip can drive a face overlay and a logo overlay at once.
+  - Exactly one region is **active** at a time — the one the canvas handles, the Track tab's
+    readout and **TRK-26** act on. It follows the most recent solve and is re-pointed by
+    clicking a region on the monitor or picking one in the Track tab. Active-ness is session
+    state, not document state: it is a selection, and nothing about the project depends on it.
+  - Regions are named by their **order on the clip** — "Region 1", "Region 2" — derived rather
+    than stored, so nothing has to be named to be told apart and the format is unchanged
+    (`02-data-model.md` §5 already allows several trackers to share a `sourceClipId`).
+  - The timeline's confidence stripe (**TRK-8**) is the union of every region's weak spans, so
+    one region drifting is never hidden by another solving cleanly over the same seconds.
 
 ### Render
 - **TRK-23** A pinned clip renders through the **shared compositor** used by both preview and
@@ -188,7 +204,12 @@ export read the same baked path out of the document, so they cannot disagree.
 - The playhead is published on its own throttled channel, so this reads `playheadNotifier`
   directly. Anything that rebuilds only on the controller's listeners does not follow a scrub.
 - After a solve the canvas draws a **motion trail** of the quad's centre across the tracked
-  range, so the shape of the move is legible without scrubbing.
+  range, so the shape of the move is legible without scrubbing. Only the **active** region draws
+  one: three trails at once is a plate of spaghetti, not a readout.
+- A clip's other regions are drawn thin and faded, with no handles. That is enough to see they
+  are there and where to click to switch to one, without competing with the region in hand. The
+  Track tab lists them, marks the active one, and its draw button reads *Draw another region…*
+  once one exists — the affordance for the second region has to be visible from the first.
 - Where the solve is untrustworthy the region outline turns amber on the canvas, the Track tab
   reports the confidence at the playhead and how many weak spans there are, and an **amber
   stripe along the timeline clip** marks where they fall — on the tracked clip and on anything
@@ -196,12 +217,15 @@ export read the same baked path out of the document, so they cannot disagree.
 - Tracking progress uses the export queue's cards, progress bar and ETA. Nothing is modal.
 - The inspector's **Track** tab carries: draw/adjust region, solve progress with cancel, sample
   count and confidence readout, pin target, pin mode, an arrow pad for nudging the overlay off
-  the region (Shift for ten pixels, with a reset), *Bake*, *Unpin* and *Delete tracker*.
+  the region (Shift for ten pixels, with a reset), *Bake*, *Unpin* and *Delete region*.
   Re-tracking is a canvas gesture — drag a corner and it re-solves forward from that frame.
+  The pin picker names its options *clip · region*, because one clip can offer several.
 - **A solve in flight is visible from the moment the box is released**: the drawn rectangle stays
   on screen, faded and without handles, and the Track tab shows progress, ETA and cancel. The
-  first solve has no tracker in the document yet, so this is tracked per *clip* — keying it on a
-  tracker id showed nothing at all for the run the user was waiting on.
+  first solve has no tracker in the document yet, so the region is **named before it is solved**
+  and made active — the job is keyed on that id, which is what makes the run the user is waiting
+  on findable. A per-clip lookup remains as the fallback, but it cannot tell two regions of one
+  clip apart while both are in flight.
 
 ## Edge cases
 
@@ -253,17 +277,23 @@ export read the same baked path out of the document, so they cannot disagree.
 7. Re-solving the same region twice produces a bit-identical path (**TRK-9**).
 8. A document with a corrupt tracker loads with the tracker quarantined and every other
    tracker, clip and effect intact (**TRK-16**).
+9. Boxing two subjects in one clip leaves two independent regions: each solves, each takes its
+   own pinned overlay, correcting one does not disturb the other, and deleting one leaves the
+   other and its pin intact (**TRK-27**).
 
 ## Out of scope
 
 Face/subject detection and auto-reframe (`03-features/shorts.md` non-goals), tracked masks and
 tracked blur-island driving **FX-8**, motion-tracked text (`03-features/text-keyframes.md`),
 motion-tracked captions (`03-features/captions.md`), planar surface *replacement* with
-relighting, stabilisation, 3D camera solve, multi-region solves in one pass, and any
+relighting, stabilisation, 3D camera solve, solving several regions in one pass, and any
 network- or model-backed tracker.
 
 ## Changelog
 
+- v0.4 — **TRK-27** any number of tracked regions per clip: drawing on empty picture adds one,
+  regions are named by their order on the clip, one is active at a time, and the confidence
+  stripe unions them.
 - v0.3 — **TRK-26** replace-with-image in one action; the tracked region is a live readout
   whenever its clip is selected and follows the playhead; a solve disarms the tool.
 - v0.2 — Menu-bar entry and shortcut for the region tool (**TRK-1**); refusals name their

@@ -1,6 +1,6 @@
 # CrazyCut — Data Model & Project Format
 
-> Status: Draft v0.3 · Owner: @steve · Last updated: 2026-08-30
+> Status: Draft v0.4 · Owner: @steve · Last updated: 2026-08-31
 > Companion docs: `01-architecture.md`, `03-features/*`
 
 ## 1. Principles
@@ -217,6 +217,10 @@ A solved motion path for a user-drawn region (`03-features/tracking.md`, **TRK-1
   gap at the wrong time.
 - Coordinates are **source pixels**, so a tracker survives a change of sequence resolution and
   is unaffected by the tracked clip's own transform.
+- Several trackers may share a `sourceClipId` — a clip can carry any number of tracked regions
+  (**TRK-27**). They are distinguished by document order, which is what the UI's "Region 1/2/3"
+  reads; nothing is stored for the name, and which region is *active* is session state, not
+  document state.
 - Unlike thumbnails, peaks, transcripts and proxies (§7), a tracker is **not** a deletable
   cache artifact: it combines user-authored input (the drawn region, any corrections) with an
   expensive solve, so it lives in the document and travels with the project.
@@ -345,6 +349,7 @@ template under `<CrazyCut>/Templates` (`03-features/templates.md`):
 
 ## Changelog
 
+- v0.4 — several trackers may share a `sourceClipId` (**TRK-27**); no format change.
 - v0.3 — `trackers[]` and `extra.trackPin` for area tracking (`03-features/tracking.md`); `transform`/`extra` made explicit on Clip.
 - v0.2 — §12 template files.
 - v0.1 — Initial draft.

@@ -40,6 +40,7 @@ mixin AreaTrackEdits on TimelineEdits {
 
   bool _trackToolActive = false;
   String? _trackRejection;
+  String? _activeTrackerId;
 
   /// Why the last attempt to track a region was refused, or null.
   ///
@@ -77,16 +78,61 @@ mixin AreaTrackEdits on TimelineEdits {
   /// playhead, which is the same rule the gizmo uses.
   Clip? trackToolClip() => gizmoClipUnderPlayhead();
 
-  /// The tracker solved against [clip], if any. One per clip in v1.
-  Tracker? trackerForClip(Clip clip) {
-    final own = doc.trackersForClip(clip.id);
-    if (own.isNotEmpty) return own.first;
-    // A pinned overlay shows the region it follows, not nothing.
-    final pin = TrackPin.fromExtra(clip.extra);
-    return pin == null ? null : doc.trackerById(pin.trackerId);
+  /// The region every single-region control acts on — the canvas handles, the
+  /// Track tab's readout, *Replace with image* (**TRK-27**).
+  ///
+  /// A clip can carry several tracked regions, so "the tracker" is a choice
+  /// rather than a lookup. It follows the last solve and is re-pointed by
+  /// clicking a region on the canvas or picking one in the Track tab.
+  String? get activeTrackerId => _activeTrackerId;
+
+  set activeTrackerId(String? value) {
+    if (_activeTrackerId == value) return;
+    _activeTrackerId = value;
+    notifyListeners();
   }
 
-  /// Solves [regionInSequence] on [clip] and installs the result.
+  /// Every tracked region [clip] shows: the ones solved against it, plus — when
+  /// it is a pinned overlay — the region it follows, so selecting the meme image
+  /// still shows what it sits on.
+  List<Tracker> trackersFor(Clip clip) {
+    final out = doc.trackersForClip(clip.id);
+    final pin = TrackPin.fromExtra(clip.extra);
+    final followed = pin == null ? null : doc.trackerById(pin.trackerId);
+    if (followed != null && !out.any((t) => t.id == followed.id)) {
+      out.add(followed);
+    }
+    return out;
+  }
+
+  /// The active region of [clip], or its most recent one.
+  ///
+  /// Falling back to the *last* rather than the first is what makes a fresh
+  /// solve the one the inspector talks about: it is the region the user just
+  /// drew.
+  Tracker? trackerForClip(Clip clip) {
+    final all = trackersFor(clip);
+    if (all.isEmpty) return null;
+    for (final tracker in all) {
+      if (tracker.id == _activeTrackerId) return tracker;
+    }
+    return all.last;
+  }
+
+  /// What a region is called in the UI: its position among the regions solved
+  /// against the same clip. Derived rather than stored, so nothing has to be
+  /// named to be told apart, and nothing has to be migrated (**TRK-27**).
+  String trackerLabel(Tracker tracker) {
+    final siblings = doc.trackersForClip(tracker.sourceClipId);
+    final index = siblings.indexWhere((t) => t.id == tracker.id);
+    return 'Region ${index < 0 ? siblings.length + 1 : index + 1}';
+  }
+
+  /// Solves [regionInSequence] on [clip] as a **new** region and installs it.
+  ///
+  /// Every drawn box is its own tracker (**TRK-27**): a clip can follow a face
+  /// and a logo at once. Correcting an existing region is a different gesture —
+  /// dragging its corners, which routes to [retrackFromPlayhead].
   ///
   /// The region arrives in sequence px because that is what the canvas knows;
   /// it is converted into the clip's source px here, so the stored path is
@@ -124,8 +170,14 @@ mixin AreaTrackEdits on TimelineEdits {
       return null;
     }
 
+    // Named before the solve runs, and made active straight away: the job is
+    // keyed on this id, so the progress, ETA and cancel the user is waiting on
+    // are findable while the tracker itself does not exist yet.
+    final id = generateId();
+    activeTrackerId = id;
+
     final tracker = await solveTrackedRegion(
-      trackerId: trackerForClip(clip)?.id ?? generateId(),
+      trackerId: id,
       clip: clip,
       asset: asset,
       searchQuad: source,
@@ -144,9 +196,19 @@ mixin AreaTrackEdits on TimelineEdits {
 
   /// Corrects the region at the playhead and re-solves forward from there,
   /// keeping the samples before it (**TRK-11**). One undo step.
-  Future<Tracker?> retrackFromPlayhead(Clip clip, Quad regionInSequence) async {
+  ///
+  /// [trackerId] names which of the clip's regions was corrected; the canvas
+  /// passes the one whose corner was dragged. Without it the active region is
+  /// re-solved, which is what a single-region clip has always done.
+  Future<Tracker?> retrackFromPlayhead(
+    Clip clip,
+    Quad regionInSequence, {
+    String? trackerId,
+  }) async {
     _trackRejection = null;
-    final existing = trackerForClip(clip);
+    final existing = trackerId == null
+        ? trackerForClip(clip)
+        : doc.trackerById(trackerId);
     final asset = doc.assetById(clip.mediaId);
     if (asset == null) return null;
     final at = clipLocalTime(clip);
@@ -158,8 +220,11 @@ mixin AreaTrackEdits on TimelineEdits {
       return null;
     }
 
+    final id = existing?.id ?? generateId();
+    activeTrackerId = id;
+
     final solved = await solveTrackedRegion(
-      trackerId: existing?.id ?? generateId(),
+      trackerId: id,
       clip: clip,
       asset: asset,
       searchQuad: source,
@@ -253,27 +318,47 @@ mixin AreaTrackEdits on TimelineEdits {
   ///
   /// Reported for the clip that was *tracked* and for anything pinned to it, so
   /// the warning appears wherever the user is looking when it matters.
+  /// Every region on the clip contributes: the stripe answers "is anything the
+  /// user is looking at untrustworthy here", so hiding one region's drift
+  /// behind another's good solve would defeat it (**TRK-27**).
   List<(double, double)> lowConfidenceSpansFor(
     Clip clip, {
     double threshold = 0.4,
   }) {
-    final tracker = trackerForClip(clip);
-    if (tracker == null) return const [];
-    final source = doc.clipById(tracker.sourceClipId);
-    if (source == null) return const [];
-
     final spans = <(double, double)>[];
-    for (final span in tracker.lowConfidenceSpans(threshold: threshold)) {
-      // Tracker times are local to the tracked clip; a pinned overlay may start
-      // anywhere, so go through sequence time rather than assuming they align.
-      final start = source.start + span.start - clip.start;
-      final end = source.start + span.end - clip.start;
-      final clampedStart = start.clampTo(Rt.zero(), clip.duration);
-      final clampedEnd = end.clampTo(Rt.zero(), clip.duration);
-      if (clampedEnd <= clampedStart) continue;
-      spans.add((clampedStart.seconds, clampedEnd.seconds));
+    for (final tracker in trackersFor(clip)) {
+      final source = doc.clipById(tracker.sourceClipId);
+      if (source == null) continue;
+      for (final span in tracker.lowConfidenceSpans(threshold: threshold)) {
+        // Tracker times are local to the tracked clip; a pinned overlay may
+        // start anywhere, so go through sequence time rather than assuming
+        // they align.
+        final start = source.start + span.start - clip.start;
+        final end = source.start + span.end - clip.start;
+        final clampedStart = start.clampTo(Rt.zero(), clip.duration);
+        final clampedEnd = end.clampTo(Rt.zero(), clip.duration);
+        if (clampedEnd <= clampedStart) continue;
+        spans.add((clampedStart.seconds, clampedEnd.seconds));
+      }
     }
-    return spans;
+    return _mergedSpans(spans);
+  }
+
+  /// Sorts and coalesces overlapping spans, so two regions drifting over the
+  /// same seconds paint one stripe rather than two on top of each other.
+  static List<(double, double)> _mergedSpans(List<(double, double)> spans) {
+    if (spans.length < 2) return spans;
+    spans.sort((a, b) => a.$1.compareTo(b.$1));
+    final out = <(double, double)>[spans.first];
+    for (final span in spans.skip(1)) {
+      final last = out.last;
+      if (span.$1 <= last.$2) {
+        out[out.length - 1] = (last.$1, math.max(last.$2, span.$2));
+      } else {
+        out.add(span);
+      }
+    }
+    return out;
   }
 
   // --- Trackers -------------------------------------------------------------
@@ -281,6 +366,7 @@ mixin AreaTrackEdits on TimelineEdits {
   /// Installs a solved path, replacing any earlier solve with the same id, and
   /// rebuilds every clip pinned to it. One undo step, whole path included.
   void installTracker(Tracker tracker) {
+    _activeTrackerId = tracker.id;
     runEdit('Track region', (tx) {
       tx.tracker(tracker.id);
       final at = doc.trackers.indexWhere((t) => t.id == tracker.id);
@@ -296,6 +382,7 @@ mixin AreaTrackEdits on TimelineEdits {
   /// Removes a tracker and unpins everything that followed it (**TRK-22**).
   void deleteTracker(String trackerId) {
     if (doc.trackerById(trackerId) == null) return;
+    if (_activeTrackerId == trackerId) _activeTrackerId = null;
     runEdit('Delete tracker', (tx) {
       for (final clip in _clipsPinnedTo(trackerId)) {
         tx.clip(clip.id);

@@ -533,6 +533,151 @@ void main() {
       }
     });
   });
+
+  // --- Several regions on one clip (TRK-27) ---------------------------------
+
+  group('multiple regions', () {
+    /// A second region on the same clip, offset so the two never coincide.
+    Tracker secondTracker({String id = 't2'}) => slidingTracker(id: id).copyWith(
+      searchQuad: const [900, 600, 1300, 600, 1300, 900, 900, 900],
+      path: [
+        for (var i = 0; i < 4; i += 1) ...[
+          900.0 + i * 10, 600, 1300.0 + i * 10, 600,
+          1300.0 + i * 10, 900, 900.0 + i * 10, 900,
+        ],
+      ],
+    );
+
+    test('two regions on one clip coexist and round-trip', () {
+      final (c, _, _) = harness();
+      c.installTracker(slidingTracker());
+      c.installTracker(secondTracker());
+
+      final reloaded = ProjectDoc.decode(c.doc.encode(touchModified: false));
+      expect(reloaded.trackersForClip('source').map((t) => t.id), ['t1', 't2']);
+      // Each keeps its own path, rather than the second overwriting the first.
+      expect(reloaded.trackerById('t1')!.sample(0)[0], 100);
+      expect(reloaded.trackerById('t2')!.sample(0)[0], 900);
+    });
+
+    test('drawing again asks for a new region, not a re-solve of the old one', () {
+      // The bug this replaces: a second box reused the first tracker's id, so
+      // the solve landed on top of it and the first region simply vanished.
+      final (c, source, _) = harness();
+      c.installTracker(slidingTracker());
+
+      c.trackRegion(
+        source,
+        quadFromRect(left: 900, top: 600, right: 1300, bottom: 900),
+      );
+      expect(c.solveIds.single, isNot('t1'));
+      expect(c.doc.trackersForClip('source'), hasLength(1));
+    });
+
+    test('the active region is what the single-region controls act on', () {
+      final (c, source, _) = harness();
+      c.installTracker(slidingTracker());
+      c.installTracker(secondTracker());
+
+      // Installing makes the newest region active, which is the one the user
+      // just drew.
+      expect(c.trackerForClip(source)!.id, 't2');
+      c.activeTrackerId = 't1';
+      expect(c.trackerForClip(source)!.id, 't1');
+
+      // A correction re-solves the active region…
+      c.retrackFromPlayhead(
+        source,
+        quadFromRect(left: 100, top: 100, right: 500, bottom: 400),
+      );
+      expect(c.solveIds.last, 't1');
+
+      // …unless the canvas names the region whose corner was grabbed.
+      c.retrackFromPlayhead(
+        source,
+        quadFromRect(left: 100, top: 100, right: 500, bottom: 400),
+        trackerId: 't2',
+      );
+      expect(c.solveIds.last, 't2');
+    });
+
+    test('region names are their order on the clip', () {
+      final (c, _, _) = harness();
+      c.installTracker(slidingTracker());
+      c.installTracker(secondTracker());
+      expect(c.trackerLabel(c.doc.trackerById('t1')!), 'Region 1');
+      expect(c.trackerLabel(c.doc.trackerById('t2')!), 'Region 2');
+    });
+
+    test('two overlays follow two regions of the same clip', () {
+      final (c, _, overlay) = harness();
+      c.installTracker(slidingTracker());
+      c.installTracker(secondTracker());
+
+      final second = Clip(
+        id: 'overlay2',
+        trackId: overlay.trackId,
+        mediaId: 'meme',
+        label: 'Logo',
+        start: Rt.zero(),
+        duration: Rt.fromSeconds(6),
+        sourceIn: Rt.zero(),
+      );
+      c.doc.clips.add(second);
+
+      c.pinClipToTracker(overlay.id, 't1');
+      c.pinClipToTracker(second.id, 't2');
+
+      final a = (c.doc.clipById('overlay')!.transform!.corners!
+              .evaluate(Rt.zero()) as List)
+          .cast<double>();
+      final b = (c.doc.clipById('overlay2')!.transform!.corners!
+              .evaluate(Rt.zero()) as List)
+          .cast<double>();
+      expect(a[0], closeTo(100, 0.01));
+      expect(b[0], closeTo(900, 0.01), reason: 'each follows its own region');
+    });
+
+    test('deleting one region leaves the other and its pin alone', () {
+      final (c, _, overlay) = harness();
+      c.installTracker(slidingTracker());
+      c.installTracker(secondTracker());
+      c.pinClipToTracker(overlay.id, 't2');
+
+      c.deleteTracker('t1');
+      expect(c.doc.trackers.map((t) => t.id), ['t2']);
+      expect(
+        TrackPin.fromExtra(c.doc.clipById('overlay')!.extra)?.trackerId,
+        't2',
+      );
+      expect(c.doc.clipById('overlay')!.transform?.corners, isNotNull);
+    });
+
+    test('the confidence stripe covers every region on the clip', () {
+      // A drift in one region must not be hidden by another region solving
+      // cleanly over the same seconds.
+      Tracker weak(String id, List<double> confidence) => Tracker(
+        id: id,
+        mediaId: 'video',
+        sourceClipId: 'source',
+        startTime: Rt.zero(),
+        endTime: Rt.fromSeconds(4 / 30),
+        searchQuad: const [0, 0, 10, 0, 10, 10, 0, 10],
+        fps: Rt(30, 1),
+        path: List<double>.filled(32, 0),
+        confidence: confidence,
+      );
+
+      final (c, source, _) = harness();
+      c.installTracker(weak('a', const [0.1, 1.0, 1.0, 1.0]));
+      c.installTracker(weak('b', const [1.0, 1.0, 0.1, 1.0]));
+
+      final spans = c.lowConfidenceSpansFor(source);
+      expect(spans, hasLength(2));
+      expect(spans[0].$1, closeTo(0, 1e-5));
+      expect(spans[1].$1, closeTo(2 / 30, 1e-5));
+    });
+  });
 }
 
 /// Records the range a solve was asked for instead of running one, so the
@@ -541,6 +686,7 @@ class _ProbeController extends EditorController {
   _ProbeController(super.doc, String path) : super(path: path);
 
   void Function(Rt start)? onSolveRequested;
+  final List<String> solveIds = [];
 
   @override
   Future<Tracker?> solveTrackedRegion({
@@ -552,6 +698,7 @@ class _ProbeController extends EditorController {
     required Rt end,
   }) async {
     onSolveRequested?.call(start);
+    solveIds.add(trackerId);
     return null;
   }
 }

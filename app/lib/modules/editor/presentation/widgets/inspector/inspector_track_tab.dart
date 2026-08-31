@@ -25,20 +25,22 @@ class TrackTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final regions = c.trackersFor(clip);
     final tracker = c.trackerForClip(clip);
     final pin = TrackPin.fromExtra(clip.extra);
 
     return ListenableBuilder(
       listenable: c.dependencies.tracking,
       builder: (context, _) {
-        // Keyed on the clip, not the tracker: a first solve has no tracker in
-        // the document yet, so looking it up by tracker id showed nothing at
-        // all for the run the user is actually waiting on.
+        // The active region's id is known from the moment a solve is asked for,
+        // before the tracker exists in the document — which is the run the user
+        // is actually waiting on. The per-clip lookup stays as the fallback.
+        final active = c.activeTrackerId;
         final job =
-            c.dependencies.tracking.jobForClip(clip.id) ??
-            (tracker == null
+            (active == null
                 ? null
-                : c.dependencies.tracking.jobFor(tracker.id));
+                : c.dependencies.tracking.jobFor(active)) ??
+            c.dependencies.tracking.jobForClip(clip.id);
         final running =
             job?.state == TrackingState.running ||
             job?.state == TrackingState.queued;
@@ -58,13 +60,22 @@ class TrackTab extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    if (regions.isNotEmpty) ...[
+                      for (final region in regions)
+                        _RegionRow(
+                          controller: c,
+                          tracker: region,
+                          selected: region.id == tracker?.id,
+                        ),
+                      const SizedBox(height: 8),
+                    ],
                     CcButton(
                       label:
                           c.trackToolActive
                               ? 'Done drawing'
-                              : tracker == null
+                              : regions.isEmpty
                               ? 'Draw region…'
-                              : 'Adjust region…',
+                              : 'Draw another region…',
                       kind:
                           c.trackToolActive
                               ? CcButtonKind.secondary
@@ -73,12 +84,12 @@ class TrackTab extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     _Note(
-                      tracker == null
+                      regions.isEmpty
                           ? 'Drag a box on the monitor over what the overlay '
                               'should follow, then it is tracked from there.'
-                          : 'Drag a corner on the monitor to correct the '
-                              'region, and it re-tracks forward from that '
-                              'frame.',
+                          : 'Drag a corner on the monitor to correct a region '
+                              'and it re-tracks forward from that frame. Drag '
+                              'on empty picture to track something else too.',
                     ),
                     if (rejection != null) ...[
                       const SizedBox(height: 8),
@@ -132,17 +143,22 @@ class TrackTab extends StatelessWidget {
                         onPressed: () => _replaceWithFile(tracker.id),
                       ),
                       const SizedBox(height: 6),
-                      const _Note(
-                        'Puts a picture on the region and pins it, on a track '
-                        'above this one, for exactly the tracked range.',
+                      _Note(
+                        'Puts a picture on ${c.trackerLabel(tracker)} and pins '
+                        'it, on a track above this one, for exactly the '
+                        'tracked range.',
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 14),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(14, 0, 14, 8),
-                  child: CcSectionHeader('SOLVE'),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                  // Named, because these numbers describe one of possibly
+                  // several regions on this clip.
+                  child: CcSectionHeader(
+                    c.trackerLabel(tracker).toUpperCase(),
+                  ),
                 ),
                 _Stat('Samples', '${tracker.sampleCount}'),
                 _Stat(
@@ -154,7 +170,7 @@ class TrackTab extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 14),
                   child: CcButton(
-                    label: 'Delete tracker',
+                    label: 'Delete ${c.trackerLabel(tracker).toLowerCase()}',
                     kind: CcButtonKind.secondary,
                     onPressed: () => c.deleteTracker(tracker.id),
                   ),
@@ -221,6 +237,53 @@ class TrackTab extends StatelessWidget {
   static String _percent(double v) => '${(v * 100).round()}%';
 }
 
+/// One of the clip's tracked regions (**TRK-27**). Tapping it makes it the
+/// active region, which is what the canvas handles, the readout below and
+/// *Replace with image* all act on.
+class _RegionRow extends StatelessWidget {
+  const _RegionRow({
+    required this.controller,
+    required this.tracker,
+    required this.selected,
+  });
+
+  final EditorController controller;
+  final Tracker tracker;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) => CcTappable(
+    onTap: () => controller.activeTrackerId = tracker.id,
+    child: Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: selected ? CcColors.elevated : null,
+        borderRadius: BorderRadius.circular(CcRadius.sm),
+        border: Border.all(
+          color: selected ? CcColors.accent : CcColors.border,
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            controller.trackerLabel(tracker),
+            style: CcType.style(
+              size: 12,
+              color: selected ? CcColors.textPrimary : CcColors.textSecondary,
+            ),
+          ),
+          Text(
+            '${tracker.sampleCount} samples',
+            style: CcType.style(size: 11, color: CcColors.textTertiary),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 /// Offers the trackers this clip could follow. A clip cannot follow its own
 /// region — that would pin it to itself.
 class _PinPicker extends StatelessWidget {
@@ -249,8 +312,10 @@ class _PinPicker extends StatelessWidget {
                 () => showCcMenu(anchor, [
                   for (final tracker in available)
                     CcMenuItem(
-                      controller.doc.clipById(tracker.sourceClipId)?.label ??
-                          tracker.id,
+                      // Named per region, not per clip: one shot can carry
+                      // several, and "Shot" three times says nothing.
+                      '${controller.doc.clipById(tracker.sourceClipId)?.label ?? tracker.id}'
+                      ' · ${controller.trackerLabel(tracker)}',
                       onTap:
                           () =>
                               controller.pinClipToTracker(clip.id, tracker.id),

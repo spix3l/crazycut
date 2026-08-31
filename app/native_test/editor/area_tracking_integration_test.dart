@@ -186,4 +186,81 @@ void main() {
       reason: 'and should not have drifted vertically',
     );
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  /// Two real solves on one clip (**TRK-27**). The fake-tracker tests cover the
+  /// document rules; what only the worker can show is that a second solve does
+  /// not land on top of the first — which is exactly what the old code did,
+  /// because it reused the existing tracker's id.
+  test('two regions on one clip solve independently', () async {
+    if (!fixture.existsSync()) {
+      markTestSkipped('run tools/make-fixture.sh');
+      return;
+    }
+    if (worker == null) {
+      markTestSkipped('engine worker not built');
+      return;
+    }
+
+    final doc = ProjectDoc.empty('E2E2', width: 640, height: 360, fps: 30);
+    doc.media.add(
+      MediaAsset(
+        id: 'pan',
+        name: 'track-pan.mp4',
+        path: fixture.path,
+        type: 'video',
+        duration: Rt.fromSeconds(3),
+        hasAudio: false,
+        width: 640,
+        height: 360,
+      ),
+    );
+    final source = Clip(
+      id: 'source',
+      trackId: doc.videoTracks.first.id,
+      mediaId: 'pan',
+      label: 'Pan',
+      start: Rt.zero(),
+      duration: Rt.fromSeconds(2.5),
+      sourceIn: Rt.zero(),
+    );
+    doc.clips.add(source);
+    final c = EditorController(doc, path: '${tmp.path}/e2e2.crazycut');
+
+    // Two boxes at different heights, so the two paths are told apart by where
+    // they sit rather than by their ids alone. Both sit in detailed parts of
+    // the mandelbrot fixture — its flat regions have nothing to track, and a
+    // box over one holds its opening pose no matter how well the solver works.
+    final upper = await c.trackRegion(
+      source,
+      quadFromRect(left: 440, top: 60, right: 560, bottom: 160),
+      end: Rt.fromSeconds(1.5),
+    );
+    final lower = await c.trackRegion(
+      source,
+      quadFromRect(left: 440, top: 200, right: 560, bottom: 300),
+      end: Rt.fromSeconds(1.5),
+    );
+    expect(upper, isNotNull, reason: 'the first solve produced nothing');
+    expect(lower, isNotNull, reason: 'the second solve produced nothing');
+    expect(upper!.id, isNot(lower!.id));
+
+    // Both survive: the second did not replace the first.
+    expect(c.doc.trackersForClip('source'), hasLength(2));
+    expect(c.activeTrackerId, lower.id, reason: 'the newest region is active');
+
+    // Each kept its own pixels, and both travelled with the pan.
+    expect(c.doc.trackerById(upper.id)!.quadAt(Rt.zero())[1], lessThan(180));
+    expect(c.doc.trackerById(lower.id)!.quadAt(Rt.zero())[1], greaterThan(180));
+    for (final tracker in c.doc.trackersForClip('source')) {
+      final travel =
+          tracker.quadAt(Rt.zero())[0] - tracker.quadAt(tracker.endTime)[0];
+      expect(travel, greaterThan(50), reason: '${tracker.id} did not move');
+    }
+
+    // Deleting one leaves the other whole.
+    final keptSamples = c.doc.trackerById(upper.id)!.sampleCount;
+    c.deleteTracker(lower.id);
+    expect(c.doc.trackersForClip('source').single.id, upper.id);
+    expect(c.doc.trackerById(upper.id)!.sampleCount, keptSamples);
+  }, timeout: const Timeout(Duration(minutes: 3)));
 }
