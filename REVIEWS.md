@@ -3,3 +3,4 @@
 - Increase tap area on buttons
 - Pressing "Esc" should close any open modal/dialog
 - Trim white spaces
+- Add a checkbox to insert imported video at playhead

@@ -16,6 +16,7 @@ import '../../../../state/onboarding.dart';
 import '../models/project_summary.dart';
 import '../widgets/browser_header.dart';
 import '../widgets/project_card.dart';
+import '../widgets/project_skeleton.dart';
 import '../widgets/recovery_banner.dart';
 import '../widgets/welcome_panel.dart';
 
@@ -289,7 +290,7 @@ class _ProjectBrowserScreenState extends State<ProjectBrowserScreen> {
             RecoveryBanner(candidates: _recovery, onReview: _review, onOpenBackup: _openBackup),
           Expanded(
             child: _loading
-                ? const SizedBox.shrink()
+                ? const ProjectSkeletonGrid()
                 : _projects.isEmpty
                 ? WelcomePanel(
                     onNewProject: _newProject,

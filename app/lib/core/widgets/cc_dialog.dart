@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -48,10 +49,7 @@ class CcDialogShell extends StatelessWidget {
               children: [
                 Expanded(child: Text(title, style: CcType.dialogTitle)),
                 const SizedBox(width: 12),
-                CcTappable(
-                  onTap: onClose,
-                  child: const CcIcon(LucideIcons.x, size: 18),
-                ),
+                CcTappable(onTap: onClose, child: const CcIcon(LucideIcons.x, size: 18)),
               ],
             ),
           ),
@@ -108,22 +106,54 @@ class CcModalBarrier extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: onDismiss,
-            child: ColoredBox(color: color),
+    // Dialog arrival: the scrim fades, the panel scales up from 0.97 with a
+    // slight rise. Reduced motion drops the panel movement.
+    final reduce = CcMotion.reduceMotionOf(context);
+    final entrance = CcMotion.surface;
+    final scrimBody = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onDismiss,
+      child: ColoredBox(color: color),
+    );
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.escape) {
+          onDismiss?.call();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Stack(
+        children: [
+          // The Positioned stays a direct Stack child; the fade wraps the
+          // scrim body, not the Positioned, so parent data is preserved.
+          Positioned.fill(
+            child: reduce
+                ? scrimBody
+                : TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0, end: 1),
+                    duration: entrance,
+                    curve: CcMotion.easeOut,
+                    builder: (context, t, child) => Opacity(opacity: t, child: child),
+                    child: scrimBody,
+                  ),
           ),
-        ),
-        Positioned.fill(
-          child: Padding(
-            padding: padding,
-            child: Align(alignment: alignment, child: child),
+          Positioned.fill(
+            child: Padding(
+              padding: padding,
+              child: Align(
+                alignment: alignment,
+                child: CcReveal(
+                  duration: entrance,
+                  offset: const Offset(0, 6),
+                  child: child,
+                ),
+              ),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -238,11 +268,7 @@ Future<bool> confirmAction(
         sections: [
           Text(
             message,
-            style: CcType.style(
-              size: 13,
-              color: CcColors.textSecondary,
-              height: 1.5,
-            ),
+            style: CcType.style(size: 13, color: CcColors.textSecondary, height: 1.5),
           ),
         ],
         actions: [
@@ -293,11 +319,7 @@ Future<void> showMessageDialog(
         sections: [
           Text(
             message,
-            style: CcType.style(
-              size: 13,
-              color: CcColors.textSecondary,
-              height: 1.5,
-            ),
+            style: CcType.style(size: 13, color: CcColors.textSecondary, height: 1.5),
           ),
         ],
         actions: [CcButton(label: closeLabel, onPressed: finish)],

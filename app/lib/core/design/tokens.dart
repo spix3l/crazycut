@@ -169,3 +169,87 @@ abstract final class CcBorders {
   static const all = Border.fromBorderSide(BorderSide(color: CcColors.border));
   static const allStrong = Border.fromBorderSide(BorderSide(color: CcColors.borderStrong));
 }
+
+/// Motion. One timing scale, one easing curve, sharp deceleration
+/// everywhere. Leaving is faster than arriving.
+abstract final class CcMotion {
+  /// Tactile press feedback (buttons, cards, rows).
+  static const press = Duration(milliseconds: 100);
+
+  /// Hover fades, focus rings, small state changes.
+  static const quick = Duration(milliseconds: 150);
+
+  /// Menus, popovers, small overlays.
+  static const menu = Duration(milliseconds: 200);
+
+  /// Dialogs and slide-overs (heavier surfaces, more gravity).
+  static const surface = Duration(milliseconds: 240);
+
+  /// Composed brand entrances (welcome screen).
+  static const entrance = Duration(milliseconds: 320);
+
+  /// Quart ease-out: fast start, sharp settle. No bounce, no elastic.
+  static const easeOut = Cubic(0.25, 1.0, 0.5, 1.0);
+
+  /// Whether the OS has asked for reduced motion.
+  static bool reduceMotionOf(BuildContext context) =>
+      MediaQuery.disableAnimationsOf(context);
+}
+
+/// Fade + tiny rise used for entrances and overlay reveals. With reduced
+/// motion the translation is dropped and only the fade runs.
+class CcReveal extends StatefulWidget {
+  const CcReveal({
+    super.key,
+    required this.child,
+    this.delay = Duration.zero,
+    this.duration = CcMotion.quick,
+    this.offset = const Offset(0, 4),
+    this.curve = CcMotion.easeOut,
+  });
+
+  final Widget child;
+  final Duration delay;
+  final Duration duration;
+  final Offset offset;
+  final Curve curve;
+
+  @override
+  State<CcReveal> createState() => _CcRevealState();
+}
+
+class _CcRevealState extends State<CcReveal> {
+  late bool _started = widget.delay == Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_started) {
+      Future.delayed(widget.delay, () {
+        if (mounted) setState(() => _started = true);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reduce = CcMotion.reduceMotionOf(context);
+    if (reduce || !_started) return widget.child;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: widget.duration,
+      curve: widget.curve,
+      child: widget.child,
+      builder: (context, t, child) => Opacity(
+        opacity: t,
+        child: Transform.translate(
+          offset: Offset(
+            widget.offset.dx * (1 - t),
+            widget.offset.dy * (1 - t),
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}

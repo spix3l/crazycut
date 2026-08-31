@@ -28,49 +28,66 @@ class WelcomePanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Start cutting',
-              style: CcType.style(size: 26, weight: CcType.bold),
+            // The front door earns a short composed reveal: copy, then the
+            // primary lane, then the alternatives. Reduced motion fades only.
+            CcReveal(
+              duration: CcMotion.entrance,
+              child: Text(
+                'Start cutting',
+                style: CcType.style(size: 26, weight: CcType.bold),
+              ),
             ),
             const SizedBox(height: 8),
-            Text(
-              'CrazyCut edits locally. No account, no watermark.',
-              style: CcType.style(size: 14, color: CcColors.textSecondary),
+            CcReveal(
+              duration: CcMotion.entrance,
+              delay: const Duration(milliseconds: 40),
+              child: Text(
+                'CrazyCut edits locally. No account, no watermark.',
+                style: CcType.style(size: 14, color: CcColors.textSecondary),
+              ),
             ),
             const SizedBox(height: 28),
-            _PrimaryLane(
-              title: 'New project',
-              description: 'Pick a resolution preset and start from a blank '
-                  'timeline.',
-              icon: LucideIcons.squarePlus,
-              onTap: onNewProject,
+            CcReveal(
+              duration: CcMotion.entrance,
+              delay: const Duration(milliseconds: 80),
+              child: _PrimaryLane(
+                title: 'New project',
+                description: 'Pick a resolution preset and start from a blank '
+                    'timeline.',
+                icon: LucideIcons.squarePlus,
+                onTap: onNewProject,
+              ),
             ),
             const SizedBox(height: 12),
-            SizedBox(
-              height: 148,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    child: _SecondaryCard(
-                      icon: LucideIcons.circlePlay,
-                      title: 'Open sample project',
-                      description: 'See CrazyCut in action with a guided '
-                          'offline edit.',
-                      onTap: onOpenSample,
+            CcReveal(
+              duration: CcMotion.entrance,
+              delay: const Duration(milliseconds: 120),
+              child: SizedBox(
+                height: 148,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: _SecondaryCard(
+                        icon: LucideIcons.circlePlay,
+                        title: 'Open sample project',
+                        description: 'See CrazyCut in action with a guided '
+                            'offline edit.',
+                        onTap: onOpenSample,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _SecondaryCard(
-                      icon: LucideIcons.upload,
-                      title: 'Import files',
-                      description: 'Drop in your rushes and start cutting '
-                          'right away.',
-                      onTap: onImportFiles,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _SecondaryCard(
+                        icon: LucideIcons.upload,
+                        title: 'Import files',
+                        description: 'Drop in your rushes and start cutting '
+                            'right away.',
+                        onTap: onImportFiles,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ],
@@ -97,11 +114,14 @@ class _PrimaryLane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     return CcTappable(
       onTap: onTap,
       builder:
           (context, hovered, child) => AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
+            duration: reduceMotion
+                ? Duration.zero
+                : const Duration(milliseconds: 120),
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               color: hovered
@@ -170,11 +190,14 @@ class _SecondaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     return CcTappable(
       onTap: onTap,
       builder:
           (context, hovered, child) => AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
+            duration: reduceMotion
+                ? Duration.zero
+                : const Duration(milliseconds: 120),
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: CcColors.panel,

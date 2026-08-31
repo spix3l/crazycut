@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter/services.dart' show TextInputAction;
+import 'package:flutter/services.dart' show TextInputAction, KeyUpEvent, LogicalKeyboardKey;
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -21,6 +21,10 @@ class CcIcon extends StatelessWidget {
 }
 
 /// Pointer affordance + press feedback without pulling in Material's `InkWell`.
+///
+/// Focus is architecture here: every tappable is focusable, activates on
+/// Enter/Space, and shows a 2 px accent focus ring so keyboard users get the
+/// same map mouse users get (UIX-3).
 class CcTappable extends StatefulWidget {
   const CcTappable({
     super.key,
@@ -29,6 +33,7 @@ class CcTappable extends StatefulWidget {
     this.cursor = SystemMouseCursors.click,
     this.hoverOpacity = 0.82,
     this.pressedOpacity = 0.65,
+    this.autofocus = false,
     this.builder,
   });
 
@@ -38,6 +43,10 @@ class CcTappable extends StatefulWidget {
   final double hoverOpacity;
   final double pressedOpacity;
 
+  /// Requests focus when the widget mounts. Used by menu rows so a keyboard
+  /// user lands on the first item the moment the menu opens (UIX-3).
+  final bool autofocus;
+
   /// Optional hover-aware builder; when given it wins over the opacity fade.
   final Widget Function(BuildContext context, bool hovered, Widget child)? builder;
 
@@ -46,11 +55,55 @@ class CcTappable extends StatefulWidget {
 }
 
 class _CcTappableState extends State<CcTappable> {
+  final FocusNode _focus = FocusNode();
   bool _hovered = false;
   bool _pressed = false;
+  bool _focused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(() {
+      final hasFocus = _focus.hasFocus;
+      if (hasFocus != _focused) setState(() => _focused = hasFocus);
+    });
+  }
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
+
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    // Enter and Space activate; arrow keys move focus through the widget's
+    // siblings so grouped controls (toolbar, tabs, menu rows) are navigable.
+    if (event is KeyUpEvent) return KeyEventResult.ignored;
+    switch (event.logicalKey) {
+      case LogicalKeyboardKey.enter:
+      case LogicalKeyboardKey.numpadEnter:
+      case LogicalKeyboardKey.space:
+        final action = widget.onTap;
+        if (action != null) action();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.arrowLeft:
+      case LogicalKeyboardKey.arrowUp:
+        node.previousFocus();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.arrowRight:
+      case LogicalKeyboardKey.arrowDown:
+        node.nextFocus();
+        return KeyEventResult.handled;
+      default:
+        return KeyEventResult.ignored;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Reduced motion: the ring appears instantly instead of animating, and
+    // hover fades drop to an instant switch (UIX-5 motion).
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     Widget child = widget.child;
     if (widget.builder != null) {
       child = widget.builder!(context, _hovered, child);
@@ -60,13 +113,25 @@ class _CcTappableState extends State<CcTappable> {
           : _hovered
           ? widget.hoverOpacity
           : 1.0;
-      child = AnimatedOpacity(
-        opacity: opacity,
-        duration: const Duration(milliseconds: 90),
-        child: child,
-      );
+      child = reduceMotion
+          ? Opacity(opacity: opacity, child: child)
+          : AnimatedOpacity(
+              opacity: opacity,
+              duration: const Duration(milliseconds: 90),
+              child: child,
+            );
     }
-    return MouseRegion(
+    // Tactile press: a 0.97 scale confirms the press immediately and settles
+    // back with the same quick curve (motion: tactile feedback is brief).
+    final Widget press = reduceMotion
+        ? child
+        : AnimatedScale(
+            scale: _pressed ? 0.97 : 1.0,
+            duration: CcMotion.press,
+            curve: CcMotion.easeOut,
+            child: child,
+          );
+    final Widget body = MouseRegion(
       cursor: widget.cursor,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -76,8 +141,26 @@ class _CcTappableState extends State<CcTappable> {
         onTapUp: (_) => setState(() => _pressed = false),
         onTapCancel: () => setState(() => _pressed = false),
         onTap: widget.onTap,
-        child: child,
+        child: press,
       ),
+    );
+    // The ring sits outside the widget's own paint bounds so a border on the
+    // widget (cards, tiles) never collides with it. Rounded corners follow the
+    // focus target's own radius when it is a plain tappable (buttons, icons).
+    return Focus(
+      focusNode: _focus,
+      autofocus: widget.autofocus,
+      onKeyEvent: _onKey,
+      child: _focused
+          ? Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                border: Border.all(color: CcColors.accent, width: 2),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: body,
+            )
+          : body,
     );
   }
 }
@@ -109,16 +192,22 @@ class CcButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isPrimary = kind == CcButtonKind.primary;
-    final fg = isPrimary ? CcColors.onAccent : CcColors.textSecondary;
+    final disabled = onPressed == null;
+    final fg = disabled
+        ? CcColors.textTertiary
+        : isPrimary
+        ? CcColors.onAccent
+        : CcColors.textSecondary;
     return CcTappable(
       onTap: onPressed,
+      cursor: disabled ? SystemMouseCursors.basic : SystemMouseCursors.click,
       child: Container(
         height: height,
         padding: padding,
         decoration: BoxDecoration(
           color: switch (kind) {
-            CcButtonKind.primary => CcColors.accent,
-            CcButtonKind.secondary => CcColors.elevated,
+            CcButtonKind.primary => disabled ? CcColors.elevated2 : CcColors.accent,
+            CcButtonKind.secondary => disabled ? CcColors.panel : CcColors.elevated,
             CcButtonKind.ghost => null,
           },
           borderRadius: BorderRadius.circular(radius),
@@ -132,11 +221,7 @@ class CcButton extends StatelessWidget {
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: CcType.style(
-                  size: 13,
-                  weight: CcType.semibold,
-                  color: fg,
-                ),
+                style: CcType.style(size: 13, weight: CcType.semibold, color: fg),
               ),
             ),
           ],
@@ -202,6 +287,7 @@ class CcTextField extends StatefulWidget {
     super.key,
     this.value,
     this.placeholder,
+    this.label,
     this.icon,
     this.trailing,
     this.height = 36,
@@ -216,6 +302,10 @@ class CcTextField extends StatefulWidget {
 
   final String? value;
   final String? placeholder;
+
+  /// Persistent label above the field. When supplied, the placeholder is
+  /// free to show an example without being the only identity of the input.
+  final String? label;
   final IconData? icon;
   final Widget? trailing;
   final double height;
@@ -257,7 +347,7 @@ class _CcTextFieldState extends State<CcTextField> {
       size: height <= 30 ? 12 : 13,
       color: hasValue || controller != null ? CcColors.textPrimary : CcColors.textTertiary,
     );
-    return Container(
+    final field = Container(
       height: height,
       padding: EdgeInsets.symmetric(horizontal: icon == null ? 12 : 10),
       decoration: BoxDecoration(
@@ -295,6 +385,22 @@ class _CcTextFieldState extends State<CcTextField> {
           if (trailing != null) ...[const SizedBox(width: 8), trailing],
         ],
       ),
+    );
+    final label = widget.label;
+    if (label == null) return field;
+    // Persistent label above the field: the input keeps its identity even
+    // when the placeholder scrolls away or is cleared (interaction rule:
+    // placeholders are examples, not labels).
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 2, bottom: 6),
+          child: Text(label, style: CcType.small.copyWith(color: CcColors.textSecondary)),
+        ),
+        field,
+      ],
     );
   }
 }
@@ -368,9 +474,8 @@ class _CcMultilineTextFieldState extends State<CcMultilineTextField> {
                 textInputAction: TextInputAction.newline,
                 minLines: widget.minLines,
                 maxLines: widget.maxLines,
-                onTapOutside: (_) => _focus.unfocus(
-                  disposition: UnfocusDisposition.previouslyFocusedChild,
-                ),
+                onTapOutside: (_) =>
+                    _focus.unfocus(disposition: UnfocusDisposition.previouslyFocusedChild),
                 onChanged: widget.onChanged,
               ),
             ],
@@ -521,50 +626,47 @@ class CcSlider extends StatelessWidget {
         final filled = (width * value.clamp(0, 1));
         void emit(Offset local) => onChanged?.call((local.dx / width).clamp(0.0, 1.0));
         return Listener(
-          onPointerDown:
-              onChanged == null ? null : (_) => onChangeStart?.call(),
+          onPointerDown: onChanged == null ? null : (_) => onChangeStart?.call(),
           onPointerUp: onChanged == null ? null : (_) => onChangeEnd?.call(),
-          onPointerCancel:
-              onChanged == null ? null : (_) => onChangeEnd?.call(),
+          onPointerCancel: onChanged == null ? null : (_) => onChangeEnd?.call(),
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTapDown: onChanged == null ? null : (d) => emit(d.localPosition),
-            onHorizontalDragUpdate:
-                onChanged == null ? null : (d) => emit(d.localPosition),
+            onHorizontalDragUpdate: onChanged == null ? null : (d) => emit(d.localPosition),
             child: SizedBox(
-            height: handleSize,
-            child: Stack(
-              clipBehavior: Clip.none,
-              alignment: Alignment.centerLeft,
-              children: [
-                Container(
-                  height: trackHeight,
-                  decoration: BoxDecoration(
-                    color: CcColors.elevated2,
-                    borderRadius: BorderRadius.circular(trackHeight / 2),
-                  ),
-                ),
-                Container(
-                  width: filled,
-                  height: trackHeight,
-                  decoration: BoxDecoration(
-                    color: fillColor,
-                    borderRadius: BorderRadius.circular(trackHeight / 2),
-                  ),
-                ),
-                Positioned(
-                  left: (filled - handleSize / 2).clamp(0.0, width - handleSize),
-                  child: Container(
-                    width: handleSize,
-                    height: handleSize,
-                    decoration: const BoxDecoration(
-                      color: CcColors.textPrimary,
-                      shape: BoxShape.circle,
+              height: handleSize,
+              child: Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.centerLeft,
+                children: [
+                  Container(
+                    height: trackHeight,
+                    decoration: BoxDecoration(
+                      color: CcColors.elevated2,
+                      borderRadius: BorderRadius.circular(trackHeight / 2),
                     ),
                   ),
-                ),
-              ],
-            ),
+                  Container(
+                    width: filled,
+                    height: trackHeight,
+                    decoration: BoxDecoration(
+                      color: fillColor,
+                      borderRadius: BorderRadius.circular(trackHeight / 2),
+                    ),
+                  ),
+                  Positioned(
+                    left: (filled - handleSize / 2).clamp(0.0, width - handleSize),
+                    child: Container(
+                      width: handleSize,
+                      height: handleSize,
+                      decoration: const BoxDecoration(
+                        color: CcColors.textPrimary,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -665,10 +767,7 @@ class CcTabBar extends StatelessWidget {
                   decoration: BoxDecoration(
                     border: Border(
                       bottom: BorderSide(
-                        color:
-                            i == selectedIndex
-                                ? CcColors.accent
-                                : const Color(0x00000000),
+                        color: i == selectedIndex ? CcColors.accent : const Color(0x00000000),
                         width: 2,
                       ),
                     ),
@@ -679,14 +778,8 @@ class CcTabBar extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: CcType.style(
                       size: fontSize,
-                      weight:
-                          i == selectedIndex
-                              ? CcType.semibold
-                              : CcType.medium,
-                      color:
-                          i == selectedIndex
-                              ? CcColors.textPrimary
-                              : CcColors.textTertiary,
+                      weight: i == selectedIndex ? CcType.semibold : CcType.medium,
+                      color: i == selectedIndex ? CcColors.textPrimary : CcColors.textTertiary,
                     ),
                   ),
                 ),
@@ -803,8 +896,7 @@ class CcMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: width,
-      constraints:
-          maxHeight == null ? null : BoxConstraints(maxHeight: maxHeight!),
+      constraints: maxHeight == null ? null : BoxConstraints(maxHeight: maxHeight!),
       padding: const EdgeInsets.symmetric(vertical: 5),
       decoration: BoxDecoration(
         color: CcColors.elevated,
@@ -819,82 +911,79 @@ class CcMenu extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (final item in items) ...[
-              if (item.separatorBefore)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 4),
-                  child: SizedBox(
-                    height: 1,
-                    child: ColoredBox(color: CcColors.border),
-                  ),
-                ),
-              CcTappable(
-                onTap:
-                    item.onTap == null
-                        ? null
-                        : () {
-                          onSelected?.call();
-                          item.onTap!();
-                        },
-                builder:
-                    (context, hovered, _) => Container(
-                      height: 28,
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      color:
-                          hovered && item.onTap != null
-                              ? CcColors.elevated2
-                              : const Color(0x00000000),
-                      child: Row(
-                        children: [
-                          if (item.checked != null) ...[
-                            CcIcon(
-                              item.checked!
-                                  ? LucideIcons.check
-                                  : LucideIcons.minus,
-                              size: 12,
-                              color:
-                                  item.checked!
-                                      ? CcColors.accent
-                                      : CcColors.textTertiary,
-                            ),
-                            const SizedBox(width: 8),
-                          ] else if (item.icon != null) ...[
-                            CcIcon(
-                              item.icon!,
-                              size: 12,
-                              color: CcColors.textSecondary,
-                            ),
-                            const SizedBox(width: 8),
-                          ],
-                          Expanded(
-                            child: Text(
-                              item.label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: CcType.style(
-                                size: 12,
-                                color:
-                                    item.onTap == null
-                                        ? CcColors.textTertiary
-                                        : item.danger
-                                        ? CcColors.error
-                                        : CcColors.textPrimary,
-                              ),
-                            ),
-                          ),
-                          if (item.shortcut != null)
-                            Text(item.shortcut!, style: CcType.nano),
-                        ],
-                      ),
-                    ),
-                child: const SizedBox.shrink(),
-              ),
-            ],
-          ],
+          children: _rows(),
         ),
       ),
     );
+  }
+
+  /// The rows, with separators. The first enabled row autofocuses when the
+  /// menu opens so keyboard users start navigation there (UIX-3).
+  List<Widget> _rows() {
+    final firstEnabledIndex = items.indexWhere((item) => item.onTap != null);
+    final rows = <Widget>[];
+    for (var i = 0; i < items.length; i++) {
+      final item = items[i];
+      if (item.separatorBefore) {
+        rows.add(
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 4),
+            child: SizedBox(height: 1, child: ColoredBox(color: CcColors.border)),
+          ),
+        );
+      }
+      rows.add(
+        CcTappable(
+          autofocus: i == firstEnabledIndex,
+          onTap: item.onTap == null
+              ? null
+              : () {
+                  onSelected?.call();
+                  item.onTap!();
+                },
+          builder: (context, hovered, _) => Container(
+            height: 28,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            color: hovered && item.onTap != null
+                ? CcColors.elevated2
+                : const Color(0x00000000),
+            child: Row(
+              children: [
+                if (item.checked != null) ...[
+                  CcIcon(
+                    item.checked! ? LucideIcons.check : LucideIcons.minus,
+                    size: 12,
+                    color: item.checked! ? CcColors.accent : CcColors.textTertiary,
+                  ),
+                  const SizedBox(width: 8),
+                ] else if (item.icon != null) ...[
+                  CcIcon(item.icon!, size: 12, color: CcColors.textSecondary),
+                  const SizedBox(width: 8),
+                ],
+                Expanded(
+                  child: Text(
+                    item.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: CcType.style(
+                      size: 12,
+                      color: item.onTap == null
+                          ? CcColors.textTertiary
+                          : item.danger
+                          ? CcColors.error
+                          : CcColors.textPrimary,
+                    ),
+                  ),
+                ),
+                if (item.shortcut != null) Text(item.shortcut!, style: CcType.nano),
+              ],
+            ),
+          ),
+          child: const SizedBox.shrink(),
+        ),
+      );
+    }
+    return rows;
   }
 }
 
@@ -910,8 +999,18 @@ void showCcMenu(BuildContext anchorContext, List<CcMenuItem> items) {
   final overlay = Overlay.of(anchorContext);
   final overlayBox = overlay.context.findRenderObject() as RenderBox?;
   if (overlayBox == null) return;
+  // Remember who opened the menu so focus can return after it closes (UIX-3).
+  final previousFocus = FocusManager.instance.primaryFocus;
   late OverlayEntry entry;
-  void close() => entry.remove();
+  void close() {
+    entry.remove();
+    // Only restore focus if the user has not already moved it somewhere else
+    // (e.g. clicked another control while the menu was open).
+    final current = FocusManager.instance.primaryFocus;
+    if (previousFocus != null && (current == null || current.context == null)) {
+      previousFocus.requestFocus();
+    }
+  }
   const edgeMargin = 20.0;
   const preferredMenuWidth = 210.0;
   final separatorHeight = items.where((item) => item.separatorBefore).length * 9.0;
@@ -919,14 +1018,12 @@ void showCcMenu(BuildContext anchorContext, List<CcMenuItem> items) {
   // edge. Keeping this equal to CcMenu's real height prevents bottom clipping.
   final estimatedHeight = items.length * 28.0 + separatorHeight + 12;
   final requested = overlayBox.globalToLocal(position);
-  final horizontalMargin =
-      overlayBox.size.width < edgeMargin * 2
-          ? overlayBox.size.width / 2
-          : edgeMargin;
-  final verticalMargin =
-      overlayBox.size.height < edgeMargin * 2
-          ? overlayBox.size.height / 2
-          : edgeMargin;
+  final horizontalMargin = overlayBox.size.width < edgeMargin * 2
+      ? overlayBox.size.width / 2
+      : edgeMargin;
+  final verticalMargin = overlayBox.size.height < edgeMargin * 2
+      ? overlayBox.size.height / 2
+      : edgeMargin;
   final availableWidth = (overlayBox.size.width - horizontalMargin * 2).clamp(
     0.0,
     double.infinity,
@@ -954,11 +1051,17 @@ void showCcMenu(BuildContext anchorContext, List<CcMenuItem> items) {
         Positioned(
           left: dx,
           top: dy,
-          child: CcMenu(
-            items: items,
-            onSelected: close,
-            width: menuWidth,
-            maxHeight: availableHeight,
+          // Menus fade in at their anchor: the position already ties them to
+          // the trigger, so any translate would risk edge clipping.
+          child: CcReveal(
+            duration: CcMotion.menu,
+            offset: Offset.zero,
+            child: CcMenu(
+              items: items,
+              onSelected: close,
+              width: menuWidth,
+              maxHeight: availableHeight,
+            ),
           ),
         ),
       ],
@@ -1041,14 +1144,18 @@ class _CcTooltipState extends State<CcTooltip> {
         top: top,
         width: bubbleWidth,
         child: IgnorePointer(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-            decoration: BoxDecoration(
-              color: CcColors.elevated2,
-              borderRadius: CcRadius.brSm,
-              border: CcBorders.allStrong,
+          child: CcReveal(
+            duration: CcMotion.quick,
+            offset: const Offset(0, 2),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              decoration: BoxDecoration(
+                color: CcColors.elevated2,
+                borderRadius: CcRadius.brSm,
+                border: CcBorders.allStrong,
+              ),
+              child: Text(widget.message, style: CcType.nano),
             ),
-            child: Text(widget.message, style: CcType.nano),
           ),
         ),
       ),
@@ -1064,10 +1171,13 @@ class _CcTooltipState extends State<CcTooltip> {
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => _schedule(),
-      onExit: (_) => _remove(),
-      child: widget.child,
+    return Focus(
+      onFocusChange: (focused) => focused ? _schedule() : _remove(),
+      child: MouseRegion(
+        onEnter: (_) => _schedule(),
+        onExit: (_) => _remove(),
+        child: widget.child,
+      ),
     );
   }
 }

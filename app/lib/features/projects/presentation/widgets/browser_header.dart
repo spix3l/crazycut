@@ -71,7 +71,8 @@ class _BrowserHeaderState extends State<BrowserHeader> {
             SizedBox(
               width: 260,
               child: CcTextField(
-                placeholder: 'Search projects',
+                placeholder: 'Find a project',
+                label: 'Search',
                 icon: LucideIcons.search,
                 height: 32,
                 bordered: false,

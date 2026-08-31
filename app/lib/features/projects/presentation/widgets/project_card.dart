@@ -59,7 +59,9 @@ class _ProjectCardState extends State<ProjectCard> {
     return CcTappable(
       onTap: onOpen,
       builder: (context, hovered, child) => AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 120),
         decoration: BoxDecoration(
           color: CcColors.panel,
           borderRadius: CcRadius.brLg,

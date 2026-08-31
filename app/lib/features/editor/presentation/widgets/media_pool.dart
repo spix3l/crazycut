@@ -242,7 +242,8 @@ class _MediaPoolState extends State<MediaPool> {
               if (!isEmpty) ...[
                 const SizedBox(height: 10),
                 CcTextField(
-                  placeholder: 'Search media',
+                  placeholder: 'By name or type',
+                  label: 'Search media',
                   icon: LucideIcons.search,
                   height: 29,
                   bordered: false,
