@@ -89,6 +89,10 @@ if(CC_WITH_TRACKING)
       WITH_LAPACK WITH_TBB WITH_OPENMP)
     set(${_cc_off} OFF CACHE BOOL "" FORCE)
   endforeach()
+  # The engine and the distributed FFmpeg libraries use the dynamic MSVC CRT.
+  # OpenCV defaults to the static CRT when built as static libraries, which
+  # makes the Windows worker fail to link with LNK2038 and LNK2005 errors.
+  set(BUILD_WITH_STATIC_CRT OFF CACHE BOOL "" FORCE)
   set(OPENCV_GENERATE_PKGCONFIG OFF CACHE BOOL "" FORCE)
   set(OPENCV_GENERATE_SETUPVARS OFF CACHE BOOL "" FORCE)
   FetchContent_Declare(
