@@ -954,7 +954,7 @@ class CrazyCutNativeBindings {
       .asFunction<void Function(ffi.Pointer<cc_seq_player>)>();
 }
 
-const int CC_ABI_VERSION = 3;
+const int CC_ABI_VERSION = 4;
 
 final class cc_engine extends ffi.Opaque {}
 

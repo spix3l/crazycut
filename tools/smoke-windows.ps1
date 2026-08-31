@@ -118,7 +118,7 @@ $engine = [IntPtr]::Zero
 $playback = [IntPtr]::Zero
 try {
   $abi = Get-CcDelegate $module "cc_abi_version" ([CcAbiVersion])
-  if ($abi.Invoke() -ne 3) { throw "unexpected engine ABI version" }
+  if ($abi.Invoke() -ne 4) { throw "unexpected engine ABI version" }
 
   $createEngine = Get-CcDelegate $module "cc_engine_create" ([CcEngineCreate])
   $destroyEngine = Get-CcDelegate $module "cc_engine_destroy" ([CcEngineDestroy])

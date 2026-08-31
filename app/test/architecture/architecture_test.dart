@@ -98,6 +98,29 @@ void main() {
       }
       expect(violations, isEmpty);
     });
+
+    test('native ABI consumers match the public header', () {
+      final header = File('../engine/bindings/crazycut.h').readAsStringSync();
+      final bindings =
+          File(
+            'lib/engine/crazycut_bindings_generated.dart',
+          ).readAsStringSync();
+      final windowsSmoke =
+          File('../tools/smoke-windows.ps1').readAsStringSync();
+
+      final headerVersion = RegExp(
+        r'#define CC_ABI_VERSION (\d+)',
+      ).firstMatch(header)!.group(1);
+      final bindingsVersion = RegExp(
+        r'const int CC_ABI_VERSION = (\d+);',
+      ).firstMatch(bindings)!.group(1);
+      final smokeVersion = RegExp(
+        r'\$abi\.Invoke\(\) -ne (\d+)',
+      ).firstMatch(windowsSmoke)!.group(1);
+
+      expect(bindingsVersion, headerVersion);
+      expect(smokeVersion, headerVersion);
+    });
   });
 
   test('counterpart tests mirror production directories', () {
