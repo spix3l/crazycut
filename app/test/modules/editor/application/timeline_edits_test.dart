@@ -398,6 +398,80 @@ void main() {
     });
   });
 
+  group('close gap', () {
+    test('pulls later clips left on that track only', () {
+      final e = harness();
+      final video = e.doc.videoTrack()!.id;
+      final audio = e.doc.audioTrack()!.id;
+      addClip(e, id: 'a', start: 0, duration: 5, trackId: video);
+      addClip(e, id: 'b', start: 10, duration: 5, trackId: video);
+      addClip(e, id: 'c', start: 10, duration: 5, trackId: audio);
+
+      expect(e.closeGap(video, s(7)), isTrue);
+
+      expect(e.clipById('a')!.start, s(0));
+      expect(e.clipById('b')!.start, s(5));
+      expect(e.clipById('c')!.start, s(10));
+    });
+
+    test('leading gap pulls the lane to zero', () {
+      final e = harness();
+      addClip(e, id: 'a', start: 8, duration: 4);
+
+      expect(e.closeGap(e.doc.videoTrack()!.id, s(2)), isTrue);
+
+      expect(e.clipById('a')!.start, Rt.zero());
+    });
+
+    test('returns false on a clip, without a gap, or when locked', () {
+      final e = harness();
+      final video = e.doc.videoTrack()!.id;
+      addClip(e, id: 'a', start: 0, duration: 5, trackId: video);
+      addClip(e, id: 'b', start: 10, duration: 5, trackId: video);
+
+      expect(e.closeGap(video, s(2)), isFalse);
+      expect(e.closeGap(video, s(30)), isFalse);
+
+      e.setTrackFlags(video, lock: true);
+      expect(e.closeGap(video, s(7)), isFalse);
+    });
+
+    test('close gap on all tracks keeps sync and undoes as one step', () {
+      final e = harness();
+      final video = e.doc.videoTrack()!.id;
+      final audio = e.doc.audioTrack()!.id;
+      addClip(e, id: 'a', start: 0, duration: 5, trackId: video);
+      addClip(e, id: 'b', start: 10, duration: 5, trackId: video);
+      addClip(e, id: 'c', start: 0, duration: 5, trackId: audio);
+      addClip(e, id: 'd', start: 10, duration: 5, trackId: audio);
+      final before = e.history.depth;
+
+      expect(e.closeGapOnAllTracks(video, s(7)), isTrue);
+      expect(e.clipById('b')!.start, s(5));
+      expect(e.clipById('d')!.start, s(5));
+      expect(e.history.depth, before + 1);
+
+      e.undo();
+      expect(e.clipById('b')!.start, s(10));
+      expect(e.clipById('d')!.start, s(10));
+    });
+
+    test('close gap on all tracks leaves lanes with content there alone', () {
+      final e = harness();
+      final video = e.doc.videoTrack()!.id;
+      final audio = e.doc.audioTrack()!.id;
+      addClip(e, id: 'a', start: 0, duration: 5, trackId: video);
+      addClip(e, id: 'b', start: 10, duration: 5, trackId: video);
+      addClip(e, id: 'c', start: 6, duration: 8, trackId: audio);
+      addClip(e, id: 'd', start: 14, duration: 5, trackId: audio);
+
+      expect(e.closeGapOnAllTracks(video, s(7)), isTrue);
+      expect(e.clipById('b')!.start, s(5));
+      expect(e.clipById('c')!.start, s(6));
+      expect(e.clipById('d')!.start, s(14));
+    });
+  });
+
   group('selection and clipboard', () {
     test('marquee selects everything intersecting the span', () {
       final e = harness();

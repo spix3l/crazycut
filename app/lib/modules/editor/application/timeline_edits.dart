@@ -1557,6 +1557,69 @@ mixin TimelineEdits on ChangeNotifier {
   void deleteSelected({bool? ripple}) =>
       deleteClips(selection.toList(), ripple: ripple);
 
+  // --- Close gap ------------------------------------------------------------
+
+  /// Bounds of the empty space on [trackId] containing [time], or null when
+  /// [time] sits on a clip or the lane is empty past its last clip. Leading
+  /// space before the first clip counts, so it can be pulled to zero.
+  ({Rt from, Rt to})? gapAt(String trackId, Rt time) {
+    var prevEnd = Rt.zero();
+    for (final c in doc.clipsOn(trackId)) {
+      if (time < c.start) {
+        final gap = (from: prevEnd, to: c.start);
+        return gap.to.minus(gap.from) < frameDuration ? null : gap;
+      }
+      if (time < c.end) return null;
+      prevEnd = c.end;
+    }
+    return null;
+  }
+
+  /// Pulls every clip at or after the gap containing [time] left by the gap
+  /// length, on [trackId] only. One undo step; returns false when there is no
+  /// gap or the track is locked.
+  bool closeGap(String trackId, Rt time) {
+    if (_locked(trackId)) return false;
+    final gap = gapAt(trackId, time);
+    if (gap == null) return false;
+    final shift = gap.to.minus(gap.from);
+    _run('Close gap', (tx) {
+      for (final c in doc.clipsOn(trackId)) {
+        if (c.start >= gap.to) {
+          tx.clip(c.id);
+          c.start = c.start.minus(shift);
+        }
+      }
+    });
+    return true;
+  }
+
+  /// Same empty interval as [closeGap] but applied to every unlocked track,
+  /// so everything after the gap keeps its cross-track sync. Tracks that
+  /// have content inside the interval are left alone, so closing never
+  /// creates an overlap.
+  bool closeGapOnAllTracks(String trackId, Rt time) {
+    if (_locked(trackId)) return false;
+    final gap = gapAt(trackId, time);
+    if (gap == null) return false;
+    final shift = gap.to.minus(gap.from);
+    _run('Close gap on all tracks', (tx) {
+      for (final track in [...doc.videoTracks, ...doc.audioTracks]) {
+        if (_locked(track.id)) continue;
+        final lane = doc.clipsOn(track.id);
+        final overlaps = lane.any((c) => c.start < gap.to && c.end > gap.from);
+        if (overlaps) continue;
+        for (final c in lane) {
+          if (c.start >= gap.to) {
+            tx.clip(c.id);
+            c.start = c.start.minus(shift);
+          }
+        }
+      }
+    });
+    return true;
+  }
+
   // --- Clipboard (TIM-17) ---------------------------------------------------
 
   void copySelection() {

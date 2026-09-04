@@ -1141,6 +1141,12 @@ class _TimelinePanelState extends State<TimelinePanel> {
               c.selectClip(null);
               c.seekTo(_time(d.localPosition.dx));
             },
+            // Double-click an empty stretch closes it on this lane: the
+            // fastest way to remove the gap in the screenshot.
+            onDoubleTapDown:
+                track.lock
+                    ? null
+                    : (d) => c.closeGap(track.id, _time(d.localPosition.dx)),
             onPanStart:
                 (d) => setState(() {
                   _marqueeStart = d.localPosition + Offset(0, _laneTop(track));
@@ -1166,6 +1172,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
                     onTap: () => c.addMarker(),
                   ),
                   CcMenuItem('Select all', shortcut: '⌘A', onTap: c.selectAll),
+                  ..._gapMenuItems(track, _time(d.localPosition.dx)),
                 ]),
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -1177,6 +1184,34 @@ class _TimelinePanelState extends State<TimelinePanel> {
             ),
           ),
     );
+  }
+
+  /// "Close gap" entries for the lane context menu at [time]. Empty when the
+  /// click landed on a clip or there is no empty space there.
+  List<CcMenuItem> _gapMenuItems(Track track, Rt time) {
+    if (track.lock) return const [];
+    final gap = c.gapAt(track.id, time);
+    if (gap == null) return const [];
+    final label = _gapLabel(gap.to.minus(gap.from).seconds);
+    return [
+      CcMenuItem(
+        'Close gap ($label)',
+        separatorBefore: true,
+        onTap: () => c.closeGap(track.id, time),
+      ),
+      CcMenuItem(
+        'Close gap on all tracks ($label)',
+        onTap: () => c.closeGapOnAllTracks(track.id, time),
+      ),
+    ];
+  }
+
+  static String _gapLabel(double seconds) {
+    if (seconds < 10) {
+      final text = seconds.toStringAsFixed(1);
+      return '${text.endsWith('.0') ? text.substring(0, text.length - 2) : text}s';
+    }
+    return '${seconds.round()}s';
   }
 
   double _laneTop(Track track) {
