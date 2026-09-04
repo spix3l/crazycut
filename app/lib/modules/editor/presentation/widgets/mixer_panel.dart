@@ -258,10 +258,24 @@ class _Strip extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 6),
-            Text(
-              gainDb <= minDb
-                  ? '−∞'
-                  : '${gainDb >= 0 ? '+' : ''}${gainDb.toStringAsFixed(1)}',
+            CcEditableValue(
+              display:
+                  gainDb <= minDb
+                      ? '−∞'
+                      : '${gainDb >= 0 ? '+' : ''}${gainDb.toStringAsFixed(1)}',
+              editText:
+                  gainDb <= minDb ? '-48' : gainDb.toStringAsFixed(1),
+              onCommit: (raw) {
+                final db = parseCcDb(raw);
+                if (db == null) return;
+                onGainDb(
+                  db.isInfinite ? minDb : db.clamp(minDb, maxDb),
+                );
+              },
+              tooltip: 'Click to type $title gain',
+              width: 68,
+              height: 24,
+              inputHeight: 22,
               style: CcType.style(size: 10, color: CcColors.textSecondary),
             ),
             if (pan != null) ...[
@@ -270,10 +284,28 @@ class _Strip extends StatelessWidget {
                 value: (pan! + 1) / 2,
                 onChanged: onPan == null ? null : (v) => onPan!(v * 2 - 1),
               ),
-              Text(
-                pan == 0
-                    ? 'C'
-                    : '${pan! < 0 ? 'L' : 'R'}${(pan!.abs() * 100).round()}',
+              CcEditableValue(
+                display:
+                    pan == 0
+                        ? 'C'
+                        : '${pan! < 0 ? 'L' : 'R'}${(pan!.abs() * 100).round()}',
+                editText:
+                    pan == 0
+                        ? 'C'
+                        : '${pan! < 0 ? 'L' : 'R'}${(pan!.abs() * 100).round()}',
+                onCommit:
+                    onPan == null
+                        ? (_) {}
+                        : (raw) {
+                          final parsed = parseCcPan(raw);
+                          if (parsed == null) return;
+                          onPan!(parsed);
+                        },
+                enabled: onPan != null,
+                tooltip: 'Click to type $title pan',
+                width: 68,
+                height: 24,
+                inputHeight: 22,
                 style: CcType.style(size: 10, color: CcColors.textTertiary),
               ),
             ],

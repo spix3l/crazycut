@@ -1,5 +1,4 @@
 import 'package:flutter/widgets.dart' hide Clip;
-import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:crazycut_app/core/design/tokens.dart';
@@ -424,25 +423,6 @@ class _TransformRow extends StatefulWidget {
 }
 
 class _TransformRowState extends State<_TransformRow> {
-  late final TextEditingController _valueController = TextEditingController();
-  late final FocusNode _valueFocus = FocusNode(onKeyEvent: _onValueKey);
-  bool _editingValue = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _valueFocus.addListener(_onValueFocusChanged);
-  }
-
-  @override
-  void dispose() {
-    _valueFocus
-      ..removeListener(_onValueFocusChanged)
-      ..dispose();
-    _valueController.dispose();
-    super.dispose();
-  }
-
   ParamValue _param() => switch (widget.paramId) {
     'x' => widget.transform.x,
     'y' => widget.transform.y,
@@ -475,56 +455,15 @@ class _TransformRowState extends State<_TransformRow> {
     return text;
   }
 
-  void _beginValueEdit() {
-    _valueController.text = _number(_currentValue);
-    setState(() => _editingValue = true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_editingValue) return;
-      _valueFocus.requestFocus();
-      _valueController.selection = TextSelection(
-        baseOffset: 0,
-        extentOffset: _valueController.text.length,
-      );
-    });
-  }
-
-  void _finishValueEdit({required bool commit}) {
-    if (!_editingValue) return;
-    final raw =
-        _valueController.text
-            .trim()
-            .toLowerCase()
-            .replaceAll(',', '.')
-            .replaceAll('px', '')
-            .replaceAll('%', '')
-            .replaceAll('°', '')
-            .trim();
-    final parsed = double.tryParse(raw);
-    if (commit && parsed != null) {
-      widget.controller.setTransformParam(
-        widget.clip.id,
-        widget.paramId,
-        parsed.clamp(widget.min, widget.max),
-        at: _localTime,
-      );
-    }
-    setState(() => _editingValue = false);
-    _valueFocus.unfocus();
-  }
-
-  void _onValueFocusChanged() {
-    if (!_valueFocus.hasFocus && _editingValue) {
-      _finishValueEdit(commit: true);
-    }
-  }
-
-  KeyEventResult _onValueKey(FocusNode node, KeyEvent event) {
-    if (event is KeyDownEvent &&
-        event.logicalKey == LogicalKeyboardKey.escape) {
-      _finishValueEdit(commit: false);
-      return KeyEventResult.handled;
-    }
-    return KeyEventResult.ignored;
+  void _commitTypedValue(String raw) {
+    final parsed = parseCcDouble(raw);
+    if (parsed == null) return;
+    widget.controller.setTransformParam(
+      widget.clip.id,
+      widget.paramId,
+      parsed.clamp(widget.min, widget.max),
+      at: _localTime,
+    );
   }
 
   void _keyframeMenu(BuildContext anchorContext) => showKeyframeMenu(
@@ -568,41 +507,16 @@ class _TransformRowState extends State<_TransformRow> {
                     ),
               ),
             ),
-            SizedBox(
+            CcEditableValue(
+              display: '${_number(_currentValue)}$_unitSuffix',
+              editText: _number(_currentValue),
+              onCommit: _commitTypedValue,
+              tooltip: 'Click to type ${widget.label.toLowerCase()}',
               width: 62,
-              child:
-                  _editingValue
-                      ? CcTextField(
-                        key: ValueKey(
-                          'transform-value-input-${widget.paramId}',
-                        ),
-                        height: 24,
-                        radius: CcRadius.sm,
-                        controller: _valueController,
-                        focusNode: _valueFocus,
-                        onSubmitted: (_) => _finishValueEdit(commit: true),
-                        onTapOutside: (_) => _valueFocus.unfocus(),
-                      )
-                      : CcTooltip(
-                        message: 'Click to type ${widget.label.toLowerCase()}',
-                        child: CcTappable(
-                          onTap: _beginValueEdit,
-                          child: SizedBox(
-                            key: ValueKey('transform-value-${widget.paramId}'),
-                            height: 28,
-                            child: Align(
-                              alignment: Alignment.centerRight,
-                              child: Text(
-                                '${_number(_currentValue)}$_unitSuffix',
-                                style: CcType.style(
-                                  size: 10,
-                                  weight: CcType.medium,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+              height: 28,
+              displayKey: ValueKey('transform-value-${widget.paramId}'),
+              fieldKey: ValueKey('transform-value-input-${widget.paramId}'),
+              style: CcType.style(size: 10, weight: CcType.medium),
             ),
             SizedBox(
               width: 22,

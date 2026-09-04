@@ -5,6 +5,8 @@ import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+void _ignoreCommit(String _) {}
+
 void main() {
   testWidgets('full-width dropdown keeps its chevron at the trailing edge', (
     tester,
@@ -473,5 +475,100 @@ void main() {
       ),
     );
     expect(translate.transform.getTranslation().y, 0);
+  });
+
+  testWidgets('CcEditableValue commits typed text and cancels on Escape', (
+    tester,
+  ) async {
+    var committed = <String>[];
+    Widget subject() => WidgetsApp(
+      color: CcColors.bg,
+      pageRouteBuilder: <T>(RouteSettings settings, WidgetBuilder builder) =>
+          PageRouteBuilder<T>(
+            settings: settings,
+            pageBuilder: (context, _, _) => builder(context),
+          ),
+      home: Center(
+        child: CcEditableValue(
+          display: '125%',
+          editText: '125',
+          onCommit: committed.add,
+          tooltip: 'Click to type scale',
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(subject());
+    expect(find.text('125%'), findsOneWidget);
+
+    await tester.tap(find.byType(CcTappable));
+    await tester.pump();
+    expect(find.byType(EditableText), findsOneWidget);
+
+    await tester.enterText(find.byType(EditableText), '130%');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    expect(committed, ['130%']);
+    expect(find.text('125%'), findsOneWidget);
+
+    await tester.tap(find.byType(CcTappable));
+    await tester.pump();
+    await tester.enterText(find.byType(EditableText), '999');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(committed, ['130%']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('CcEditableValue renders plain text when disabled', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      WidgetsApp(
+        color: CcColors.bg,
+        pageRouteBuilder: <T>(RouteSettings settings, WidgetBuilder builder) =>
+            PageRouteBuilder<T>(
+              settings: settings,
+              pageBuilder: (context, _, _) => builder(context),
+            ),
+        home: const Center(
+          child: CcEditableValue(
+            display: 'None',
+            editText: '',
+            onCommit: _ignoreCommit,
+            enabled: false,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('None'), findsOneWidget);
+    expect(find.byType(CcTappable), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('slider value parsers accept units, signs, and domain labels', () {
+    expect(parseCcDouble('125%'), 125);
+    expect(parseCcDouble('45°'), 45);
+    expect(parseCcDouble('1,5'), 1.5);
+    expect(parseCcDouble('−3.5'), -3.5);
+    expect(parseCcDouble('24px'), 24);
+    expect(parseCcDouble('0.50 s'), 0.5);
+    expect(parseCcDouble('abc'), isNull);
+    expect(parseCcDouble(''), isNull);
+
+    expect(parseCcDb('-inf'), double.negativeInfinity);
+    expect(parseCcDb('−∞'), double.negativeInfinity);
+    expect(parseCcDb('+3.5'), 3.5);
+    expect(parseCcDb('−6 dB'), -6);
+
+    expect(parseCcPan('C'), 0);
+    expect(parseCcPan('center'), 0);
+    expect(parseCcPan('L50'), -0.5);
+    expect(parseCcPan('R30'), 0.3);
+    expect(parseCcPan('50'), 0.5);
+    expect(parseCcPan('0.5'), 0.5);
+    expect(parseCcPan('-100'), -1.0);
+    expect(parseCcPan('nope'), isNull);
   });
 }

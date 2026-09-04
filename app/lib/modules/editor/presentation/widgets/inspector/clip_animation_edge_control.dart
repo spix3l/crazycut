@@ -142,17 +142,29 @@ class ClipAnimationEdgeControl extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 6),
-              SizedBox(
-                width: 38,
-                child: Text(
-                  '${seconds.toStringAsFixed(2)} s',
-                  textAlign: TextAlign.right,
-                  style: CcType.style(
-                    size: 10,
-                    weight: CcType.medium,
-                    color:
-                        enabled ? CcColors.textPrimary : CcColors.textTertiary,
-                  ),
+              CcEditableValue(
+                display: '${seconds.toStringAsFixed(2)} s',
+                editText: seconds.toStringAsFixed(2),
+                onCommit:
+                    enabled
+                        ? (raw) {
+                          final parsed = parseCcDouble(raw);
+                          if (parsed == null) return;
+                          _setSeconds(
+                            ((parsed.clamp(0.0, _maxSeconds) * 20).round()) /
+                                20,
+                          );
+                        }
+                        : (_) {},
+                enabled: enabled,
+                tooltip: 'Click to type duration',
+                width: 52,
+                height: 28,
+                style: CcType.style(
+                  size: 10,
+                  weight: CcType.medium,
+                  color:
+                      enabled ? CcColors.textPrimary : CcColors.textTertiary,
                 ),
               ),
             ],

@@ -396,13 +396,19 @@ class TextTab extends StatelessWidget {
                     (position) => onChanged(min + position * (max - min)),
               ),
             ),
-            SizedBox(
+            const SizedBox(width: 8),
+            CcEditableValue(
+              display: '${_number(value)}$unit',
+              editText: _number(value),
+              onCommit: (raw) {
+                final parsed = parseCcDouble(raw);
+                if (parsed == null) return;
+                onChanged(parsed.clamp(min, max));
+              },
+              tooltip: 'Click to type ${label.toLowerCase()}',
               width: 52,
-              child: Text(
-                '${_number(value)}$unit',
-                textAlign: TextAlign.right,
-                style: CcType.style(size: 10, weight: CcType.semibold),
-              ),
+              height: 28,
+              style: CcType.style(size: 10, weight: CcType.semibold),
             ),
           ],
         ),

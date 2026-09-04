@@ -313,6 +313,15 @@ class _TrackStyleEditor extends StatelessWidget {
                 ),
             onChangeStart: () => controller.beginGesture('Style captions'),
             onChangeEnd: controller.endGesture,
+            editText: style.fontSize.round().toString(),
+            onCommitText: (raw) {
+              final parsed = parseCcDouble(raw);
+              if (parsed == null) return;
+              controller.updateCaptionStyle(
+                track.id,
+                fontSize: parsed.clamp(12, 160),
+              );
+            },
           ),
           SliderRow(
             label: 'Safe Y',
@@ -323,6 +332,15 @@ class _TrackStyleEditor extends StatelessWidget {
                     controller.updateCaptionStyle(track.id, positionY: value),
             onChangeStart: () => controller.beginGesture('Style captions'),
             onChangeEnd: controller.endGesture,
+            editText: (style.positionY * 100).round().toString(),
+            onCommitText: (raw) {
+              final parsed = parseCcDouble(raw);
+              if (parsed == null) return;
+              controller.updateCaptionStyle(
+                track.id,
+                positionY: (parsed / 100).clamp(0.0, 1.0),
+              );
+            },
           ),
           SliderRow(
             label: 'Max width',
@@ -333,6 +351,15 @@ class _TrackStyleEditor extends StatelessWidget {
                     controller.updateCaptionStyle(track.id, maxWidth: value),
             onChangeStart: () => controller.beginGesture('Style captions'),
             onChangeEnd: controller.endGesture,
+            editText: (style.maxWidth * 100).round().toString(),
+            onCommitText: (raw) {
+              final parsed = parseCcDouble(raw);
+              if (parsed == null) return;
+              controller.updateCaptionStyle(
+                track.id,
+                maxWidth: (parsed / 100).clamp(0.0, 1.0),
+              );
+            },
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),

@@ -61,12 +61,34 @@ class ClipAudioTab extends StatelessWidget {
                       AudioEdits.kSilenceDb +
                           v * (12.0 - AudioEdits.kSilenceDb),
                     ),
+            editText: _dbEditText(clip.volume),
+            onCommitText:
+                silent
+                    ? null
+                    : (raw) {
+                      final db = parseCcDb(raw);
+                      if (db == null) return;
+                      final clamped =
+                          db.isInfinite
+                              ? AudioEdits.kSilenceDb
+                              : db.clamp(AudioEdits.kSilenceDb, 12.0);
+                      c.setClipVolumeDb(clip.id, clamped);
+                    },
           ),
           SliderRow(
             label: 'Pan',
             value: (clip.pan + 1) / 2,
             display: _panLabel(clip.pan),
             onChanged: silent ? null : (v) => c.setClipPan(clip.id, v * 2 - 1),
+            editText: _panEditText(clip.pan),
+            onCommitText:
+                silent
+                    ? null
+                    : (raw) {
+                      final pan = parseCcPan(raw);
+                      if (pan == null) return;
+                      c.setClipPan(clip.id, pan);
+                    },
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
@@ -216,6 +238,17 @@ class ClipAudioTab extends StatelessWidget {
   }
 
   static String _panLabel(double pan) {
+    if (pan == 0) return 'C';
+    return '${pan < 0 ? 'L' : 'R'}${(pan.abs() * 100).round()}';
+  }
+
+  static String _dbEditText(double linear) {
+    final db = AudioEdits.linearToDb(linear);
+    if (db <= AudioEdits.kSilenceDb) return '-48';
+    return db.toStringAsFixed(1);
+  }
+
+  static String _panEditText(double pan) {
     if (pan == 0) return 'C';
     return '${pan < 0 ? 'L' : 'R'}${(pan.abs() * 100).round()}';
   }

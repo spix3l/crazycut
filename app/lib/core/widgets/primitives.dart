@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter/services.dart' show TextInputAction, KeyUpEvent, LogicalKeyboardKey;
+import 'package:flutter/services.dart' show TextInputAction, KeyDownEvent, KeyEvent, KeyUpEvent, LogicalKeyboardKey;
 import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -11,6 +11,7 @@ part 'cc_button_kind.dart';
 part 'cc_checkbox.dart';
 part 'cc_divider.dart';
 part 'cc_dropdown.dart';
+part 'cc_editable_value.dart';
 part 'cc_icon.dart';
 part 'cc_icon_button.dart';
 part 'cc_link.dart';

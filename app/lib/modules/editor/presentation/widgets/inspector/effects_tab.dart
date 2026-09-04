@@ -265,9 +265,18 @@ class _ParamRowState extends State<_ParamRow> {
             ),
             SizedBox(
               width: 40,
-              child: Text(
-                currentValue.toStringAsFixed(1),
-                textAlign: TextAlign.right,
+              child: CcEditableValue(
+                display: currentValue.toStringAsFixed(1),
+                editText: currentValue.toStringAsFixed(1),
+                onCommit: (raw) {
+                  final parsed = parseCcDouble(raw);
+                  if (parsed == null) return;
+                  _setValue(parsed.clamp(min, max));
+                },
+                tooltip:
+                    'Click to type ${_paramLabel(widget.paramId).toLowerCase()}',
+                width: 40,
+                height: 28,
                 style: CcType.style(size: 10, weight: CcType.medium),
               ),
             ),
