@@ -17,6 +17,8 @@ class CcTextField extends StatefulWidget {
     this.autofocus = false,
     this.onSubmitted,
     this.onTapOutside,
+    this.onChanged,
+    this.contextMenuBuilder,
   });
 
   final String? value;
@@ -37,7 +39,9 @@ class CcTextField extends StatefulWidget {
   final FocusNode? focusNode;
   final bool autofocus;
   final ValueChanged<String>? onSubmitted;
+  final ValueChanged<String>? onChanged;
   final TapRegionCallback? onTapOutside;
+  final EditableTextContextMenuBuilder? contextMenuBuilder;
 
   @override
   State<CcTextField> createState() => _CcTextFieldState();
@@ -82,7 +86,9 @@ class _CcTextFieldState extends State<CcTextField> {
           ],
           Expanded(
             child: controller != null
-                ? EditableText(
+                ? MouseRegion(
+                  cursor: SystemMouseCursors.text,
+                  child: EditableText(
                     controller: controller,
                     focusNode: _focus,
                     autofocus: widget.autofocus,
@@ -90,10 +96,18 @@ class _CcTextFieldState extends State<CcTextField> {
                     cursorColor: CcColors.accent,
                     backgroundCursorColor: CcColors.elevated2,
                     selectionColor: CcColors.accent.withValues(alpha: 0.35),
+                    showCursor: true,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    enableInteractiveSelection: true,
+                    keyboardType: TextInputType.text,
                     onSubmitted: widget.onSubmitted,
+                    onChanged: widget.onChanged,
                     onTapOutside: widget.onTapOutside,
                     maxLines: 1,
-                  )
+                    contextMenuBuilder: widget.contextMenuBuilder,
+                  ),
+                )
                 : Text(
                     hasValue ? value : (widget.placeholder ?? ''),
                     maxLines: 1,

@@ -1,10 +1,9 @@
 import 'dart:math' as math;
-import 'package:flutter/material.dart'
-    show showModalBottomSheet, TextField, InputDecoration;
 import 'package:flutter/widgets.dart' hide Clip;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:crazycut_app/core/design/tokens.dart';
+import 'package:crazycut_app/core/widgets/cc_dialog.dart';
 import 'package:crazycut_app/core/widgets/primitives.dart';
 import 'package:crazycut_app/core/widgets/rgba_frame.dart';
 import 'package:crazycut_app/core/math/rational.dart';
@@ -36,14 +35,35 @@ class _MonitorPanelState extends State<MonitorPanel> {
   EditorController get controller => widget.controller;
 
   /// TXT-6: double-click a text clip's frame opens an inline editor bound to
-  /// the clip under the playhead.
+  /// the clip under the playhead. App-native overlay, so it works under the
+  /// WidgetsApp root which has no Material ancestor for bottom sheets.
   void _editTextUnderPlayhead(BuildContext context) {
     final clip = controller.textClipUnderPlayhead();
     if (clip == null) return;
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (_) => _TextEditorSheet(controller: controller, clipId: clip.id),
+    final host = Overlay.of(context);
+    late OverlayEntry entry;
+    void close() {
+      if (entry.mounted) entry.remove();
+    }
+
+    entry = OverlayEntry(
+      builder:
+          (context) => CcModalBarrier(
+            onDismiss: close,
+            child: CcDialogShell(
+              title: 'Edit text',
+              width: 440,
+              onClose: close,
+              sections: [
+                _TextEditorSheet(controller: controller, clipId: clip.id),
+              ],
+              actions: [
+                CcButton(label: 'Done', onPressed: close),
+              ],
+            ),
+          ),
     );
+    host.insert(entry);
   }
 
   @override
@@ -636,26 +656,13 @@ class _TextEditorSheetState extends State<_TextEditorSheet> {
   Widget build(BuildContext context) {
     final clip = widget.controller.clipById(widget.clipId);
     if (clip == null) return const SizedBox.shrink();
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TextField(
-            controller: _field,
-            autofocus: true,
-            maxLines: 3,
-            decoration: const InputDecoration(hintText: 'Type…'),
-            onChanged: (v) => widget.controller.setTextContent(clip.id, v),
-          ),
-        ],
-      ),
+    return CcMultilineTextField(
+      controller: _field,
+      autofocus: true,
+      placeholder: 'Type…',
+      minLines: 3,
+      maxLines: 5,
+      onChanged: (v) => widget.controller.setTextContent(clip.id, v),
     );
   }
 }

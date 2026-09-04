@@ -439,7 +439,9 @@ mixin TimelineEdits on ChangeNotifier {
           start: tailStart,
           linkedGroup: c.linkedGroup,
         );
-        tail.sourceIn = c.sourceIn.plus(tailStart.minus(c.start));
+        tail.sourceIn = c.sourceIn.plus(
+          tailStart.minus(c.start).toSourceTime(c.speedValue),
+        );
         tail.duration = c.end.minus(tailStart);
         c.duration = from.minus(c.start);
         // Touch a newly-created entity before inserting it. Otherwise the
@@ -454,7 +456,7 @@ mixin TimelineEdits on ChangeNotifier {
       } else {
         final shift = to.minus(c.start);
         c.start = to;
-        c.sourceIn = c.sourceIn.plus(shift);
+        c.sourceIn = c.sourceIn.plus(shift.toSourceTime(c.speedValue));
         c.duration = c.duration.minus(shift);
       }
     }
@@ -646,6 +648,59 @@ mixin TimelineEdits on ChangeNotifier {
     );
     var limited = false;
 
+    // Clamp once across every dragged clip so linked partners stay in sync.
+    // Mutating inside the apply loop let the first clip consume a shift the
+    // second clip had to refuse, leaving A/V out of sync by the difference.
+    if (head) {
+      for (final entry in g.origins.entries) {
+        final clip = doc.clipById(entry.key);
+        if (clip == null) continue;
+        final o = entry.value;
+        final speed = clip.speedValue <= 0 ? 1.0 : clip.speedValue;
+        if (shift < Rt.zero()) {
+          // Extending the head consumes earlier source: the timeline shift
+          // costs shift * speed in source time.
+          final floorSource = Rt.fromMicros(
+            -(o.sourceIn.micros / speed).round(),
+          );
+          if (shift < floorSource) {
+            shift = floorSource;
+            limited = true;
+          }
+          final floorStart = Rt.zero().minus(o.start);
+          if (shift < floorStart) {
+            shift = floorStart;
+            limited = true;
+          }
+        } else {
+          final maxDelta = o.duration.minus(frameDuration);
+          if (shift > maxDelta) {
+            shift = maxDelta;
+            limited = true;
+          }
+        }
+      }
+    } else {
+      for (final entry in g.origins.entries) {
+        final clip = doc.clipById(entry.key);
+        if (clip == null) continue;
+        final o = entry.value;
+        final floor = frameDuration.minus(o.duration);
+        if (shift < floor) {
+          shift = floor;
+          limited = true;
+        }
+        final max = _maxDuration(clip, sourceIn: o.sourceIn);
+        if (max != null) {
+          final cap = max.minus(o.duration);
+          if (shift > cap) {
+            shift = cap;
+            limited = true;
+          }
+        }
+      }
+    }
+
     _run('Trim clip', (tx) {
       for (final entry in g.origins.entries) {
         final clip = doc.clipById(entry.key);
@@ -653,37 +708,14 @@ mixin TimelineEdits on ChangeNotifier {
         final o = entry.value;
         tx.clip(clip.id);
         if (head) {
-          var d = shift;
-          if (d < Rt.zero() && Rt.zero().minus(d) > o.sourceIn) {
-            d = Rt.zero().minus(o.sourceIn);
-            limited = true;
-          }
-          if (o.start.plus(d) < Rt.zero()) {
-            d = Rt.zero().minus(o.start);
-            limited = true;
-          }
-          final maxDelta = o.duration.minus(frameDuration);
-          if (d > maxDelta) {
-            d = maxDelta;
-            limited = true;
-          }
+          final d = shift;
           clip.start = o.start.plus(d);
-          clip.sourceIn = o.sourceIn.plus(d);
+          final speed = clip.speedValue <= 0 ? 1.0 : clip.speedValue;
+          clip.sourceIn = o.sourceIn.plus(d.toSourceTime(speed));
+          if (clip.sourceIn < Rt.zero()) clip.sourceIn = Rt.zero();
           clip.duration = o.duration.minus(d);
-          shift = d;
         } else {
-          var duration = o.duration.plus(shift);
-          if (duration < frameDuration) {
-            duration = frameDuration;
-            limited = true;
-          }
-          final max = _maxDuration(clip, sourceIn: o.sourceIn);
-          if (max != null && duration > max) {
-            duration = max;
-            limited = true;
-          }
-          clip.duration = duration;
-          shift = duration.minus(o.duration);
+          clip.duration = o.duration.plus(shift);
         }
       }
       for (final id in g.origins.keys) {

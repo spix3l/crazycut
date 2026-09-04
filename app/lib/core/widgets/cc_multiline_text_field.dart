@@ -12,6 +12,8 @@ class CcMultilineTextField extends StatefulWidget {
     this.minLines = 1,
     this.maxLines = 3,
     this.onChanged,
+    this.onSubmitted,
+    this.contextMenuBuilder,
   });
 
   final TextEditingController controller;
@@ -21,6 +23,8 @@ class CcMultilineTextField extends StatefulWidget {
   final int minLines;
   final int maxLines;
   final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onSubmitted;
+  final EditableTextContextMenuBuilder? contextMenuBuilder;
 
   @override
   State<CcMultilineTextField> createState() => _CcMultilineTextFieldState();
@@ -57,21 +61,32 @@ class _CcMultilineTextFieldState extends State<CcMultilineTextField> {
                     style: CcType.style(size: 12, color: CcColors.textTertiary),
                   ),
                 ),
-              EditableText(
-                controller: widget.controller,
-                focusNode: _focus,
-                autofocus: widget.autofocus,
-                style: style,
-                cursorColor: CcColors.accent,
-                backgroundCursorColor: CcColors.elevated2,
-                selectionColor: CcColors.accent.withValues(alpha: 0.35),
-                keyboardType: TextInputType.multiline,
-                textInputAction: TextInputAction.newline,
-                minLines: widget.minLines,
-                maxLines: widget.maxLines,
-                onTapOutside: (_) =>
-                    _focus.unfocus(disposition: UnfocusDisposition.previouslyFocusedChild),
-                onChanged: widget.onChanged,
+              MouseRegion(
+                cursor: SystemMouseCursors.text,
+                child: EditableText(
+                  controller: widget.controller,
+                  focusNode: _focus,
+                  autofocus: widget.autofocus,
+                  style: style,
+                  cursorColor: CcColors.accent,
+                  backgroundCursorColor: CcColors.elevated2,
+                  selectionColor: CcColors.accent.withValues(alpha: 0.35),
+                  keyboardType: TextInputType.multiline,
+                  textInputAction: TextInputAction.newline,
+                  minLines: widget.minLines,
+                  maxLines: widget.maxLines,
+                  showCursor: true,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  enableInteractiveSelection: true,
+                  expands: false,
+                  contextMenuBuilder: widget.contextMenuBuilder,
+                  onTapOutside: (_) => _focus.unfocus(
+                    disposition: UnfocusDisposition.previouslyFocusedChild,
+                  ),
+                  onChanged: widget.onChanged,
+                  onSubmitted: widget.onSubmitted,
+                ),
               ),
             ],
           ),

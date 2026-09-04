@@ -360,10 +360,19 @@ class _EditorScreenState extends State<EditorScreen> {
   // --- Keyboard (04-ui-ux §7) ----------------------------------------------
 
   bool get _textInputHasFocus {
-    final focusContext = FocusManager.instance.primaryFocus?.context;
+    final primary = FocusManager.instance.primaryFocus;
+    final focusContext = primary?.context;
     if (focusContext == null) return false;
-    return focusContext.widget is EditableText ||
-        focusContext.findAncestorWidgetOfExactType<EditableText>() != null;
+    if (focusContext.widget is EditableText) return true;
+    var found = false;
+    focusContext.visitAncestorElements((element) {
+      if (element.widget is EditableText) {
+        found = true;
+        return false;
+      }
+      return true;
+    });
+    return found;
   }
 
   KeyEventResult _onKey(EditorController c, KeyEvent event) {

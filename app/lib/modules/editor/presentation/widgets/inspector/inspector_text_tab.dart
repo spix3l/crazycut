@@ -659,9 +659,19 @@ class _ContentFieldState extends State<_ContentField> {
     super.didUpdateWidget(oldWidget);
     if (widget.initial != oldWidget.initial &&
         widget.initial != _controller.text) {
+      // External change (undo, template, AI): keep the user's selection when
+      // it still fits, so a background sync never collapses a mouse drag.
+      final selection = _controller.selection;
+      final valid =
+          selection.isValid &&
+          selection.start <= widget.initial.length &&
+          selection.end <= widget.initial.length;
       _controller.value = _controller.value.copyWith(
         text: widget.initial,
-        selection: TextSelection.collapsed(offset: widget.initial.length),
+        selection:
+            valid
+                ? selection
+                : TextSelection.collapsed(offset: widget.initial.length),
         composing: TextRange.empty,
       );
     }
