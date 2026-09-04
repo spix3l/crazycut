@@ -45,6 +45,10 @@ dependencies:
   flutter_svg: ^2.2.3
   http: ^1.6.0
   flutter_inappwebview: ^6.1.5
+  crypto: ^3.0.7
+  cryptography: ^2.9.0
+  package_info_plus: ^10.2.1
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:

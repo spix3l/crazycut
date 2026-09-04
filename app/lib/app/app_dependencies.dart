@@ -17,6 +17,7 @@ class AppDependencies {
     required this.templates,
     required this.mediaCache,
     required this.posterCache,
+    required this.updates,
   });
 
   factory AppDependencies.production() {
@@ -41,6 +42,7 @@ class AppDependencies {
       templates: TemplateLibrary.instance,
       mediaCache: MediaCache.instance,
       posterCache: PosterCache.instance,
+      updates: UpdateService(preferences: preferences),
     );
   }
 
@@ -55,4 +57,5 @@ class AppDependencies {
   final TemplateLibrary templates;
   final MediaCache mediaCache;
   final PosterCache posterCache;
+  final UpdateService updates;
 }

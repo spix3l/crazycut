@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 
 import 'package:crazycut_app/core/design/tokens.dart';
+import 'package:crazycut_app/modules/updates/application/update_status.dart';
+import 'package:crazycut_app/modules/updates/presentation/update_dialogs.dart';
 import 'dependencies.dart';
 import 'platform_menu.dart';
 import 'router/app_router.dart';
@@ -19,6 +21,10 @@ class CrazyCutApp extends StatefulWidget {
 class _CrazyCutAppState extends State<CrazyCutApp> {
   final _router = AppRouter();
 
+  /// Tags already presented as ready-to-install this run, so a background
+  /// download surfaces exactly one prompt per release.
+  String? _readyShownFor;
+
   @override
   void initState() {
     super.initState();
@@ -31,7 +37,39 @@ class _CrazyCutAppState extends State<CrazyCutApp> {
     widget.dependencies.preferences.load().then((_) {
       widget.dependencies.session.proxies.enabled =
           widget.dependencies.preferences.generateProxies;
+      _startBackgroundUpdateCheck();
     });
+  }
+
+  @override
+  void dispose() {
+    widget.dependencies.updates.removeListener(_maybeShowReady);
+    super.dispose();
+  }
+
+  /// Silent check after first frame: never blocks launch, never dialogs on
+  /// failure. Only a verified, fully downloaded update prompts, via
+  /// [_maybeShowReady].
+  void _startBackgroundUpdateCheck() {
+    final updates = widget.dependencies.updates;
+    updates.addListener(_maybeShowReady);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // ignore: discarded_futures
+      updates.checkNow().catchError((Object _) {});
+    });
+  }
+
+  void _maybeShowReady() {
+    final updates = widget.dependencies.updates;
+    if (updates.status != UpdateStatus.ready) return;
+    final tag = updates.release?.tag;
+    if (tag == null || tag == _readyShownFor) return;
+    _readyShownFor = tag;
+    final context = _router.navigatorKey.currentContext;
+    final overlay = _router.navigatorKey.currentState?.overlay;
+    if (context == null || overlay == null) return;
+    // ignore: discarded_futures
+    showUpdateReadyDialog(context, updates, overlay: overlay);
   }
 
   @override

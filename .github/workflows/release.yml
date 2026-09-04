@@ -98,9 +98,18 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
+      - name: Validate tag and artifacts
+        run: |
+          if ! [[ "${{ github.ref_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "error: tag must match vX.Y.Z, got ${{ github.ref_name }}" >&2
+            exit 2
+          fi
+          test -f dist/CrazyCut-macOS/CrazyCut.dmg
+          test -f dist/CrazyCut-Windows/CrazyCut-Windows.zip
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -109,3 +118,27 @@ jobs:
             dist/CrazyCut-Windows/CrazyCut-Windows.zip
           generate_release_notes: true
           draft: false
+      - name: Build and sign update manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATE_SIGNING_SK: ${{ secrets.UPDATE_SIGNING_SK }}
+        run: |
+          pip install --quiet pynacl
+          python3 tools/build-update-manifest.py \
+            --tag "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --dmg dist/CrazyCut-macOS/CrazyCut.dmg \
+            --zip dist/CrazyCut-Windows/CrazyCut-Windows.zip \
+            --out dist/manifest
+      - name: Upload update manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # CHECKSUMS.txt always exists; the signed manifest only lands here
+          # when the signing secret is configured (see the step above).
+          files="dist/manifest/CHECKSUMS.txt"
+          if [ -f dist/manifest/latest.json ]; then
+            files="$files dist/manifest/latest.json dist/manifest/latest.json.sig"
+          fi
+          # shellcheck disable=SC2086
+          gh release upload "${{ github.ref_name }}" $files --clobber

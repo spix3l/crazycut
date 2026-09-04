@@ -111,18 +111,30 @@ class CcMenu extends StatelessWidget {
   }
 }
 
-/// Opens a [CcMenu] anchored to the bottom edge of [anchorContext].
+/// Opens a [CcMenu] at [position] when given (global coordinates, typically
+/// the right-click's `globalPosition`), otherwise anchored to the bottom edge
+/// of [anchorContext] (for buttons, where there is no pointer to honor).
 ///
-/// This is the app's only menu entry point: buttons and right-click targets
-/// alike pass the widget that owns the gesture, so the menu opens beside it
-/// instead of being told where the pointer was.
-void showCcMenu(BuildContext anchorContext, List<CcMenuItem> items) {
-  final anchor = anchorContext.findRenderObject() as RenderBox?;
-  if (anchor == null || !anchor.attached) return;
-  final position = anchor.localToGlobal(Offset(0, anchor.size.height + 4));
+/// Right-click targets must pass the pointer position: anchoring to the
+/// widget puts the menu at the widget's edge, which for a full-width timeline
+/// lane looks random relative to the click.
+void showCcMenu(
+  BuildContext anchorContext,
+  List<CcMenuItem> items, {
+  Offset? position,
+}) {
   final overlay = Overlay.of(anchorContext);
   final overlayBox = overlay.context.findRenderObject() as RenderBox?;
   if (overlayBox == null) return;
+  final Offset anchorGlobal;
+  if (position != null) {
+    anchorGlobal = position;
+  } else {
+    final anchor = anchorContext.findRenderObject() as RenderBox?;
+    if (anchor == null || !anchor.attached) return;
+    anchorGlobal = anchor.localToGlobal(Offset(0, anchor.size.height + 4));
+  }
+  final requested = overlayBox.globalToLocal(anchorGlobal);
   // Remember who opened the menu so focus can return after it closes (UIX-3).
   final previousFocus = FocusManager.instance.primaryFocus;
   late OverlayEntry entry;
@@ -141,7 +153,6 @@ void showCcMenu(BuildContext anchorContext, List<CcMenuItem> items) {
   // Ten pixels of explicit vertical padding plus the one-pixel border on each
   // edge. Keeping this equal to CcMenu's real height prevents bottom clipping.
   final estimatedHeight = items.length * 28.0 + separatorHeight + 12;
-  final requested = overlayBox.globalToLocal(position);
   final horizontalMargin = overlayBox.size.width < edgeMargin * 2
       ? overlayBox.size.width / 2
       : edgeMargin;

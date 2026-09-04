@@ -34,7 +34,10 @@ void main() {
       ..setShowSafeMargins(true)
       ..setShowCanvasGrid(true)
       ..setGenerateProxies(false)
-      ..setOutputDeviceName('Studio Display');
+      ..setOutputDeviceName('Studio Display')
+      ..setAutoCheckUpdates(false)
+      ..setLastUpdateCheckAt(DateTime.utc(2026, 9, 4))
+      ..setSkippedUpdateVersion('v0.3.0');
     await preferences.flush();
 
     final restored = UiPreferences(storageDirOverride: dir);
@@ -51,6 +54,9 @@ void main() {
     expect(restored.showCanvasGrid, isTrue);
     expect(restored.generateProxies, isFalse);
     expect(restored.outputDeviceName, 'Studio Display');
+    expect(restored.autoCheckUpdates, isFalse);
+    expect(restored.lastUpdateCheckAt, '2026-09-04T00:00:00.000Z');
+    expect(restored.skippedUpdateVersion, 'v0.3.0');
   });
 
   test('timeline zoom is clamped before it is stored', () async {

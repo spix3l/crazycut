@@ -103,8 +103,14 @@ Pushing a tag matching `v*` (e.g. `v0.3.0`) runs
    unsigned otherwise.
 2. Builds the engine and packages the Windows app via
    `tools/package-windows.ps1` — see the caveat above — into a zip.
-3. Publishes both as assets on a GitHub Release for the tag, with
-   auto-generated release notes.
+ 3. Publishes both as assets on a GitHub Release for the tag, with
+    auto-generated release notes.
+ 4. Builds and uploads the signed update manifest (`latest.json`,
+    `latest.json.sig`, `CHECKSUMS.txt`) that the in-app updater verifies.
+    Signing needs the `UPDATE_SIGNING_SK` repository secret (primary seed
+    from `python3 tools/gen-update-keys.py`); without it the release still
+    publishes but ships no signed manifest, and the updater reports that no
+    signed update is available yet.
 
 To cut a release:
 

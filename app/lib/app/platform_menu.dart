@@ -8,6 +8,7 @@ import 'package:flutter/widgets.dart';
 
 import 'package:crazycut_app/core/widgets/cc_dialog.dart';
 import 'package:crazycut_app/modules/editor/application/editor_controller.dart';
+import 'package:crazycut_app/modules/updates/presentation/update_dialogs.dart';
 import 'help_dialog.dart';
 import 'router/app_router.dart';
 import 'router/app_router.gr.dart';
@@ -16,6 +17,7 @@ import 'session.dart';
 /// The macOS menu bar and everything it can trigger, kept apart from the app
 /// root so root stays plumbing. Flutter draws no native menu bar on the other
 /// platforms CrazyCut ships, so there the child passes through untouched.
+/// Update checks live in Settings on those platforms instead.
 class CrazyCutMenuBar extends StatelessWidget {
   const CrazyCutMenuBar({
     super.key,
@@ -151,6 +153,16 @@ class CrazyCutMenuBar extends StatelessWidget {
     final overlay = _dialogOverlay;
     if (context == null || overlay == null) return;
     await showHelpDialog(context, overlay: overlay);
+  }
+
+  /// Help ▸ Check for Updates: manual check with progress and result dialog.
+  /// Non-macOS platforms reach the same flow from Settings ▸ Updates, since
+  /// no native menu bar is drawn there.
+  Future<void> _checkForUpdates() async {
+    final context = router.navigatorKey.currentContext;
+    final overlay = _dialogOverlay;
+    if (context == null || overlay == null) return;
+    await showManualUpdateCheck(context, overlay: overlay);
   }
 
   void _undo() => _editor?.undo();
@@ -447,6 +459,10 @@ class CrazyCutMenuBar extends StatelessWidget {
             shift: true,
           ),
           onSelected: _showHelp,
+        ),
+        PlatformMenuItem(
+          label: 'Check for Updates…',
+          onSelected: _checkForUpdates,
         ),
       ],
     ),

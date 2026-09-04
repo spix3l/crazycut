@@ -32,6 +32,9 @@ class UiPreferences extends ChangeNotifier {
   bool showCanvasGrid = false;
   bool generateProxies = true;
   String outputDeviceName = '';
+  bool autoCheckUpdates = true;
+  String lastUpdateCheckAt = '';
+  String skippedUpdateVersion = '';
 
   String? _pendingJson;
   Future<void>? _writer;
@@ -77,6 +80,12 @@ class UiPreferences extends ChangeNotifier {
       generateProxies = decoded['generateProxies'] as bool? ?? generateProxies;
       outputDeviceName =
           decoded['outputDeviceName'] as String? ?? outputDeviceName;
+      autoCheckUpdates =
+          decoded['autoCheckUpdates'] as bool? ?? autoCheckUpdates;
+      lastUpdateCheckAt =
+          decoded['lastUpdateCheckAt'] as String? ?? lastUpdateCheckAt;
+      skippedUpdateVersion =
+          decoded['skippedUpdateVersion'] as String? ?? skippedUpdateVersion;
     } on Object {
       // Invalid preferences should never keep the editor from opening.
     } finally {
@@ -97,6 +106,9 @@ class UiPreferences extends ChangeNotifier {
     'showCanvasGrid': showCanvasGrid,
     'generateProxies': generateProxies,
     'outputDeviceName': outputDeviceName,
+    'autoCheckUpdates': autoCheckUpdates,
+    'lastUpdateCheckAt': lastUpdateCheckAt,
+    'skippedUpdateVersion': skippedUpdateVersion,
   };
 
   void _changed() {
@@ -192,6 +204,25 @@ class UiPreferences extends ChangeNotifier {
   void setOutputDeviceName(String value) {
     if (outputDeviceName == value) return;
     outputDeviceName = value;
+    _changed();
+  }
+
+  void setAutoCheckUpdates(bool value) {
+    if (autoCheckUpdates == value) return;
+    autoCheckUpdates = value;
+    _changed();
+  }
+
+  void setLastUpdateCheckAt(DateTime value) {
+    final encoded = value.toUtc().toIso8601String();
+    if (lastUpdateCheckAt == encoded) return;
+    lastUpdateCheckAt = encoded;
+    _changed();
+  }
+
+  void setSkippedUpdateVersion(String value) {
+    if (skippedUpdateVersion == value) return;
+    skippedUpdateVersion = value;
     _changed();
   }
 }

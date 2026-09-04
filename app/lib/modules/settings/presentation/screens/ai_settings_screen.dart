@@ -11,8 +11,11 @@ import 'package:crazycut_app/core/widgets/primitives.dart';
 import 'package:crazycut_app/app/session.dart';
 import 'package:crazycut_app/modules/editor/application/editor_controller.dart';
 import 'package:crazycut_app/modules/ai/application/speech_model.dart';
+import 'package:crazycut_app/modules/updates/application/update_service.dart';
+import 'package:crazycut_app/modules/updates/application/update_status.dart';
+import 'package:crazycut_app/modules/updates/presentation/update_dialogs.dart';
 
-enum _SettingsSection { canvas, playback, audio, shortcuts, ai }
+enum _SettingsSection { canvas, playback, audio, shortcuts, ai, updates }
 
 /// Application settings, with AI configuration kept as one focused section.
 ///
@@ -52,6 +55,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool _showCanvasGrid;
   late bool _generateProxies;
   late String _outputDevice;
+  late bool _autoCheckUpdates;
+  late UpdateService _updates;
 
   EditorController? get _editor => _session.hasProject ? _session.editor : null;
 
@@ -78,6 +83,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _showCanvasGrid = editor?.showCanvasGrid ?? false;
     _generateProxies = _session.proxies.enabled;
     _outputDevice = editor?.outputDeviceName ?? '';
+    _autoCheckUpdates = _dependencies.preferences.autoCheckUpdates;
+    _updates = _dependencies.updates;
+    _updates.addListener(_onUpdates);
     _baseUrl.addListener(_markAiTouched);
     _model.addListener(_markAiTouched);
     _models.addListener(_onModels);
@@ -86,6 +94,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
+    _updates.removeListener(_onUpdates);
     _models.removeListener(_onModels);
     _baseUrl.dispose();
     _model.dispose();
@@ -94,6 +103,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _onModels() => setState(() {});
+
+  void _onUpdates() {
+    if (mounted) setState(() {});
+  }
 
   void _markAiTouched() => _aiTouched = true;
 
@@ -179,6 +192,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     _session.proxies.enabled = _generateProxies;
     _dependencies.preferences.setGenerateProxies(_generateProxies);
+    _dependencies.preferences.setAutoCheckUpdates(_autoCheckUpdates);
     final enteredKey = _key.text.trim();
     if (_settings.config != null ||
         _aiTouched ||
@@ -479,6 +493,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         onSelected: (device) => setState(() => _outputDevice = device),
       ),
       _SettingsSection.shortcuts => const _ShortcutsSettings(),
+      _SettingsSection.updates => _UpdatesSettings(
+        service: _updates,
+        autoCheck: _autoCheckUpdates,
+        onAutoCheckChanged:
+            (value) => setState(() => _autoCheckUpdates = value),
+        onCheckNow: () => showManualUpdateCheck(context),
+      ),
       _SettingsSection.ai => const SizedBox.shrink(),
     };
   }
@@ -507,6 +528,7 @@ class _SettingsShell extends StatelessWidget {
     _SettingsSection.audio => 'Audio',
     _SettingsSection.shortcuts => 'Shortcuts',
     _SettingsSection.ai => 'AI assist',
+    _SettingsSection.updates => 'Updates',
   };
 
   static String _description(_SettingsSection section) => switch (section) {
@@ -515,6 +537,7 @@ class _SettingsShell extends StatelessWidget {
     _SettingsSection.audio => 'Monitoring output',
     _SettingsSection.shortcuts => 'Keyboard controls',
     _SettingsSection.ai => 'Providers, models, and privacy',
+    _SettingsSection.updates => 'Automatic checks and downloads',
   };
 
   static IconData _icon(_SettingsSection section) => switch (section) {
@@ -523,6 +546,7 @@ class _SettingsShell extends StatelessWidget {
     _SettingsSection.audio => LucideIcons.volume2,
     _SettingsSection.shortcuts => LucideIcons.sliders,
     _SettingsSection.ai => LucideIcons.sparkles,
+    _SettingsSection.updates => LucideIcons.download,
   };
 
   @override
@@ -918,6 +942,129 @@ class _ShortcutsSettings extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+class _UpdatesSettings extends StatelessWidget {
+  const _UpdatesSettings({
+    required this.service,
+    required this.autoCheck,
+    required this.onAutoCheckChanged,
+    required this.onCheckNow,
+  });
+
+  final UpdateService service;
+  final bool autoCheck;
+  final ValueChanged<bool> onAutoCheckChanged;
+  final VoidCallback onCheckNow;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: CcColors.elevated,
+            borderRadius: CcRadius.brMd,
+          ),
+          child: Text(
+            'CrazyCut checks GitHub releases for new versions. Checks and '
+            'downloads are the only network use besides services you '
+            'configure. Every file is signature checked and hash verified '
+            'before it is offered, and installing stays a manual step so '
+            'a failed update can never break the running app.',
+            style: CcType.style(
+              size: 12,
+              color: CcColors.textSecondary,
+              height: 1.45,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        _SettingsGroup(
+          children: [
+            _ToggleSetting(
+              title: 'Check automatically',
+              description:
+                  'Check once a day on launch and download releases in '
+                  'the background. Turn off to check manually only.',
+              checked: autoCheck,
+              onChanged: onAutoCheckChanged,
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Status', style: CcType.bodyStrong),
+                        const SizedBox(height: 4),
+                        ListenableBuilder(
+                          listenable: service,
+                          builder: (context, _) {
+                            return Text(
+                              _statusText(service),
+                              style: CcType.tiny,
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 4),
+                        FutureBuilder<String>(
+                          future: service.currentVersionString(),
+                          builder: (context, snapshot) {
+                            final version =
+                                (snapshot.data ?? '').isEmpty
+                                    ? 'unknown'
+                                    : snapshot.data!;
+                            return Text(
+                              'Installed: $version'
+                              '${service.lastCheckedAt.isEmpty ? '' : ' · checked ${service.lastCheckedAt.substring(0, 10)}'}',
+                              style: CcType.tiny,
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 20),
+                  CcButton(
+                    label: 'Check now',
+                    kind: CcButtonKind.secondary,
+                    onPressed: onCheckNow,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  static String _statusText(UpdateService service) {
+    switch (service.status) {
+      case UpdateStatus.idle:
+        return 'Idle.';
+      case UpdateStatus.checking:
+        return 'Checking for updates…';
+      case UpdateStatus.available:
+        return 'New version found: ${service.release?.tag ?? ''}.';
+      case UpdateStatus.downloading:
+        return 'Downloading ${(service.progress * 100).round()}%…';
+      case UpdateStatus.ready:
+        return 'Update ${service.release?.tag ?? ''} downloaded and verified. '
+            'Use Check now to review install steps.';
+      case UpdateStatus.upToDate:
+        return 'Up to date.';
+      case UpdateStatus.error:
+        return service.errorMessage.isEmpty
+            ? 'The last check failed.'
+            : service.errorMessage;
+    }
   }
 }
 

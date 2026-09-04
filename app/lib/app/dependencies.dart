@@ -12,6 +12,7 @@ import 'package:crazycut_app/modules/projects/application/onboarding.dart';
 import 'package:crazycut_app/modules/ai/application/speech_model.dart';
 import 'package:crazycut_app/modules/settings/application/ai_settings.dart';
 import 'package:crazycut_app/modules/settings/application/ui_preferences.dart';
+import 'package:crazycut_app/modules/updates/application/update_service.dart';
 
 part 'app_dependencies.dart';
 part 'app_dependencies_scope.dart';

@@ -368,10 +368,12 @@ class _TimelinePanelState extends State<TimelinePanel> {
     return index - start;
   }
 
-  void _clipMenu(BuildContext anchorContext, Clip clip) {
+  void _clipMenu(BuildContext anchorContext, Clip clip, {Offset? position}) {
     if (!c.selection.contains(clip.id)) c.selectClip(clip.id);
     final linked = clip.linkedGroup != null;
-    showCcMenu(anchorContext, [
+    showCcMenu(
+      anchorContext,
+      [
       CcMenuItem('Split at playhead', shortcut: 'S', onTap: c.splitAtPlayhead),
       CcMenuItem('Copy', shortcut: '⌘C', onTap: c.copySelection),
       CcMenuItem('Cut', shortcut: '⌘X', onTap: c.cutSelection),
@@ -417,7 +419,9 @@ class _TimelinePanelState extends State<TimelinePanel> {
         separatorBefore: true,
         onTap: () => showSaveTemplateDialog(context, c),
       ),
-    ]);
+      ],
+      position: position,
+    );
   }
 
   // --- Build ----------------------------------------------------------------
@@ -769,25 +773,29 @@ class _TimelinePanelState extends State<TimelinePanel> {
               behavior: HitTestBehavior.opaque,
               onTap: () => c.selectCaption(track.id, item.id, seek: true),
               onSecondaryTapDown:
-                  (_) => showCcMenu(tileContext, [
-                    CcMenuItem(
-                      'Split at playhead',
-                      onTap:
-                          () => c.splitCaption(track.id, item.id, c.playhead),
-                    ),
-                    CcMenuItem(
-                      'Merge with next',
-                      onTap: () => c.mergeCaptionWithNext(track.id, item.id),
-                    ),
-                    CcMenuItem(
-                      'Nudge left',
-                      onTap: () => c.nudgeCaption(track.id, item.id, -1),
-                    ),
-                    CcMenuItem(
-                      'Nudge right',
-                      onTap: () => c.nudgeCaption(track.id, item.id, 1),
-                    ),
-                  ]),
+                  (d) => showCcMenu(
+                    tileContext,
+                    [
+                      CcMenuItem(
+                        'Split at playhead',
+                        onTap:
+                            () => c.splitCaption(track.id, item.id, c.playhead),
+                      ),
+                      CcMenuItem(
+                        'Merge with next',
+                        onTap: () => c.mergeCaptionWithNext(track.id, item.id),
+                      ),
+                      CcMenuItem(
+                        'Nudge left',
+                        onTap: () => c.nudgeCaption(track.id, item.id, -1),
+                      ),
+                      CcMenuItem(
+                        'Nudge right',
+                        onTap: () => c.nudgeCaption(track.id, item.id, 1),
+                      ),
+                    ],
+                    position: d.globalPosition,
+                  ),
               onHorizontalDragStart: (_) => begin(),
               onHorizontalDragUpdate: (details) {
                 _captionDragSeconds += details.delta.dx / pxPerSec;
@@ -1123,17 +1131,21 @@ class _TimelinePanelState extends State<TimelinePanel> {
               behavior: HitTestBehavior.opaque,
               onTapDown: (_) => c.seekTo(marker.time),
               onSecondaryTapDown:
-                  (d) => showCcMenu(markerContext, [
-                    CcMenuItem(
-                      'Rename marker',
-                      onTap: () => _renameMarker(marker),
-                    ),
-                    CcMenuItem(
-                      'Delete marker',
-                      danger: true,
-                      onTap: () => c.removeMarker(marker.id),
-                    ),
-                  ]),
+                  (d) => showCcMenu(
+                    markerContext,
+                    [
+                      CcMenuItem(
+                        'Rename marker',
+                        onTap: () => _renameMarker(marker),
+                      ),
+                      CcMenuItem(
+                        'Delete marker',
+                        danger: true,
+                        onTap: () => c.removeMarker(marker.id),
+                      ),
+                    ],
+                    position: d.globalPosition,
+                  ),
               onHorizontalDragStart: (_) {
                 _draggingMarkerId = marker.id;
                 c.beginGesture('Move marker');
@@ -1349,20 +1361,28 @@ class _TimelinePanelState extends State<TimelinePanel> {
             onPanEnd: (_) => _commitMarquee(),
             onPanCancel: _commitMarquee,
             onSecondaryTapDown:
-                (d) => showCcMenu(laneContext, [
-                  CcMenuItem(
-                    'Paste',
-                    shortcut: '⌘V',
-                    onTap: c.hasClipboard ? c.paste : null,
-                  ),
-                  CcMenuItem(
-                    'Add marker',
-                    shortcut: 'M',
-                    onTap: () => c.addMarker(),
-                  ),
-                  CcMenuItem('Select all', shortcut: '⌘A', onTap: c.selectAll),
-                  ..._gapMenuItems(track, _time(d.localPosition.dx)),
-                ]),
+                (d) => showCcMenu(
+                  laneContext,
+                  [
+                    CcMenuItem(
+                      'Paste',
+                      shortcut: '⌘V',
+                      onTap: c.hasClipboard ? c.paste : null,
+                    ),
+                    CcMenuItem(
+                      'Add marker',
+                      shortcut: 'M',
+                      onTap: () => c.addMarker(),
+                    ),
+                    CcMenuItem(
+                      'Select all',
+                      shortcut: '⌘A',
+                      onTap: c.selectAll,
+                    ),
+                    ..._gapMenuItems(track, _time(d.localPosition.dx)),
+                  ],
+                  position: d.globalPosition,
+                ),
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: track.lock ? CcColors.elevated : CcColors.bg,
@@ -1502,7 +1522,8 @@ class _TimelinePanelState extends State<TimelinePanel> {
           // whole selection, and selecting it again on pointer-down would
           // discard its peers before [beginDrag] captures their origins.
           onTap: () => _onClipTap(clip),
-          onSecondaryTapDown: (d) => _clipMenu(anchorContext, clip),
+          onSecondaryTapDown:
+              (d) => _clipMenu(anchorContext, clip, position: d.globalPosition),
           onPanStart: locked ? null : (_) => _startClipDrag(clip, kind),
           onPanUpdate:
               locked
@@ -1674,10 +1695,15 @@ class _TimelinePanelState extends State<TimelinePanel> {
             onSecondaryTapDown: (d) {
               final marker = nearest(d.localPosition.dx);
               if (marker == null) {
-                _clipMenu(anchorContext, clip);
+                _clipMenu(anchorContext, clip, position: d.globalPosition);
                 return;
               }
-              _keyframeMarkerMenu(anchorContext, clip, marker);
+              _keyframeMarkerMenu(
+                anchorContext,
+                clip,
+                marker,
+                position: d.globalPosition,
+              );
             },
             child: CustomPaint(
               painter: KeyframeRibbonPainter(
@@ -1707,12 +1733,15 @@ class _TimelinePanelState extends State<TimelinePanel> {
   void _keyframeMarkerMenu(
     BuildContext anchorContext,
     Clip clip,
-    ClipKeyframeMarker marker,
-  ) {
+    ClipKeyframeMarker marker, {
+    Offset? position,
+  }) {
     if (!c.selection.contains(clip.id)) c.selectClip(clip.id);
     final params = marker.keys.map((k) => k.label).toSet().toList()..sort();
     final deletable = marker.keys.where((k) => !k.generated).length;
-    showCcMenu(anchorContext, [
+    showCcMenu(
+      anchorContext,
+      [
       CcMenuItem(
         params.length == 1 ? params.first : '${params.length} parameters',
         onTap: null,
@@ -1741,7 +1770,9 @@ class _TimelinePanelState extends State<TimelinePanel> {
         danger: true,
         onTap: () => c.clearAllKeyframes(clip.id),
       ),
-    ]);
+      ],
+      position: position,
+    );
   }
 
   bool _touches(Transition t, String trackId) =>
@@ -1783,7 +1814,12 @@ class _TimelinePanelState extends State<TimelinePanel> {
                   ),
               onHorizontalDragEnd: (_) => c.endGesture(),
               onHorizontalDragCancel: () => c.endGesture(),
-              onSecondaryTapDown: (d) => _transitionMenu(badgeContext, tr),
+              onSecondaryTapDown:
+                  (d) => _transitionMenu(
+                    badgeContext,
+                    tr,
+                    position: d.globalPosition,
+                  ),
               child: CcTooltip(
                 message:
                     '${tr.type} · ${tr.duration.seconds.toStringAsFixed(2)}s',
@@ -1794,8 +1830,14 @@ class _TimelinePanelState extends State<TimelinePanel> {
     );
   }
 
-  void _transitionMenu(BuildContext anchorContext, Transition tr) {
-    showCcMenu(anchorContext, [
+  void _transitionMenu(
+    BuildContext anchorContext,
+    Transition tr, {
+    Offset? position,
+  }) {
+    showCcMenu(
+      anchorContext,
+      [
       const CcMenuItem('Type', onTap: null),
       CcMenuItem(
         'Cross dissolve',
@@ -1843,7 +1885,9 @@ class _TimelinePanelState extends State<TimelinePanel> {
         danger: true,
         onTap: () => c.removeTransition(tr.id),
       ),
-    ]);
+      ],
+      position: position,
+    );
   }
 
   /// Straddles a cut: dragging it rolls both sides (TIM-6).

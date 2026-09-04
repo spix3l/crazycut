@@ -213,7 +213,7 @@ The project-open budget covers everything in the document, including baked track
 
 - Engine: CMake ≥ 3.24 + Ninja; static lib `libcrazycut.dylib/.dll` + separate `crazycut_worker` executable linking the same objects.
 - ffmpeg: built from pinned sources by CI scripts (`tools/ffmpeg-build/`), GPL enabled (`--enable-gpl --enable-libx264 --enable-libx265`), deployed as **separate dynamic libraries** next to the app binary (not linked into `libcrazycut`'s public identity beyond dynamic linkage).
-- App: standard Flutter desktop builds. Release artifacts: notarized DMG (Developer ID) and signed NSIS installer. Auto-update check = manual "check for updates" hitting GitHub Releases API (v1).
+- App: standard Flutter desktop builds. Release artifacts: notarized DMG (Developer ID) and signed NSIS installer. Updates: daily auto-check (opt-out in Settings ▸ Updates) plus Help ▸ Check for Updates, both served from GitHub Releases. The release workflow publishes a signed `latest.json` manifest (Ed25519, offline key) with per-OS asset URLs, SHA-256 hashes, and sizes; the app verifies the detached signature before trusting any field, then hash-verifies the download before offering install. Installing stays manual (DMG drag, zip replace) so a failed update can never break the running app. Key ceremony: `python3 tools/gen-update-keys.py`, primary seed as the `UPDATE_SIGNING_SK` Actions secret, standby offline.
 - CI: GitHub Actions — matrix {macOS universal, Windows x64} × {unit, golden, integration, perf-nightly}.
 
 ## 14. Licensing compliance
@@ -225,7 +225,7 @@ The project-open budget covers everything in the document, including baked track
 
 ## 15. Security & privacy
 
-- No network access required for core editing. Outbound calls are limited to: explicit update checks, opt-in crash reporting, an LLM endpoint the user configured (absent until then), and a one-time user-confirmed speech-model download. Core editing is fully offline, and with a local LLM provider AI assist is offline too — see `03-features/ai-assist.md` (**AI-1**, **AI-18/19**).
+- No network access required for core editing. Outbound calls are limited to: automatic update checks and downloads (daily, opt-out in Settings ▸ Updates), opt-in crash reporting, an LLM endpoint the user configured (absent until then), and a one-time user-confirmed speech-model download. Core editing is fully offline, and with a local LLM provider AI assist is offline too — see `03-features/ai-assist.md` (**AI-1**, **AI-18/19**).
 - LLM API keys live in the OS keychain, never in project files, preferences, logs or the diagnostics bundle (**AI-3**). Only transcript text and project metadata are ever sent to a configured endpoint — never media, frames or audio.
 - Project files reference absolute/relative local paths; no telemetry about media contents ever leaves the machine.
 - Export worker accepts jobs only over its own stdio pipe (no sockets), spawned from the app bundle path.
