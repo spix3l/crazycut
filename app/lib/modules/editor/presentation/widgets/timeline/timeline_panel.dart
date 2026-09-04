@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -89,6 +90,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
 
   double _scrollX = 0;
   double _viewportWidth = 800;
+  double _viewportHeight = 400;
 
   // Drag bookkeeping in pixels; the controller works from gesture origins.
   Offset _dragDelta = Offset.zero;
@@ -98,6 +100,25 @@ class _TimelinePanelState extends State<TimelinePanel> {
   Offset? _marqueeStart;
   Offset? _marqueeEnd;
   bool _marqueeAdditive = false;
+
+  /// Marquee autoscroll: while the pointer sits near (or past) the viewport
+  /// edge the timeline keeps scrolling so the selection can grow beyond what
+  /// was first visible. [_marqueeViewport] is the pointer in viewport pixels,
+  /// which stays put while the content slides underneath it.
+  Timer? _marqueeTimer;
+  Offset _marqueeViewport = Offset.zero;
+  static const double _marqueeEdgePx = 40;
+
+  /// Trackpad pinch state. [PointerPanZoomUpdateEvent.scale] is cumulative
+  /// since the gesture started, so the delta from the last event is what
+  /// zooms.
+  double _lastPanZoomScale = 1.0;
+
+  /// Touch pinch state. Tracked manually in the [Listener] so a one-finger
+  /// marquee never enters the gesture arena against a two-finger zoom.
+  final Map<int, Offset> _touchPointers = {};
+  double? _pinchStartDistance;
+  double? _pinchStartPxPerSec;
   String? _dropTrackId;
   double? _dropSeconds;
   String? _draggingMarkerId;
@@ -166,10 +187,84 @@ class _TimelinePanelState extends State<TimelinePanel> {
 
   @override
   void dispose() {
+    _marqueeTimer?.cancel();
     _headerScroll.dispose();
     _laneScroll.dispose();
     _horizontal.dispose();
     super.dispose();
+  }
+
+  void _cancelMarqueeAutoscroll() {
+    _marqueeTimer?.cancel();
+    _marqueeTimer = null;
+  }
+
+  double _laneScrollOffset() =>
+      _laneScroll.hasClients ? _laneScroll.offset : 0.0;
+
+  void _noteMarqueeViewport(Track track, Offset local) {
+    final content = local + Offset(0, _laneTop(track));
+    // Viewport pixels: content minus scrolled offset. May sit outside
+    // [0, viewport] when the pointer is dragged past the edge, which is
+    // exactly when the autoscroll has to keep going.
+    _marqueeViewport = Offset(
+      content.dx - _scrollX,
+      content.dy - _laneScrollOffset(),
+    );
+  }
+
+  void _maybeStartMarqueeAutoscroll() {
+    if (_marqueeStart == null || _marqueeEnd == null) return;
+    final v = _marqueeViewport;
+    final nearHorizontal =
+        v.dx < _marqueeEdgePx || v.dx > _viewportWidth - _marqueeEdgePx;
+    final nearVertical =
+        v.dy < _marqueeEdgePx || v.dy > _viewportHeight - _marqueeEdgePx;
+    if (!nearHorizontal && !nearVertical) {
+      _cancelMarqueeAutoscroll();
+      return;
+    }
+    if (_marqueeTimer != null) return;
+    _marqueeTimer = Timer.periodic(
+      const Duration(milliseconds: 16),
+      (_) => _marqueeTick(),
+    );
+  }
+
+  double _edgeVelocity(double pos, double size) {
+    if (pos < 0) return (pos - 8) * 0.6;
+    if (pos > size) return (pos - size + 8) * 0.6;
+    if (pos < _marqueeEdgePx) return (pos - _marqueeEdgePx) * 0.6;
+    if (pos > size - _marqueeEdgePx) {
+      return (pos - (size - _marqueeEdgePx)) * 0.6;
+    }
+    return 0;
+  }
+
+  void _marqueeTick() {
+    if (_marqueeStart == null || _marqueeEnd == null) {
+      _cancelMarqueeAutoscroll();
+      return;
+    }
+    final vx = _edgeVelocity(_marqueeViewport.dx, _viewportWidth).clamp(
+      -48.0,
+      48.0,
+    );
+    final vy = _edgeVelocity(_marqueeViewport.dy, _viewportHeight).clamp(
+      -48.0,
+      48.0,
+    );
+    if (vx == 0 && vy == 0) return;
+    if (vx != 0) _scrollBy(_horizontal, vx);
+    if (vy != 0) _scrollBy(_laneScroll, vy);
+    // The pointer stays where it is on screen while the content slides, so
+    // the content endpoint has to follow the new scroll offset.
+    setState(() {
+      _marqueeEnd = Offset(
+        _scrollX + _marqueeViewport.dx,
+        _laneScrollOffset() + _marqueeViewport.dy,
+      );
+    });
   }
 
   // --- Geometry -------------------------------------------------------------
@@ -390,9 +485,17 @@ class _TimelinePanelState extends State<TimelinePanel> {
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       _viewportWidth = constraints.maxWidth;
+                      _viewportHeight =
+                          constraints.maxHeight - TimelinePanel.rulerHeight;
                       return Listener(
                         onPointerSignal: _onPointerSignal,
+                        onPointerPanZoomStart: _onPanZoomStart,
                         onPointerPanZoomUpdate: _onTrackpadPan,
+                        onPointerPanZoomEnd: _onPanZoomEnd,
+                        onPointerDown: _onTimelinePointerDown,
+                        onPointerMove: _onTimelinePointerMove,
+                        onPointerUp: _onTimelinePointerUp,
+                        onPointerCancel: _onTimelinePointerUp,
                         child: SingleChildScrollView(
                           controller: _horizontal,
                           scrollDirection: Axis.horizontal,
@@ -748,17 +851,95 @@ class _TimelinePanelState extends State<TimelinePanel> {
     widget.onZoomAt?.call(-event.scrollDelta.dy / 240, anchor);
   }
 
-  /// Routes a two-finger trackpad pan to timeline navigation. The dominant
-  /// axis wins so a slightly diagonal gesture does not make the view drift in
-  /// both directions.
+  void _onPanZoomStart(PointerPanZoomStartEvent event) {
+    _lastPanZoomScale = 1.0;
+  }
+
+  void _onPanZoomEnd(PointerPanZoomEndEvent event) {
+    _lastPanZoomScale = 1.0;
+  }
+
+  /// Routes a two-finger trackpad gesture to timeline navigation: a pinch
+  /// zooms around the pointer, a pan scrolls with the dominant axis winning
+  /// so a slightly diagonal gesture does not drift in both directions.
   void _onTrackpadPan(PointerPanZoomUpdateEvent event) {
-    // Pinch is handled by the scale signal path above; never turn it into pan.
-    if ((event.scale - 1).abs() > 0.001) return;
+    final scale = event.scale == 0 ? 1.0 : event.scale;
+    final last = _lastPanZoomScale <= 0 ? 1.0 : _lastPanZoomScale;
+    _lastPanZoomScale = scale;
+    // Scale is cumulative, so only the delta since the last event zooms.
+    // Pan is independent: a held pinch followed by a two-finger drag must
+    // still scroll instead of freezing while the fingers stay down.
+    if ((scale - 1).abs() > 0.001 || (last - 1).abs() > 0.001) {
+      final ratio = (scale / last).clamp(0.5, 2.0);
+      if ((ratio - 1).abs() >= 0.0005) {
+        final anchor = (_scrollX + event.localPosition.dx) / pxPerSec;
+        _zoomAnchorSeconds = anchor;
+        // Match the PointerScaleEvent path above: a scale factor maps to zoom
+        // steps, anchored under the pointer.
+        widget.onZoomAt?.call((ratio - 1) * 4, anchor);
+      }
+    }
     final delta = event.localPanDelta;
     if (delta.dx.abs() >= delta.dy.abs()) {
       _scrollBy(_horizontal, -delta.dx);
     } else {
       _scrollBy(_laneScroll, -delta.dy);
+    }
+  }
+
+  void _onTimelinePointerDown(PointerDownEvent event) {
+    if (event.kind != PointerDeviceKind.touch) return;
+    _touchPointers[event.pointer] = event.localPosition;
+    if (_touchPointers.length == 2) {
+      final points = _touchPointers.values.toList();
+      _pinchStartDistance = (points[0] - points[1]).distance;
+      _pinchStartPxPerSec = pxPerSec;
+      final focal = (points[0] + points[1]) / 2;
+      _zoomAnchorSeconds = (_scrollX + focal.dx) / pxPerSec;
+      // A second finger means zoom, not a growing selection.
+      if (_marqueeStart != null) {
+        _cancelMarqueeAutoscroll();
+        setState(() {
+          _marqueeStart = null;
+          _marqueeEnd = null;
+        });
+      }
+      _endDrag();
+    }
+  }
+
+  void _onTimelinePointerMove(PointerMoveEvent event) {
+    if (event.kind != PointerDeviceKind.touch) return;
+    if (!_touchPointers.containsKey(event.pointer)) return;
+    _touchPointers[event.pointer] = event.localPosition;
+    if (_touchPointers.length == 2) {
+      final points = _touchPointers.values.toList();
+      final distance = (points[0] - points[1]).distance;
+      final startDistance = _pinchStartDistance ?? 0;
+      final startPx = _pinchStartPxPerSec ?? pxPerSec;
+      if (startDistance < 10 || distance < 1) return;
+      final focal = (points[0] + points[1]) / 2;
+      _zoomAnchorSeconds = (_scrollX + focal.dx) / pxPerSec;
+      final nextPx = (startPx * distance / startDistance).clamp(
+        kMinPxPerSec,
+        kMaxPxPerSec,
+      );
+      widget.onZoomChanged?.call(timelineZoomForPixelsPerSecond(nextPx));
+    }
+  }
+
+  void _onTimelinePointerUp(PointerEvent event) {
+    if (event.kind != PointerDeviceKind.touch) return;
+    _touchPointers.remove(event.pointer);
+    if (_touchPointers.length < 2) {
+      _pinchStartDistance = null;
+      _pinchStartPxPerSec = null;
+      if (_touchPointers.length == 1) {
+        // The remaining finger becomes a fresh single touch; keep its latest
+        // position so a continuing drag does not jump.
+        final remaining = _touchPointers.entries.single;
+        _touchPointers[remaining.key] = remaining.value;
+      }
     }
   }
 
@@ -1147,16 +1328,24 @@ class _TimelinePanelState extends State<TimelinePanel> {
                 track.lock
                     ? null
                     : (d) => c.closeGap(track.id, _time(d.localPosition.dx)),
-            onPanStart:
-                (d) => setState(() {
-                  _marqueeStart = d.localPosition + Offset(0, _laneTop(track));
-                  _marqueeEnd = _marqueeStart;
-                  _marqueeAdditive = HardwareKeyboard.instance.isShiftPressed;
-                }),
-            onPanUpdate:
-                (d) => setState(() {
-                  _marqueeEnd = d.localPosition + Offset(0, _laneTop(track));
-                }),
+            onPanStart: (d) {
+              if (_touchPointers.length >= 2) return;
+              setState(() {
+                _marqueeStart = d.localPosition + Offset(0, _laneTop(track));
+                _marqueeEnd = _marqueeStart;
+                _marqueeAdditive = HardwareKeyboard.instance.isShiftPressed;
+              });
+              _noteMarqueeViewport(track, d.localPosition);
+              _maybeStartMarqueeAutoscroll();
+            },
+            onPanUpdate: (d) {
+              if (_marqueeStart == null) return;
+              setState(() {
+                _marqueeEnd = d.localPosition + Offset(0, _laneTop(track));
+              });
+              _noteMarqueeViewport(track, d.localPosition);
+              _maybeStartMarqueeAutoscroll();
+            },
             onPanEnd: (_) => _commitMarquee(),
             onPanCancel: _commitMarquee,
             onSecondaryTapDown:
@@ -1224,6 +1413,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
   }
 
   void _commitMarquee() {
+    _cancelMarqueeAutoscroll();
     final start = _marqueeStart;
     final end = _marqueeEnd;
     setState(() {
@@ -1236,7 +1426,7 @@ class _TimelinePanelState extends State<TimelinePanel> {
     final top = start.dy < end.dy ? start.dy : end.dy;
     final bottom = start.dy < end.dy ? end.dy : start.dy;
     final trackIds = <String>[];
-    var y = 0.0;
+    var y = doc.captionTracks.length * _captionLaneHeight;
     for (final track in lanes) {
       final laneTop = y;
       final laneBottom = y + _laneHeight(track);

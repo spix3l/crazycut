@@ -2652,15 +2652,22 @@ mixin TimelineEdits on ChangeNotifier {
     final inType = clipAnimationPreset(clip, 'entry');
     final outType = clipAnimationPreset(clip, 'leave');
     // Neither side may eat more than its half of the clip, or a short clip
-    // would animate in while it is still animating out.
+    // would animate in while it is still animating out. The shared helper
+    // also keeps sub-0.1 s clips from throwing on an inverted clamp range.
     final inSec =
         inType == null
             ? 0.0
-            : clipAnimationSeconds(clip, 'entry').clamp(0.05, durSec / 2);
+            : clip_anim.clampEdgeSeconds(
+              clipAnimationSeconds(clip, 'entry'),
+              durSec,
+            );
     final outSec =
         outType == null
             ? 0.0
-            : clipAnimationSeconds(clip, 'leave').clamp(0.05, durSec / 2);
+            : clip_anim.clampEdgeSeconds(
+              clipAnimationSeconds(clip, 'leave'),
+              durSec,
+            );
 
     // 1. The resting curve: the Ken Burns move if there is one, else flat.
     final curves = <String, List<Map<String, dynamic>>>{
@@ -2871,10 +2878,30 @@ mixin TimelineEdits on ChangeNotifier {
     /// that only slides or blurs still pops at the boundary without it.
     void fade() {
       final rest = valueAt('opacity', entering ? endSec : startSec);
-      shape('opacity', [
-        if (entering) (0.0, 0.0) else (startSec, rest),
-        if (entering) (endSec, rest) else (clipSec, 0.0),
-      ]);
+      if (entering) {
+        shape('opacity', [(0.0, 0.0), (endSec, rest)]);
+      } else {
+        // A leave-only fade must stay at the resting opacity up to its
+        // onset. The curve holds [0, startSec] via the first key, but an
+        // explicit head key keeps it visible even for readers that only look
+        // at keys (and never rely on before-first clamping). Never overwrite
+        // an entry that already keys time zero.
+        final hasHead = curves['opacity']!.any(
+          (k) => (ParamValue.timeOf(k).seconds - 0.0).abs() < 1e-9,
+        );
+        shape('opacity', [(startSec, rest), (clipSec, 0.0)]);
+        if (!hasHead) {
+          final keys = curves['opacity']!;
+          keys.add({
+            't': at(0.0).toString(),
+            'v': rest,
+            'interp': 'linear',
+          });
+          keys.sort(
+            (a, b) => ParamValue.timeOf(a).compareTo(ParamValue.timeOf(b)),
+          );
+        }
+      }
     }
 
     void effectKeys(String effect, String param, double from, double to) {

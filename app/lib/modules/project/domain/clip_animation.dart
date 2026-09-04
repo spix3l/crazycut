@@ -17,9 +17,16 @@ const double kClipEdgeDefaultSeconds = 0.4;
 const double kLegacyTypewriterCharsPerSecond = 24.0;
 
 /// Neither edge may eat more than half the clip, or a short clip would still
-/// be arriving while it is already leaving.
-double clampEdgeSeconds(double seconds, double clipSeconds) =>
-    seconds.clamp(0.05, clipSeconds <= 0 ? 0.05 : clipSeconds / 2);
+/// be arriving while it is already leaving. Clips shorter than 0.1 s cannot
+/// hold the 0.05 s minimum on both sides, so they keep half the clip instead
+/// of throwing on an inverted clamp range.
+double clampEdgeSeconds(double seconds, double clipSeconds) {
+  if (clipSeconds <= 0) return 0.05;
+  final max = clipSeconds / 2;
+  if (max <= 0) return 0;
+  if (max < 0.05) return seconds.clamp(0.0, max);
+  return seconds.clamp(0.05, max);
+}
 
 /// The spec on a clip's extra payload, or null when it has no generated
 /// animation. Accepts the pre-v1 `imageAnim` key and the `in`/`out` edge names.
