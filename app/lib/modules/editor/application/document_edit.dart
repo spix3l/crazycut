@@ -128,6 +128,17 @@ class DocumentEdit implements Command {
         doc.clips.add(clip);
       }
     });
+    markers.forEach((id, delta) {
+      final json = side(delta);
+      if (json == null) return;
+      final marker = Marker.fromJson(json);
+      final at = doc.markers.indexWhere((m) => m.id == id);
+      if (at >= 0) {
+        doc.markers[at] = marker;
+      } else {
+        doc.markers.add(marker);
+      }
+    });
     transitions.forEach((id, delta) {
       final json = side(delta);
       if (json == null) return;

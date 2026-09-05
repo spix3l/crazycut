@@ -10,6 +10,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:crazycut_app/core/design/tokens.dart';
 import 'package:crazycut_app/core/widgets/cc_dialog.dart';
+import 'package:crazycut_app/core/widgets/cc_toast.dart';
 import 'package:crazycut_app/core/widgets/primitives.dart';
 import 'package:crazycut_app/modules/project/domain/caption.dart';
 import 'package:crazycut_app/modules/project/domain/project.dart';
@@ -1334,12 +1335,16 @@ class _TimelinePanelState extends State<TimelinePanel> {
               c.selectClip(null);
               c.seekTo(_time(d.localPosition.dx));
             },
-            // Double-click an empty stretch closes it on this lane: the
-            // fastest way to remove the gap in the screenshot.
+            // Double-click an empty stretch closes it on all lanes, so linked
+            // audio, markers and captions stay in sync with the picture.
             onDoubleTapDown:
                 track.lock
                     ? null
-                    : (d) => c.closeGap(track.id, _time(d.localPosition.dx)),
+                    : (d) => _closeGapOnAllTracks(
+                      laneContext,
+                      track,
+                      _time(d.localPosition.dx),
+                    ),
             onPanStart: (d) {
               if (_touchPointers.length >= 2) return;
               setState(() {
@@ -1379,7 +1384,11 @@ class _TimelinePanelState extends State<TimelinePanel> {
                       shortcut: '⌘A',
                       onTap: c.selectAll,
                     ),
-                    ..._gapMenuItems(track, _time(d.localPosition.dx)),
+                    ..._gapMenuItems(
+                      laneContext,
+                      track,
+                      _time(d.localPosition.dx),
+                    ),
                   ],
                   position: d.globalPosition,
                 ),
@@ -1397,7 +1406,11 @@ class _TimelinePanelState extends State<TimelinePanel> {
 
   /// "Close gap" entries for the lane context menu at [time]. Empty when the
   /// click landed on a clip or there is no empty space there.
-  List<CcMenuItem> _gapMenuItems(Track track, Rt time) {
+  List<CcMenuItem> _gapMenuItems(
+    BuildContext context,
+    Track track,
+    Rt time,
+  ) {
     if (track.lock) return const [];
     final gap = c.gapAt(track.id, time);
     if (gap == null) return const [];
@@ -1410,9 +1423,25 @@ class _TimelinePanelState extends State<TimelinePanel> {
       ),
       CcMenuItem(
         'Close gap on all tracks ($label)',
-        onTap: () => c.closeGapOnAllTracks(track.id, time),
+        onTap: () => _closeGapOnAllTracks(context, track, time),
       ),
     ];
+  }
+
+  /// All-lanes close with feedback: a partial close names the lanes that
+  /// stayed behind (locked, or holding content in the gap) and offers Undo,
+  /// so the resulting desync is a visible choice rather than silent damage.
+  void _closeGapOnAllTracks(BuildContext context, Track track, Rt time) {
+    final result = c.closeGapOnAllTracks(track.id, time);
+    if (!result.closed || !result.isPartial) return;
+    showCcToast(
+      context,
+      message: 'Closed gap, kept in place: ${result.skipped.join(', ')}.',
+      icon: LucideIcons.circleAlert,
+      color: CcColors.warning,
+      actionLabel: 'Undo',
+      onAction: c.undo,
+    );
   }
 
   static String _gapLabel(double seconds) {

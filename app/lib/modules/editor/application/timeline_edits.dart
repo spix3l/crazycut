@@ -1597,18 +1597,34 @@ mixin TimelineEdits on ChangeNotifier {
   /// Same empty interval as [closeGap] but applied to every unlocked track,
   /// so everything after the gap keeps its cross-track sync. Tracks that
   /// have content inside the interval are left alone, so closing never
-  /// creates an overlap.
-  bool closeGapOnAllTracks(String trackId, Rt time) {
-    if (_locked(trackId)) return false;
+  /// creates an overlap. Markers and caption cues past the gap travel with
+  /// the shift; a marker inside the removed span collapses to its start.
+  /// Caption lanes that overlap the span are left alone like clip lanes, so
+  /// a cue is never split or overlapped by the move.
+  ///
+  /// The result names the lanes that were left behind ([CloseGapResult.kept]
+  /// for content in the way, [CloseGapResult.locked] for locked lanes) so
+  /// callers can tell a clean close from a partial one instead of silently
+  /// desyncing the lanes that stayed.
+  CloseGapResult closeGapOnAllTracks(String trackId, Rt time) {
+    if (_locked(trackId)) return const CloseGapResult(closed: false);
     final gap = gapAt(trackId, time);
-    if (gap == null) return false;
+    if (gap == null) return const CloseGapResult(closed: false);
     final shift = gap.to.minus(gap.from);
+    final locked = <String>[];
+    final kept = <String>[];
     _run('Close gap on all tracks', (tx) {
       for (final track in [...doc.videoTracks, ...doc.audioTracks]) {
-        if (_locked(track.id)) continue;
+        if (_locked(track.id)) {
+          locked.add(track.name);
+          continue;
+        }
         final lane = doc.clipsOn(track.id);
         final overlaps = lane.any((c) => c.start < gap.to && c.end > gap.from);
-        if (overlaps) continue;
+        if (overlaps) {
+          kept.add(track.name);
+          continue;
+        }
         for (final c in lane) {
           if (c.start >= gap.to) {
             tx.clip(c.id);
@@ -1616,8 +1632,44 @@ mixin TimelineEdits on ChangeNotifier {
           }
         }
       }
+      for (final m in doc.markers) {
+        if (m.time >= gap.to) {
+          tx.marker(m.id);
+          m.time = m.time.minus(shift);
+        } else if (m.time > gap.from) {
+          tx.marker(m.id);
+          m.time = gap.from;
+        }
+      }
+      for (final lane in doc.captionTracks) {
+        final overlaps = lane.items.any(
+          (item) => item.start < gap.to && item.end > gap.from,
+        );
+        if (overlaps) {
+          kept.add(lane.name);
+          continue;
+        }
+        var touched = false;
+        for (final item in lane.items) {
+          if (item.start >= gap.to) {
+            if (!touched) {
+              tx.captionTrack(lane.id);
+              touched = true;
+            }
+            item.start = item.start.minus(shift);
+            for (final word in item.words) {
+              word.start = word.start.minus(shift);
+              word.end = word.end.minus(shift);
+            }
+          }
+        }
+      }
     });
-    return true;
+    return CloseGapResult(
+      closed: true,
+      locked: locked,
+      kept: kept,
+    );
   }
 
   // --- Clipboard (TIM-17) ---------------------------------------------------
@@ -4181,8 +4233,10 @@ mixin TimelineEdits on ChangeNotifier {
 
   Marker addMarker({String name = ''}) => _run('Add marker', (tx) {
     final marker = Marker(id: generateId(), time: playhead, name: name);
-    doc.markers.add(marker);
+    // Touch before inserting, like new clips: otherwise the transaction
+    // records the marker as its "before" state and undo keeps it alive.
     tx.marker(marker.id);
+    doc.markers.add(marker);
     return marker;
   });
 
@@ -4257,4 +4311,35 @@ mixin TimelineEdits on ChangeNotifier {
         ? sorted.firstWhereOrNull((e) => e > from)
         : sorted.lastWhereOrNull((e) => e < from);
   }
+}
+
+/// Outcome of [TimelineEdits.closeGapOnAllTracks].
+///
+/// A close is partial when some lanes stayed behind: [locked] names lanes
+/// that were skipped because they are locked, [kept] names lanes that were
+/// left alone because they hold content inside the closed span. Either way
+/// those lanes are now out of sync with the ones that moved, so callers
+/// should surface the names rather than stay silent.
+class CloseGapResult {
+  const CloseGapResult({
+    required this.closed,
+    this.locked = const [],
+    this.kept = const [],
+  });
+
+  /// False when there was no gap or the reference track is locked: nothing
+  /// moved.
+  final bool closed;
+
+  /// Display names of locked lanes that were skipped.
+  final List<String> locked;
+
+  /// Display names of lanes left alone to avoid creating an overlap.
+  final List<String> kept;
+
+  /// True when something moved but some lanes stayed behind.
+  bool get isPartial => locked.isNotEmpty || kept.isNotEmpty;
+
+  /// Every lane that stayed behind, for one-line warnings.
+  List<String> get skipped => [...locked, ...kept];
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:crazycut_app/modules/project/domain/caption.dart';
 import 'package:crazycut_app/modules/project/domain/param_value.dart';
 import 'package:crazycut_app/modules/project/domain/project.dart';
 import 'package:crazycut_app/core/math/rational.dart';
@@ -446,7 +447,7 @@ void main() {
       addClip(e, id: 'd', start: 10, duration: 5, trackId: audio);
       final before = e.history.depth;
 
-      expect(e.closeGapOnAllTracks(video, s(7)), isTrue);
+      expect(e.closeGapOnAllTracks(video, s(7)).closed, isTrue);
       expect(e.clipById('b')!.start, s(5));
       expect(e.clipById('d')!.start, s(5));
       expect(e.history.depth, before + 1);
@@ -465,10 +466,144 @@ void main() {
       addClip(e, id: 'c', start: 6, duration: 8, trackId: audio);
       addClip(e, id: 'd', start: 14, duration: 5, trackId: audio);
 
-      expect(e.closeGapOnAllTracks(video, s(7)), isTrue);
+      final kept = e.closeGapOnAllTracks(video, s(7));
+
+      expect(kept.closed, isTrue);
+      expect(kept.isPartial, isTrue);
+      expect(kept.kept, contains(e.doc.audioTrack()!.name));
       expect(e.clipById('b')!.start, s(5));
       expect(e.clipById('c')!.start, s(6));
       expect(e.clipById('d')!.start, s(14));
+    });
+
+    test('close gap on all tracks reports lanes it had to leave behind', () {
+      final e = harness();
+      final video = e.doc.videoTrack()!.id;
+      final audio = e.doc.audioTrack()!.id;
+      addClip(e, id: 'a', start: 0, duration: 5, trackId: video);
+      addClip(e, id: 'b', start: 10, duration: 5, trackId: video);
+      addClip(e, id: 'c', start: 6, duration: 8, trackId: audio);
+      e.setTrackFlags(video, lock: false);
+      e.setTrackFlags(audio, lock: true);
+
+      final result = e.closeGapOnAllTracks(video, s(7));
+
+      expect(result.closed, isTrue);
+      expect(result.isPartial, isTrue);
+      expect(result.locked, contains(e.doc.audioTrack()!.name));
+      expect(e.clipById('b')!.start, s(5));
+      expect(e.clipById('c')!.start, s(6));
+    });
+
+    test('clean close gap on all tracks is not partial', () {
+      final e = harness();
+      final video = e.doc.videoTrack()!.id;
+      final audio = e.doc.audioTrack()!.id;
+      addClip(e, id: 'a', start: 0, duration: 5, trackId: video);
+      addClip(e, id: 'b', start: 10, duration: 5, trackId: video);
+      addClip(e, id: 'c', start: 0, duration: 5, trackId: audio);
+      addClip(e, id: 'd', start: 10, duration: 5, trackId: audio);
+
+      final result = e.closeGapOnAllTracks(video, s(7));
+
+      expect(result.closed, isTrue);
+      expect(result.isPartial, isFalse);
+    });
+
+    test('close gap on all tracks moves markers with the shift', () {
+      final e = harness();
+      final video = e.doc.videoTrack()!.id;
+      addClip(e, id: 'a', start: 0, duration: 5, trackId: video);
+      addClip(e, id: 'b', start: 10, duration: 5, trackId: video);
+      e.playhead = s(12);
+      final after = e.addMarker(name: 'after');
+      e.playhead = s(7);
+      final inside = e.addMarker(name: 'inside');
+      e.playhead = s(2);
+      final before = e.addMarker(name: 'before');
+
+      expect(e.closeGapOnAllTracks(video, s(7)).closed, isTrue);
+
+      Rt markerTime(String id) =>
+          e.doc.markers.firstWhere((m) => m.id == id).time;
+      expect(markerTime(before.id), s(2));
+      expect(markerTime(inside.id), s(5));
+      expect(markerTime(after.id), s(7));
+
+      e.undo();
+      expect(markerTime(before.id), s(2));
+      expect(markerTime(inside.id), s(7));
+      expect(markerTime(after.id), s(12));
+    });
+
+    test('close gap on all tracks moves captions past the gap', () {
+      final e = harness();
+      final video = e.doc.videoTrack()!.id;
+      addClip(e, id: 'a', start: 0, duration: 5, trackId: video);
+      addClip(e, id: 'b', start: 10, duration: 5, trackId: video);
+      e.doc.captionTracks.add(
+        CaptionTrack(
+          id: 'cap-1',
+          name: 'English',
+          language: 'en',
+          items: [
+            CaptionItem(
+              id: 'cue-1',
+              start: s(11),
+              duration: s(2),
+              text: 'hello',
+              words: [
+                CaptionWord(
+                  start: s(11),
+                  end: s(12),
+                  text: 'hello',
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+
+      expect(e.closeGapOnAllTracks(video, s(7)).closed, isTrue);
+
+      final cue = e.doc.captionTracks.single.items.single;
+      expect(cue.start, s(6));
+      expect(cue.words.single.start, s(6));
+      expect(cue.words.single.end, s(7));
+
+      e.undo();
+      final restored = e.doc.captionTracks.single.items.single;
+      expect(restored.start, s(11));
+      expect(restored.words.single.start, s(11));
+    });
+
+    test('close gap on all tracks leaves caption lanes overlapping gap alone', () {
+      final e = harness();
+      final video = e.doc.videoTrack()!.id;
+      addClip(e, id: 'a', start: 0, duration: 5, trackId: video);
+      addClip(e, id: 'b', start: 10, duration: 5, trackId: video);
+      e.doc.captionTracks.add(
+        CaptionTrack(
+          id: 'cap-1',
+          name: 'English',
+          language: 'en',
+          items: [
+            CaptionItem(
+              id: 'cue-1',
+              start: s(4),
+              duration: s(8),
+              text: 'spans the gap',
+            ),
+            CaptionItem(id: 'cue-2', start: s(13), duration: s(2), text: 'late'),
+          ],
+        ),
+      );
+
+      expect(e.closeGapOnAllTracks(video, s(7)).closed, isTrue);
+
+      final items = e.doc.captionTracks.single.items;
+      expect(items.firstWhere((c) => c.id == 'cue-1').start, s(4));
+      expect(items.firstWhere((c) => c.id == 'cue-2').start, s(13));
     });
   });
 
