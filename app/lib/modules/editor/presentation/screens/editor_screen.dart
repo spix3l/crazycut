@@ -537,8 +537,20 @@ class _EditorScreenState extends State<EditorScreen> {
                             selectedTool: _tool,
                             onToolChanged: (i) => _changeTool(c, i),
                             onBack: () async {
-                              await _session.close();
-                              if (context.mounted) context.router.maybePop();
+                              try {
+                                await _session.close();
+                              } on Object {
+                                // A failed save still leaves the editor:
+                                // closing never strands the user.
+                              }
+                              if (!context.mounted) return;
+                              final popped =
+                                  await context.router.maybePop();
+                              if (!popped && context.mounted) {
+                                await context.router.replaceAll([
+                                  ProjectBrowserRoute(),
+                                ]);
+                              }
                             },
                             onExport:
                                 () => context.router.push(

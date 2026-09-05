@@ -112,13 +112,18 @@ class _CrazyCutMenuBarState extends State<CrazyCutMenuBar> {
     if (file == null) return;
     await session.rememberProjectLocation(file.path);
     await session.openPath(file.path);
-    router.replace(const EditorRoute());
+    // Normalize to [browser, editor] so Back and Close always have a
+    // browser to return to, no matter where the menu was opened from.
+    await router.replaceAll([const ProjectBrowserRoute(), const EditorRoute()]);
   }
 
   Future<void> _openRecent(String path) async {
     try {
       await session.openPath(path);
-      router.replace(const EditorRoute());
+      await router.replaceAll([
+        const ProjectBrowserRoute(),
+        const EditorRoute(),
+      ]);
     } on Object catch (error) {
       await session.forgetRecent(path);
       if (mounted) setState(() {});
@@ -134,9 +139,13 @@ class _CrazyCutMenuBarState extends State<CrazyCutMenuBar> {
     }
   }
 
-  void _closeProject() {
+  Future<void> _closeProject() async {
     if (!_hasProject) return;
-    session.close().then((_) => router.replace(const ProjectBrowserRoute()));
+    try {
+      await session.close();
+    } finally {
+      await router.replaceAll([const ProjectBrowserRoute()]);
+    }
   }
 
   void _save() {

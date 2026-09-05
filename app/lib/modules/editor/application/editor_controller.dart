@@ -964,7 +964,20 @@ class EditorController extends ChangeNotifier
     notifyListeners();
     try {
       final descriptor = await mediaUrls.inspect(asset.path);
-      if (descriptor.revision != oldRevision || asset.path != oldPath) {
+      final revisionChanged =
+          descriptor.revision != oldRevision || asset.path != oldPath;
+      if (!revisionChanged && _hasRemoteProbeData(asset)) {
+        // The URL still resolves to the same revision we saved, so there is
+        // nothing to re-probe. Skipping the FFmpeg probe matters: it refetches
+        // over the network on every open, and any blip used to mark a healthy
+        // URL asset offline and pop the relink prompt.
+        asset.offline = false;
+        pool[assetId]?.status = ImportStatus.ready;
+        final item = pool[assetId];
+        if (item != null) unawaited(_mirrorRemoteSource(item));
+        return;
+      }
+      if (revisionChanged) {
         await dependencies.mediaCache.invalidate(asset);
       }
       if (descriptor.contentType == 'image/svg+xml' ||
@@ -1003,14 +1016,56 @@ class EditorController extends ChangeNotifier
       final item = pool[assetId];
       if (item != null) unawaited(_mirrorRemoteSource(item));
       if (markDocument) markDirty();
-    } on Object {
+    } on Object catch (error) {
       if (replacement != null) asset.path = oldPath;
-      asset.offline = true;
-      pool[assetId]?.status = ImportStatus.offline;
+      // A transient network blip must not mark a still-resolvable URL asset
+      // offline (which is what pops the relink prompt on open). Only a
+      // definitive failure, or a failure with no usable fallback behind it
+      // (no local mirror and no saved probe data to decode from), goes
+      // offline. Playback reads the mirror first and streams the URL
+      // otherwise, so keeping a flaky-but-known asset ready is correct.
+      final mirror = localRemoteSource(asset);
+      final stillResolvable =
+          mirror != null ||
+          (!_isDefinitiveRemoteFailure(error) &&
+              _hasRemoteProbeData(asset));
+      if (stillResolvable) {
+        asset.offline = false;
+        pool[assetId]?.status = ImportStatus.ready;
+      } else {
+        asset.offline = true;
+        pool[assetId]?.status = ImportStatus.offline;
+      }
       rethrow;
     } finally {
       notifyListeners();
     }
+  }
+
+  /// True when [asset] already carries usable probe data from a previous
+  /// successful import, so decoding can proceed even if a refresh fails.
+  bool _hasRemoteProbeData(MediaAsset asset) {
+    if (!asset.duration.isZero) return true;
+    if (asset.width != null || asset.height != null) return true;
+    return false;
+  }
+
+  /// True only for failures that prove the URL itself is gone or wrong, as
+  /// opposed to a timeout, a 5xx, or a probe blip that a retry would survive.
+  bool _isDefinitiveRemoteFailure(Object error) {
+    final message = error.toString();
+    final status = RegExp(
+      r'HTTP\s+(\d{3})',
+    ).firstMatch(message)?.group(1);
+    final code = int.tryParse(status ?? '');
+    if (code != null) {
+      // 4xx means the server answered and refused: gone, forbidden, or a
+      // signed URL that expired. 5xx and missing codes are transient.
+      return code >= 400 && code < 500;
+    }
+    return message.contains('web page, not a direct media URL') ||
+        message.contains('only be used through the reference player') ||
+        message.contains('but this asset is');
   }
 
   void removeReference(String id) {
