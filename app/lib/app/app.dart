@@ -1,6 +1,9 @@
 import 'package:flutter/widgets.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:crazycut_app/core/design/tokens.dart';
+import 'package:crazycut_app/core/widgets/cc_toast.dart';
+import 'package:crazycut_app/modules/export/application/export_service.dart';
 import 'package:crazycut_app/modules/updates/application/update_status.dart';
 import 'package:crazycut_app/modules/updates/presentation/update_dialogs.dart';
 import 'dependencies.dart';
@@ -25,6 +28,12 @@ class _CrazyCutAppState extends State<CrazyCutApp> {
   /// download surfaces exactly one prompt per release.
   String? _readyShownFor;
 
+  /// Export jobs already toasted about, so each finished job notifies once.
+  /// Seeded with whatever is already finished at startup: those are old news.
+  final Set<String> _exportToasted = {};
+
+  bool _exportsHooked = false;
+
   @override
   void initState() {
     super.initState();
@@ -39,12 +48,58 @@ class _CrazyCutAppState extends State<CrazyCutApp> {
           widget.dependencies.preferences.generateProxies;
       _startBackgroundUpdateCheck();
     });
+    for (final job in widget.dependencies.exports.jobs) {
+      if (job.state == ExportState.completed ||
+          job.state == ExportState.failed) {
+        _exportToasted.add(job.id);
+      }
+    }
+    widget.dependencies.exports.addListener(_maybeShowExportToast);
+    _exportsHooked = true;
   }
 
   @override
   void dispose() {
     widget.dependencies.updates.removeListener(_maybeShowReady);
+    if (_exportsHooked) {
+      widget.dependencies.exports.removeListener(_maybeShowExportToast);
+    }
     super.dispose();
+  }
+
+  /// A little toast when an export job finishes, wherever the user is. The
+  /// queue panel only exists inside the export dialog, so without this a job
+  /// that completes after the dialog was closed finishes silently.
+  void _maybeShowExportToast() {
+    final exports = widget.dependencies.exports;
+    for (final job in exports.jobs) {
+      if (_exportToasted.contains(job.id)) continue;
+      if (job.state != ExportState.completed &&
+          job.state != ExportState.failed) {
+        continue;
+      }
+      _exportToasted.add(job.id);
+      final context = _router.navigatorKey.currentContext;
+      final overlay = _router.navigatorKey.currentState?.overlay;
+      if (context == null || overlay == null) continue;
+      if (job.state == ExportState.completed) {
+        showCcToast(
+          context,
+          message: 'Export finished: ${job.name}',
+          icon: LucideIcons.circleCheck,
+          color: CcColors.success,
+          overlay: overlay,
+        );
+      } else {
+        showCcToast(
+          context,
+          message: 'Export failed: ${job.error ?? job.name}',
+          icon: LucideIcons.circleAlert,
+          color: CcColors.error,
+          overlay: overlay,
+        );
+      }
+    }
   }
 
   /// Silent check after first frame: never blocks launch, never dialogs on

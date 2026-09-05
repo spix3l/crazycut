@@ -2160,4 +2160,273 @@ class EditorController extends ChangeNotifier
     autosave.path = target.path;
     notifyListeners();
   }
+
+  // --- Silence removal (Clip menu) ------------------------------------------
+
+  /// Cuts silent stretches out of every selected audible clip, using the
+  /// cached waveform peaks. One undo step; later clips on the same tracks
+  /// slide left so the remaining audio stays contiguous.
+  Future<SilenceRemovalResult> removeSilencesFromSelection({
+    double threshold = 0.02,
+    double minSilenceSeconds = 0.5,
+    double paddingSeconds = 0.1,
+  }) async {
+    final selected = selectedClips;
+    if (selected.isEmpty) {
+      return const SilenceRemovalResult(
+        removed: 0,
+        removedSeconds: 0,
+        processed: 0,
+        message: 'Select a clip on the timeline first.',
+      );
+    }
+    final seen = <String>{};
+    final groups = <_SilenceGroup>[];
+    for (final clip in selected) {
+      if (seen.contains(clip.id)) continue;
+      final group =
+          doc.linkedWith(clip).where((c) => seen.add(c.id)).toList();
+      if (group.isEmpty) continue;
+      Clip? primary;
+      for (final member in group) {
+        final asset = doc.assetById(member.mediaId);
+        if (member.text != null || member.reverse) continue;
+        if (member.duration.seconds <= 0) continue;
+        if (asset == null || !asset.hasAudio || asset.offline) continue;
+        primary = member;
+        break;
+      }
+      if (primary == null) continue;
+      final ref = primary;
+      final aligned =
+          group
+              .where(
+                (member) =>
+                    member.text == null &&
+                    !member.reverse &&
+                    member.start == ref.start &&
+                    member.duration == ref.duration,
+              )
+              .toList();
+      if (aligned.isEmpty) continue;
+      final asset = doc.assetById(primary.mediaId);
+      if (asset == null) continue;
+      List<double>? peaks;
+      try {
+        peaks = await dependencies.mediaCache.peaks(asset);
+      } on Object catch (error) {
+        debugPrint('silence removal: peaks unavailable: $error');
+        continue;
+      }
+      if (peaks == null || peaks.isEmpty) continue;
+      final assetSeconds = asset.duration.seconds;
+      final pps = assetSeconds > 0 ? peaks.length / assetSeconds : 20.0;
+      if (pps <= 0) continue;
+      final cuts = _silenceCuts(
+        primary,
+        peaks,
+        pps,
+        threshold: threshold,
+        minSilenceSeconds: minSilenceSeconds,
+        paddingSeconds: paddingSeconds,
+      );
+      if (cuts.isEmpty) continue;
+      groups.add(_SilenceGroup(primary: primary, members: aligned, cuts: cuts));
+    }
+    if (groups.isEmpty) {
+      return const SilenceRemovalResult(
+        removed: 0,
+        removedSeconds: 0,
+        processed: 0,
+        message:
+            'No silences of 0.5s or longer were found in the selection.',
+      );
+    }
+    // Right to left, so sliding later clips left never disturbs coordinates
+    // of groups still to process.
+    groups.sort(
+      (a, b) => b.primary.start.compareTo(a.primary.start),
+    );
+    var removed = 0;
+    var removedMicros = 0;
+    runEdit('Remove silences', (tx) {
+      for (final group in groups) {
+        final origin = group.primary;
+        var keeps = <(Rt, Rt)>[(origin.start, origin.end)];
+        for (final cut in group.cuts) {
+          final next = <(Rt, Rt)>[];
+          for (final keep in keeps) {
+            if (cut.$2 <= keep.$1 || cut.$1 >= keep.$2) {
+              next.add(keep);
+              continue;
+            }
+            if (cut.$1 > keep.$1) next.add((keep.$1, cut.$1));
+            if (cut.$2 < keep.$2) next.add((cut.$2, keep.$2));
+          }
+          keeps = next;
+        }
+        keeps =
+            keeps
+                .where((keep) => keep.$2.minus(keep.$1) >= frameDuration)
+                .toList();
+        if (keeps.isEmpty) continue;
+        Rt removedBefore(Rt t) {
+          var total = Rt.zero();
+          for (final cut in group.cuts) {
+            if (cut.$2 <= t) total = total.plus(cut.$2.minus(cut.$1));
+          }
+          return total;
+        }
+
+        var totalRemoved = Rt.zero();
+        for (final cut in group.cuts) {
+          totalRemoved = totalRemoved.plus(cut.$2.minus(cut.$1));
+        }
+        removed += group.cuts.length;
+        removedMicros += totalRemoved.micros;
+
+        final sharedGroup =
+            group.members.length > 1 &&
+            group.members.first.linkedGroup != null;
+        final segmentGroups = [
+          for (var j = 0; j < keeps.length; j++)
+            sharedGroup ? generateId() : null,
+        ];
+        for (final member in group.members) {
+          final speed = member.speedValue;
+          tx.clip(member.id);
+          doc.clips.remove(member);
+          selection.remove(member.id);
+          for (var j = 0; j < keeps.length; j++) {
+            final keep = keeps[j];
+            final newStart = member.start
+                .plus(keep.$1.minus(origin.start))
+                .minus(removedBefore(keep.$1));
+            final clone = member.cloneWithNewId(
+              trackId: member.trackId,
+              start: newStart,
+              linkedGroup: segmentGroups[j] ?? member.linkedGroup,
+            );
+            clone.duration = keep.$2.minus(keep.$1);
+            clone.sourceIn = member.sourceIn.plus(
+              keep.$1.minus(origin.start).toSourceTime(speed <= 0 ? 1 : speed),
+            );
+            clone.fadeIn =
+                j == 0 ? member.fadeIn.copy() : Fade(duration: Rt.zero());
+            clone.fadeOut =
+                j == keeps.length - 1
+                    ? member.fadeOut.copy()
+                    : Fade(duration: Rt.zero());
+            tx.clip(clone.id);
+            doc.clips.add(clone);
+            selection.add(clone.id);
+          }
+        }
+        final shiftedTracks = <String>{};
+        for (final member in group.members) {
+          if (!shiftedTracks.add(member.trackId)) continue;
+          for (final other in doc.clipsOn(member.trackId)) {
+            if (other.start >= origin.end) {
+              tx.clip(other.id);
+              other.start = other.start.minus(totalRemoved);
+            }
+          }
+        }
+      }
+    });
+    return SilenceRemovalResult(
+      removed: removed,
+      removedSeconds: removedMicros / 1000000,
+      processed: groups.length,
+    );
+  }
+
+  /// Silent source runs inside [clip], as timeline cut points.
+  List<(Rt, Rt)> _silenceCuts(
+    Clip clip,
+    List<double> peaks,
+    double pps, {
+    required double threshold,
+    required double minSilenceSeconds,
+    required double paddingSeconds,
+  }) {
+    final speed = clip.speedValue;
+    if (speed <= 0) return const [];
+    final sourceStart = clip.sourceIn.seconds;
+    final sourceSpan = clip.duration.seconds * speed;
+    final sourceEnd = sourceStart + sourceSpan;
+    var i0 = (sourceStart * pps).floor();
+    var i1 = (sourceEnd * pps).ceil();
+    i0 = i0.clamp(0, peaks.length);
+    i1 = i1.clamp(0, peaks.length);
+    final cuts = <(Rt, Rt)>[];
+    var runStart = -1;
+    void flush(int runEnd) {
+      if (runStart < 0) return;
+      final runS0 = runStart / pps;
+      final runS1 = runEnd / pps;
+      runStart = -1;
+      final a = runS0 < sourceStart ? sourceStart : runS0;
+      final b = runS1 > sourceEnd ? sourceEnd : runS1;
+      if (b - a < minSilenceSeconds) return;
+      final cutA = a + paddingSeconds;
+      final cutB = b - paddingSeconds;
+      if (cutB - cutA < 0.1) return;
+      final t0 = clip.start.plus(
+        Rt.fromSeconds((cutA - sourceStart) / speed),
+      );
+      final t1 = clip.start.plus(
+        Rt.fromSeconds((cutB - sourceStart) / speed),
+      );
+      final q0 = quantiseToFrame(t0);
+      final q1 = quantiseToFrame(t1);
+      if (q1.minus(q0) < frameDuration) return;
+      if (q0 < clip.start || q1 > clip.end) return;
+      cuts.add((q0, q1));
+    }
+
+    for (var i = i0; i < i1; i++) {
+      if (peaks[i] < threshold) {
+        if (runStart < 0) runStart = i;
+      } else {
+        flush(i);
+      }
+    }
+    flush(i1);
+    return cuts;
+  }
+}
+
+/// Outcome of [EditorController.removeSilencesFromSelection].
+class SilenceRemovalResult {
+  const SilenceRemovalResult({
+    required this.removed,
+    required this.removedSeconds,
+    required this.processed,
+    this.message,
+  });
+
+  /// How many silent stretches were cut.
+  final int removed;
+
+  /// Total timeline time removed, in seconds.
+  final double removedSeconds;
+
+  /// How many selected clips contained silences.
+  final int processed;
+
+  /// Human-readable reason when [removed] is zero.
+  final String? message;
+}
+
+class _SilenceGroup {
+  const _SilenceGroup({
+    required this.primary,
+    required this.members,
+    required this.cuts,
+  });
+
+  final Clip primary;
+  final List<Clip> members;
+  final List<(Rt, Rt)> cuts;
 }

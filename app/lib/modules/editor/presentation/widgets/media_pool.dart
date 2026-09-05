@@ -11,7 +11,6 @@ import 'package:crazycut_app/modules/editor/application/timeline_edits.dart';
 import 'package:crazycut_app/modules/editor/presentation/models/editor_models.dart';
 import 'asset_card.dart';
 import 'templates/templates_panel.dart';
-import 'youtube_references_panel.dart';
 
 part 'media_pool_filter.dart';
 part 'media_pool_filter_presentation.dart';
@@ -44,8 +43,8 @@ class _MediaPoolState extends State<MediaPool> {
   final _search = TextEditingController();
   late bool _listView;
 
-  /// 0 = media, 1 = references, 2 = templates. The rail hosts all three because they answer the
-  /// same question — "what do I put on the timeline next?" (TPL-2).
+  /// 0 = media, 1 = templates. Both answer the same question:
+  /// "what do I put on the timeline next?" (TPL-2).
   int _tab = 0;
   MediaPoolFilter _filter = MediaPoolFilter.all;
 
@@ -183,14 +182,13 @@ class _MediaPoolState extends State<MediaPool> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           CcTabBar(
-            tabs: const ['Media', 'References', 'Templates'],
+            tabs: const ['Media', 'Templates'],
             selectedIndex: _tab,
             onChanged: (index) => setState(() => _tab = index),
           ),
           Expanded(
             child: switch (_tab) {
               0 => _mediaTab(items, isEmpty: isEmpty, offline: offline),
-              1 => YouTubeReferencesPanel(controller: c),
               _ => TemplatesPanel(controller: c),
             },
           ),

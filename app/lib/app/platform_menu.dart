@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:file_selector/file_selector.dart';
 
@@ -6,9 +7,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import 'package:crazycut_app/core/design/tokens.dart';
 import 'package:crazycut_app/core/widgets/cc_dialog.dart';
+import 'package:crazycut_app/core/widgets/cc_toast.dart';
 import 'package:crazycut_app/modules/editor/application/editor_controller.dart';
 import 'package:crazycut_app/modules/updates/presentation/update_dialogs.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'help_dialog.dart';
 import 'router/app_router.dart';
 import 'router/app_router.gr.dart';
@@ -18,7 +22,7 @@ import 'session.dart';
 /// root so root stays plumbing. Flutter draws no native menu bar on the other
 /// platforms CrazyCut ships, so there the child passes through untouched.
 /// Update checks live in Settings on those platforms instead.
-class CrazyCutMenuBar extends StatelessWidget {
+class CrazyCutMenuBar extends StatefulWidget {
   const CrazyCutMenuBar({
     super.key,
     required this.router,
@@ -33,9 +37,57 @@ class CrazyCutMenuBar extends StatelessWidget {
   final Widget child;
 
   @override
+  State<CrazyCutMenuBar> createState() => _CrazyCutMenuBarState();
+}
+
+class _CrazyCutMenuBarState extends State<CrazyCutMenuBar> {
+  EditorController? _listenedEditor;
+
+  AppRouter get router => widget.router;
+  AppSession get session => widget.session;
+
+  @override
+  void initState() {
+    super.initState();
+    session.addListener(_onSession);
+    _hookEditor();
+    // The browser also loads these, but the menu must not depend on having
+    // visited it first.
+    unawaited(session.loadRecents().then((_) {
+      if (mounted) setState(() {});
+    }));
+  }
+
+  @override
+  void dispose() {
+    session.removeListener(_onSession);
+    _listenedEditor?.removeListener(_onEditor);
+    super.dispose();
+  }
+
+  void _onSession() {
+    _hookEditor();
+    if (mounted) setState(() {});
+  }
+
+  void _hookEditor() {
+    final current = session.hasProject ? session.editor : null;
+    if (identical(current, _listenedEditor)) return;
+    _listenedEditor?.removeListener(_onEditor);
+    _listenedEditor = current;
+    current?.addListener(_onEditor);
+  }
+
+  /// Selection-driven items (silence removal) rebuild when the editor does,
+  /// so a stale enabled state never lingers in the native menu.
+  void _onEditor() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (defaultTargetPlatform != TargetPlatform.macOS) return child;
-    return PlatformMenuBar(menus: _menus, child: child);
+    if (defaultTargetPlatform != TargetPlatform.macOS) return widget.child;
+    return PlatformMenuBar(menus: _menus, child: widget.child);
   }
 
   bool get _hasProject => session.hasProject;
@@ -61,6 +113,25 @@ class CrazyCutMenuBar extends StatelessWidget {
     await session.rememberProjectLocation(file.path);
     await session.openPath(file.path);
     router.replace(const EditorRoute());
+  }
+
+  Future<void> _openRecent(String path) async {
+    try {
+      await session.openPath(path);
+      router.replace(const EditorRoute());
+    } on Object catch (error) {
+      await session.forgetRecent(path);
+      if (mounted) setState(() {});
+      final context = router.navigatorKey.currentContext;
+      final overlay = _dialogOverlay;
+      if (context == null || overlay == null || !context.mounted) return;
+      await showMessageDialog(
+        context,
+        title: 'Couldn’t open project',
+        message: error.toString(),
+        overlay: overlay,
+      );
+    }
   }
 
   void _closeProject() {
@@ -210,6 +281,38 @@ class CrazyCutMenuBar extends StatelessWidget {
     editor.trackToolActive = !editor.trackToolActive;
   }
 
+  /// Clip ▸ Remove Silences: cuts silent stretches out of the selected clips.
+  /// Disabled (null callback) when nothing is selected.
+  Future<void> _removeSilences() async {
+    final editor = _editor;
+    if (editor == null || editor.selection.isEmpty) return;
+    final context = router.navigatorKey.currentContext;
+    final overlay = _dialogOverlay;
+    if (context == null || overlay == null) return;
+    final result = await editor.removeSilencesFromSelection();
+    if (!context.mounted) return;
+    if (result.removed == 0) {
+      await showMessageDialog(
+        context,
+        title: 'Remove Silences',
+        message:
+            result.message ??
+            'No silences of 0.5s or longer were found in the selection.',
+        overlay: overlay,
+      );
+      return;
+    }
+    showCcToast(
+      context,
+      message:
+          'Removed ${result.removed} silence${result.removed == 1 ? '' : 's'} '
+          '(${result.removedSeconds.toStringAsFixed(1)}s)',
+      icon: LucideIcons.scissors,
+      color: CcColors.success,
+      overlay: overlay,
+    );
+  }
+
   void _togglePlay() => _editor?.togglePlay();
   void _goToStart() => _editor?.goToStart();
   void _goToEnd() => _editor?.goToEnd();
@@ -269,6 +372,18 @@ class CrazyCutMenuBar extends StatelessWidget {
           label: 'Open Project…',
           shortcut: const SingleActivator(LogicalKeyboardKey.keyO, meta: true),
           onSelected: _openProject,
+        ),
+        PlatformMenu(
+          label: 'Open Recent',
+          menus: [
+            if (session.recents.isEmpty)
+              const PlatformMenuItem(label: 'No Recent Projects'),
+            for (final path in session.recents)
+              PlatformMenuItem(
+                label: path.split(Platform.pathSeparator).last,
+                onSelected: () => unawaited(_openRecent(path)),
+              ),
+          ],
         ),
         PlatformMenuItem(
           label: 'Import Media…',
@@ -380,8 +495,8 @@ class CrazyCutMenuBar extends StatelessWidget {
       label: 'Clip',
       menus: [
         // A static label that toggles, rather than one reading "Stop…" while
-        // armed: the menu bar does not listen to the editor, so a stateful
-        // label would sit there stale and lie about what the item does.
+        // armed: a stateful label would need to track the tool on every
+        // editor change.
         PlatformMenuItem(
           label: 'Track Region',
           shortcut: const SingleActivator(
@@ -390,6 +505,13 @@ class CrazyCutMenuBar extends StatelessWidget {
             shift: true,
           ),
           onSelected: _toggleTrackTool,
+        ),
+        PlatformMenuItem(
+          label: 'Remove Silences',
+          onSelected:
+              (_editor?.selection.isNotEmpty ?? false)
+                  ? () => unawaited(_removeSilences())
+                  : null,
         ),
       ],
     ),
